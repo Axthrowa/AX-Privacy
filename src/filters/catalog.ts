@@ -12,6 +12,8 @@ export interface BuiltinList {
    * 'hosts': only what a page loads from it (`||host^`).
    */
   format?: 'domains' | 'hosts';
+  /** Refreshed only with a new extension build: its server refuses requests from the browser. */
+  buildOnly?: true;
   /** Ships `+js()` rules, compiled to `scriptlets/<id>.js`. */
   scriptlets?: true;
 }
@@ -102,6 +104,7 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
     name: 'AdGuard Türkçe filtresi',
     category: 'regional',
     url: 'https://filters.adtidy.org/extension/ublock/filters/13.txt',
+    buildOnly: true,
     homepage: 'https://github.com/AdguardTeam/AdguardFilters',
     license: 'GPL-3.0',
     defaultEnabled: true,
@@ -112,6 +115,7 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
     name: 'AdGuard URL Tracking (takip parametreleri)',
     category: 'privacy',
     url: 'https://filters.adtidy.org/extension/ublock/filters/17.txt',
+    buildOnly: true,
     homepage: 'https://github.com/AdguardTeam/AdguardFilters',
     license: 'GPL-3.0',
     defaultEnabled: true,
@@ -133,6 +137,7 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
     name: 'AdGuard Açılır Pencereler (bülten, bildirim kutuları)',
     category: 'annoyances',
     url: 'https://filters.adtidy.org/extension/ublock/filters/19.txt',
+    buildOnly: true,
     homepage: 'https://github.com/AdguardTeam/AdguardFilters',
     license: 'GPL-3.0',
     defaultEnabled: false,

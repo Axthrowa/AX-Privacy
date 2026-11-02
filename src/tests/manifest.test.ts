@@ -50,6 +50,12 @@ describe('manifest', () => {
     }
   });
 
+  it('keeps every list on the refusing host out of the periodic update', () => {
+    for (const l of BUILTIN_LISTS) {
+      expect(l.buildOnly === true, l.id).toBe(l.url.includes('filters.adtidy.org'));
+    }
+  });
+
   it('exposes only surrogates to web pages, behind a per-session URL', () => {
     expect(manifest.web_accessible_resources).toEqual([
       { resources: ['surrogates/*'], matches: ['<all_urls>'], use_dynamic_url: true },

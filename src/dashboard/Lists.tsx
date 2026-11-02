@@ -85,8 +85,9 @@ export function Lists({
             />
             <p className="note">
               Açık listelerin yeni sürümü 12 saatte bir kaynağından indirilir; değişmeyen liste
-              yeniden indirilmez. Yalnızca filtre metni gelir, kod çalıştırılmaz. Scriptlet
-              kuralları ise güvenlik gereği yalnızca eklenti sürümüyle güncellenir.
+              yeniden indirilmez. AdGuard listeleri bunun dışındadır, yalnızca eklenti sürümüyle
+              güncellenir. Yalnızca filtre metni gelir, kod çalıştırılmaz. Scriptlet kuralları ise
+              güvenlik gereği yalnızca eklenti sürümüyle güncellenir.
               {view.updates.status && (
                 <>
                   {' '}
@@ -127,6 +128,7 @@ export function Lists({
                   }
                 />
                 <p className="note">
+                  {l.buildOnly && 'Yalnızca eklenti sürümüyle güncellenir · '}
                   Sürüm {l.version ?? 'bilinmiyor'} · derlendi {date(l.builtAt)} · lisans{' '}
                   {l.license} ·{' '}
                   <a href={l.homepage} target="_blank" rel="noreferrer">

@@ -356,6 +356,7 @@ export async function listsView(s: Settings): Promise<ListsView> {
       id: l.id,
       name: l.name,
       category: l.category,
+      buildOnly: l.buildOnly === true,
       homepage: l.homepage,
       license: l.license,
       enabled: s.enabledLists.includes(l.id),

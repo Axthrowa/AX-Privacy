@@ -90,4 +90,4 @@ Sınırlar: yeni bir eklenti sürümü eski güncellemeleri geçersiz kılar ve 
 - **Rahatsızlık listesi:** AdGuard Popups, varsayılan kapalı.
 - **Sürüm üretimi:** `npm run release` ve `.github/workflows/lists.yml` (haftalık). İş akışı henüz bir uzak depoda çalıştırılmadı.
 
-**Açık sorun:** `filters.adtidy.org` tarayıcıdan gelen güncelleme isteklerini reddediyor (`HTTP 403`, ardından `Failed to fetch`); `curl` ile derleme sırasında iniyor. Neden doğrulanmadı. Bu yüzden `adguard-tr` ve `adguard-urltracking` otomatik güncellenmiyor, yalnızca yeni sürümle yenileniyor ve kontrol panelinde hata görünüyor. Diğer 10 varsayılan liste güncelleniyor.
+**AdGuard listeleri:** `filters.adtidy.org` tarayıcıdan gelen güncelleme isteklerini reddediyor (`HTTP 403`, ardından `Failed to fetch`); `curl` ile derleme sırasında iniyor. Nedeni doğrulanmadı. Bu yüzden `adguard-tr`, `adguard-urltracking` ve `adguard-popups` periyodik güncellemenin dışında (`buildOnly`), yalnızca yeni sürümle yenileniyor. `adguard-popups` için red ayrıca denenmedi; aynı sunucuda olduğu için dahil edildi.
