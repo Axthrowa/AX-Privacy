@@ -170,7 +170,7 @@ export function updateBuiltinLists(apply: () => Promise<void>): Promise<ListUpda
       errors: {},
     };
     for (const list of BUILTIN_LISTS) {
-      if (!s.enabledLists.includes(list.id)) continue;
+      if (list.buildOnly || !s.enabledLists.includes(list.id)) continue;
       try {
         const result = await updateList(list);
         if (result) {

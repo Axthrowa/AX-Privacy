@@ -135,6 +135,8 @@ export interface CustomRulesResult {
 }
 
 export interface BuiltinListView {
+  /** Not refreshed by the periodic update, only by a new extension version. */
+  buildOnly: boolean;
   id: string;
   name: string;
   category: string;
