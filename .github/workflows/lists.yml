@@ -1,0 +1,23 @@
+# Scriptlet rules ship only inside the extension, so a fresh build is what keeps them current.
+name: Refresh filter lists
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ax-privacy
+          path: dist/*.zip

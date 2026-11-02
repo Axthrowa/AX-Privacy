@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-02T14:29:34.060Z",
+  "videoId": "dQw4w9WgXcQ",
+  "youtubeWithout": {
+    "response": {
+      "playable": "OK",
+      "adFields": [
+        "adPlacements",
+        "adBreakHeartbeatParams"
+      ]
+    },
+    "parseLooksNative": true,
+    "adMarkerSeen": false,
+    "videoAdvancedSeconds": 20.025429
+  },
+  "youtubeWithNexus": {
+    "response": {
+      "playable": "OK",
+      "adFields": []
+    },
+    "parseLooksNative": true,
+    "adMarkerSeen": false,
+    "videoAdvancedSeconds": 20.021218
+  },
+  "twitchWithout": {
+    "channel": "riseonlinedede",
+    "markersInPlayerCode": [
+      "video-ad-countdown",
+      "video-ad-label",
+      "Learn more about this ad"
+    ],
+    "adMarkerSeen": false,
+    "videoAdvancedSeconds": 20.131196
+  },
+  "twitchWithNexus": {
+    "channel": "riseonlinedede",
+    "markersInPlayerCode": [
+      "video-ad-countdown",
+      "video-ad-label",
+      "Learn more about this ad"
+    ],
+    "adMarkerSeen": false,
+    "videoAdvancedSeconds": 20.215192
+  }
+}

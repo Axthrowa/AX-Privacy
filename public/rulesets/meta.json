@@ -1,0 +1,351 @@
+[
+  {
+    "id": "easylist",
+    "version": "202611021408",
+    "builtAt": "2026-11-02T14:19:20.449Z",
+    "lines": 77375,
+    "includes": [],
+    "engineBytes": 1107541,
+    "stats": {
+      "networkFilters": 52191,
+      "converted": 52172,
+      "dnrRules": 3753,
+      "popupRules": 2966,
+      "cosmetic": 24907,
+      "badfiltered": 0,
+      "unsupported": {
+        "popup": 8,
+        "rewrite": 7,
+        "syntax": 3,
+        "csp": 1
+      }
+    }
+  },
+  {
+    "id": "easyprivacy",
+    "version": "202611021408",
+    "builtAt": "2026-11-02T14:19:20.903Z",
+    "lines": 57227,
+    "includes": [],
+    "engineBytes": 737,
+    "stats": {
+      "networkFilters": 56417,
+      "converted": 56409,
+      "dnrRules": 9128,
+      "popupRules": 0,
+      "cosmetic": 37,
+      "badfiltered": 0,
+      "unsupported": {
+        "document": 1,
+        "too-broad": 1,
+        "domain": 2,
+        "rewrite": 1,
+        "syntax": 2,
+        "redirect-rule": 1
+      }
+    }
+  },
+  {
+    "id": "ublock",
+    "version": "Mon, 02 Nov 2026 12:27:09 +0000",
+    "builtAt": "2026-11-02T14:19:22.730Z",
+    "lines": 33971,
+    "includes": [
+      "filters-general.txt",
+      "filters-2020.txt",
+      "filters-2021.txt",
+      "filters-2022.txt",
+      "filters-2023.txt",
+      "filters-2024.txt",
+      "filters-2025.txt",
+      "filters-2026.txt",
+      "ubo-link-shorteners.txt",
+      "filters-mobile.txt"
+    ],
+    "engineBytes": 502921,
+    "stats": {
+      "networkFilters": 5550,
+      "converted": 4944,
+      "dnrRules": 4089,
+      "popupRules": 91,
+      "cosmetic": 17800,
+      "badfiltered": 1,
+      "unsupported": {
+        "replace": 11,
+        "redirect-rule": 374,
+        "syntax": 81,
+        "removeparam": 6,
+        "popup": 47,
+        "csp": 6,
+        "header": 39,
+        "regex": 4,
+        "strict3p": 4,
+        "strict1p": 11,
+        "top": 3,
+        "uritransform": 4,
+        "1/": 1,
+        "cname": 2,
+        "urlskip": 8,
+        "ipaddress": 1,
+        "inline-script": 1,
+        "2/": 1,
+        "requestheader": 1
+      }
+    }
+  },
+  {
+    "id": "ublock-unbreak",
+    "version": "Mon, 02 Nov 2026 05:41:32 +0000",
+    "builtAt": "2026-11-02T14:19:22.908Z",
+    "lines": 4438,
+    "includes": [],
+    "engineBytes": 18753,
+    "stats": {
+      "networkFilters": 1709,
+      "converted": 1568,
+      "dnrRules": 1480,
+      "popupRules": 17,
+      "cosmetic": 629,
+      "badfiltered": 0,
+      "unsupported": {
+        "popup": 2,
+        "redirect-rule": 99,
+        "cname": 27,
+        "csp": 2,
+        "syntax": 2,
+        "inline-script": 1,
+        "permissions": 1,
+        "replace": 1,
+        "removeparam": 3,
+        "strict1p": 2,
+        "strict3p": 1
+      }
+    }
+  },
+  {
+    "id": "ublock-quick-fixes",
+    "version": "Mon, 02 Nov 2026 14:08:18 +0000",
+    "builtAt": "2026-11-02T14:19:23.048Z",
+    "lines": 532,
+    "includes": [],
+    "engineBytes": 9581,
+    "stats": {
+      "networkFilters": 126,
+      "converted": 110,
+      "dnrRules": 107,
+      "popupRules": 0,
+      "cosmetic": 267,
+      "badfiltered": 0,
+      "unsupported": {
+        "syntax": 1,
+        "redirect-rule": 2,
+        "popup": 5,
+        "header": 1,
+        "strict3p": 1,
+        "replace": 2,
+        "uritransform": 4
+      }
+    }
+  },
+  {
+    "id": "brave-unbreak",
+    "version": null,
+    "builtAt": "2026-11-02T14:19:23.222Z",
+    "lines": 1521,
+    "includes": [],
+    "engineBytes": 10889,
+    "stats": {
+      "networkFilters": 347,
+      "converted": 307,
+      "dnrRules": 224,
+      "popupRules": 0,
+      "cosmetic": 535,
+      "badfiltered": 0,
+      "unsupported": {
+        "fetch": 1,
+        "redirect-rule": 19,
+        "syntax": 1,
+        "tag": 19
+      }
+    }
+  },
+  {
+    "id": "ublock-privacy",
+    "version": "Fri, 30 Oct 2026 19:03:49 +0000",
+    "builtAt": "2026-11-02T14:19:23.490Z",
+    "lines": 2955,
+    "includes": [
+      "resource-abuse.txt"
+    ],
+    "engineBytes": 1521,
+    "stats": {
+      "networkFilters": 1459,
+      "converted": 1182,
+      "dnrRules": 1071,
+      "popupRules": 2,
+      "cosmetic": 352,
+      "badfiltered": 0,
+      "unsupported": {
+        "removeparam": 5,
+        "syntax": 81,
+        "urlskip": 155,
+        "redirect-rule": 1,
+        "strict1p": 2,
+        "strict3p": 5,
+        "_____": 3,
+        "permissions": 10,
+        "removeparam-exception": 1,
+        "uritransform": 8,
+        "reason": 5,
+        "replace": 1
+      }
+    }
+  },
+  {
+    "id": "pgl",
+    "version": null,
+    "builtAt": "2026-11-02T14:19:24.011Z",
+    "lines": 3563,
+    "includes": [],
+    "engineBytes": 325,
+    "stats": {
+      "networkFilters": 3563,
+      "converted": 3563,
+      "dnrRules": 1,
+      "popupRules": 0,
+      "cosmetic": 0,
+      "badfiltered": 0,
+      "unsupported": {}
+    }
+  },
+  {
+    "id": "adguard-tr",
+    "version": "2.0.69.41",
+    "builtAt": "2026-11-02T14:19:24.355Z",
+    "lines": 7948,
+    "includes": [],
+    "engineBytes": 378697,
+    "stats": {
+      "networkFilters": 1675,
+      "converted": 1656,
+      "dnrRules": 1435,
+      "popupRules": 4,
+      "cosmetic": 5087,
+      "badfiltered": 0,
+      "unsupported": {
+        "redirect-rule": 1,
+        "_": 3,
+        "regex": 2,
+        "non-ascii": 3,
+        "syntax": 5,
+        "domain": 5
+      }
+    }
+  },
+  {
+    "id": "adguard-urltracking",
+    "version": "2.0.14.78",
+    "builtAt": "2026-11-02T14:19:24.596Z",
+    "lines": 4044,
+    "includes": [],
+    "engineBytes": 417,
+    "stats": {
+      "networkFilters": 2727,
+      "converted": 2623,
+      "dnrRules": 2526,
+      "popupRules": 0,
+      "cosmetic": 1,
+      "badfiltered": 0,
+      "unsupported": {
+        "removeparam": 96,
+        "}/": 1,
+        "ja": 1,
+        "removeparam-exception": 5,
+        "app": 1
+      }
+    }
+  },
+  {
+    "id": "easylist-cookie",
+    "version": "2026-11-02 09:50 UTC",
+    "builtAt": "2026-11-02T14:19:25.243Z",
+    "lines": 29266,
+    "includes": [
+      "easylist_cookie_specific_uBO.txt"
+    ],
+    "engineBytes": 1176273,
+    "stats": {
+      "networkFilters": 2111,
+      "converted": 2111,
+      "dnrRules": 1794,
+      "popupRules": 0,
+      "cosmetic": 26066,
+      "badfiltered": 0,
+      "unsupported": {}
+    }
+  },
+  {
+    "id": "adguard-popups",
+    "version": "2.0.86.69",
+    "builtAt": "2026-11-02T14:19:25.820Z",
+    "lines": 23675,
+    "includes": [],
+    "engineBytes": 1243025,
+    "stats": {
+      "networkFilters": 2197,
+      "converted": 2187,
+      "dnrRules": 1767,
+      "popupRules": 1,
+      "cosmetic": 20254,
+      "badfiltered": 0,
+      "unsupported": {
+        "redirect-rule": 1,
+        "redirect": 1,
+        "permissions": 8
+      }
+    }
+  },
+  {
+    "id": "ublock-badware",
+    "version": "Mon, 02 Nov 2026 13:55:30 +0000",
+    "builtAt": "2026-11-02T14:19:25.998Z",
+    "lines": 6433,
+    "includes": [],
+    "engineBytes": 18933,
+    "stats": {
+      "networkFilters": 4712,
+      "converted": 4650,
+      "dnrRules": 1304,
+      "popupRules": 2,
+      "cosmetic": 142,
+      "badfiltered": 0,
+      "unsupported": {
+        "popup": 6,
+        "regex": 5,
+        "ipaddress": 32,
+        "reason": 6,
+        "header": 2,
+        "strict1p": 4,
+        "strict3p": 2,
+        "syntax": 5
+      }
+    }
+  },
+  {
+    "id": "urlhaus",
+    "version": "2026-11-02T12:10:10Z",
+    "builtAt": "2026-11-02T14:19:26.457Z",
+    "lines": 1455,
+    "includes": [],
+    "engineBytes": 325,
+    "stats": {
+      "networkFilters": 1449,
+      "converted": 1449,
+      "dnrRules": 1,
+      "popupRules": 0,
+      "cosmetic": 0,
+      "badfiltered": 0,
+      "unsupported": {}
+    }
+  }
+]

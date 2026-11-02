@@ -1,0 +1,1 @@
+[{"priority":1,"action":{"type":"block"},"condition":{"resourceTypes":["main_frame","sub_frame"],"requestDomains":["csgo.xyz","icontent.us","lnkr.us","qip.ru"]}},{"priority":1,"action":{"type":"block"},"condition":{"regexFilter":"^https:\\/\\/grabify\\.org\\/[A-Z0-9]+$","resourceTypes":["main_frame","sub_frame"]}}]
