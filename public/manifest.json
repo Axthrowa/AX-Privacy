@@ -1,0 +1,122 @@
+{
+  "manifest_version": 3,
+  "name": "AX Privacy",
+  "short_name": "AX Privacy",
+  "version": "0.13.0",
+  "description": "Yerel çalışan reklam, izleyici ve tehdit koruması.",
+  "minimum_chrome_version": "121",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "AX Privacy",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "options_page": "dashboard.html",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "declarativeNetRequest",
+    "storage",
+    "scripting",
+    "tabs",
+    "webNavigation",
+    "webRequest"
+  ],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "easylist",
+        "enabled": true,
+        "path": "rulesets/easylist.json"
+      },
+      {
+        "id": "easyprivacy",
+        "enabled": true,
+        "path": "rulesets/easyprivacy.json"
+      },
+      {
+        "id": "ublock",
+        "enabled": true,
+        "path": "rulesets/ublock.json"
+      },
+      {
+        "id": "ublock-unbreak",
+        "enabled": true,
+        "path": "rulesets/ublock-unbreak.json"
+      },
+      {
+        "id": "ublock-quick-fixes",
+        "enabled": true,
+        "path": "rulesets/ublock-quick-fixes.json"
+      },
+      {
+        "id": "brave-unbreak",
+        "enabled": true,
+        "path": "rulesets/brave-unbreak.json"
+      },
+      {
+        "id": "ublock-privacy",
+        "enabled": true,
+        "path": "rulesets/ublock-privacy.json"
+      },
+      {
+        "id": "pgl",
+        "enabled": true,
+        "path": "rulesets/pgl.json"
+      },
+      {
+        "id": "adguard-tr",
+        "enabled": true,
+        "path": "rulesets/adguard-tr.json"
+      },
+      {
+        "id": "adguard-urltracking",
+        "enabled": true,
+        "path": "rulesets/adguard-urltracking.json"
+      },
+      {
+        "id": "easylist-cookie",
+        "enabled": false,
+        "path": "rulesets/easylist-cookie.json"
+      },
+      {
+        "id": "adguard-popups",
+        "enabled": false,
+        "path": "rulesets/adguard-popups.json"
+      },
+      {
+        "id": "ublock-badware",
+        "enabled": true,
+        "path": "rulesets/ublock-badware.json"
+      },
+      {
+        "id": "urlhaus",
+        "enabled": true,
+        "path": "rulesets/urlhaus.json"
+      }
+    ]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["surrogates/*"],
+      "matches": ["<all_urls>"],
+      "use_dynamic_url": true
+    }
+  ]
+}

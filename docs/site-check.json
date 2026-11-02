@@ -1,0 +1,486 @@
+{
+  "measuredAt": "2026-11-02T08:20:29.495Z",
+  "results": [
+    {
+      "url": "https://www.wikipedia.org/",
+      "without": {
+        "status": 200,
+        "domMs": 436,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Wikipedia",
+        "textLength": 2065,
+        "images": 1,
+        "links": 382,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 200,
+        "domMs": 446,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Wikipedia",
+        "textLength": 2065,
+        "images": 1,
+        "links": 382,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://github.com/",
+      "without": {
+        "status": 200,
+        "domMs": 936,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "GitHub · Change is constant. GitHub keeps you ahead. · GitHu",
+        "textLength": 3543,
+        "images": 12,
+        "links": 147,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 200,
+        "domMs": 897,
+        "blocked": 3,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [
+          "https://collector.github.com/github/collect",
+          "https://api.github.com/_private/browser/stats",
+          "https://collector.github.com/github/collect"
+        ],
+        "title": "GitHub · Change is constant. GitHub keeps you ahead. · GitHu",
+        "textLength": 3541,
+        "images": 12,
+        "links": 147,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://stackoverflow.com/questions",
+      "without": {
+        "status": 403,
+        "domMs": 152,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Newest Questions - Stack Overflow",
+        "textLength": 9765,
+        "images": 18,
+        "links": 229,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 403,
+        "domMs": 131,
+        "blocked": 2,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [
+          "https://stackoverflow.com/px.js?ch=1",
+          "https://stackoverflow.com/px.js?ch=2"
+        ],
+        "title": "Newest Questions - Stack Overflow",
+        "textLength": 9712,
+        "images": 18,
+        "links": 229,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.reddit.com/r/programming/",
+      "without": {
+        "status": 200,
+        "domMs": 109,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "",
+        "textLength": 143,
+        "images": 1,
+        "links": 1,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 200,
+        "domMs": 121,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "",
+        "textLength": 143,
+        "images": 1,
+        "links": 1,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.bbc.com/news",
+      "without": {
+        "status": 200,
+        "domMs": 438,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "BBC News - Breaking news, video and the latest top stories f",
+        "textLength": 8791,
+        "images": 27,
+        "links": 163,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 200,
+        "domMs": 379,
+        "blocked": 17,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [
+          "https://a1.api.bbc.com/event?s=638824&idclient=c5036923-3b30-47b8-aa0a-674c530f8ac9",
+          "https://a1.api.bbc.com/event?s=638824&idclient=c5036923-3b30-47b8-aa0a-674c530f8ac9",
+          "https://a1.api.bbc.com/event?s=638824&idclient=c5036923-3b30-47b8-aa0a-674c530f8ac9",
+          "https://a1.api.bbc.com/event?s=638824&idclient=c5036923-3b30-47b8-aa0a-674c530f8ac9"
+        ],
+        "title": "BBC News - Breaking news, video and the latest top stories f",
+        "textLength": 8771,
+        "images": 27,
+        "links": 163,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.theguardian.com/international",
+      "without": {
+        "status": 200,
+        "domMs": 452,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Latest news, sport and opinion from the Guardian",
+        "textLength": 18967,
+        "images": 21,
+        "links": 346,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 200,
+        "domMs": 260,
+        "blocked": 11,
+        "errors": 10,
+        "errorSample": [
+          "Failed to fetch",
+          "Failed to fetch",
+          "Failed to fetch"
+        ],
+        "firstPartyFailed": [
+          "https://ophan.theguardian.com/img/1?v=17&platform=next-gen&url=https%3A%2F%2Fwww.theguardian.com%2Fi",
+          "https://ophan.theguardian.com/img/2?viewId=mvyzl0cydv7my99vpade&edition=Europe",
+          "https://ophan.theguardian.com/img/2?viewId=mvyzl0cydv7my99vpade&experiences=dotcom-rendering",
+          "https://ophan.theguardian.com/img/2?viewId=mvyzl0cydv7my99vpade&attentionMs=0",
+          "https://ophan.theguardian.com/img/2?viewId=mvyzl0cydv7my99vpade&inPrivateBrowsingMode=false"
+        ],
+        "title": "Latest news, sport and opinion from the Guardian",
+        "textLength": 18967,
+        "images": 21,
+        "links": 346,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.hurriyet.com.tr/",
+      "without": {
+        "status": 200,
+        "domMs": 510,
+        "blocked": 0,
+        "errors": 1,
+        "errorSample": [
+          "Failed to fetch"
+        ],
+        "firstPartyFailed": [],
+        "title": "Hürriyet - Haber, Son Dakika Haberler, Güncel Gazete Haberle",
+        "textLength": 17452,
+        "images": 29,
+        "links": 656,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 200,
+        "domMs": 492,
+        "blocked": 9,
+        "errors": 2,
+        "errorSample": [
+          "html is not defined",
+          "Failed to fetch"
+        ],
+        "firstPartyFailed": [],
+        "title": "Hürriyet - Haber, Son Dakika Haberler, Güncel Gazete Haberle",
+        "textLength": 16422,
+        "images": 32,
+        "links": 653,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.sozcu.com.tr/",
+      "without": {
+        "status": 200,
+        "domMs": 363,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Sözcü Gazetesi - Haberler, son dakika haberleri, güncel habe",
+        "textLength": 12064,
+        "images": 40,
+        "links": 352,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 200,
+        "domMs": 301,
+        "blocked": 12,
+        "errors": 1,
+        "errorSample": [
+          "html is not defined"
+        ],
+        "firstPartyFailed": [
+          "https://www.sozcu.com.tr/lib/adsv2_dist/prebid10.25.0.js?v=gjEtuTsv5kwQpPbgXEqsOCBuUrLGWcnlFPNgoFA9e",
+          "https://www.sozcu.com.tr/lib/adsv2_dist/indexPageClient_tr.js?v=Ji9RWMAG9Zlq5BZohENiv_CKZUetaYhTuN3P",
+          "https://www.sozcu.com.tr/lib/adsv2_dist/indexPageClient_tr.js?v=Ji9RWMAG9Zlq5BZohENiv_CKZUetaYhTuN3P"
+        ],
+        "title": "Sözcü Gazetesi - Haberler, son dakika haberleri, güncel habe",
+        "textLength": 11079,
+        "images": 33,
+        "links": 344,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.sahibinden.com/",
+      "without": {
+        "status": 403,
+        "domMs": 180,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "",
+        "textLength": 292,
+        "images": 0,
+        "links": 1,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 403,
+        "domMs": 116,
+        "blocked": 1,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "",
+        "textLength": 292,
+        "images": 0,
+        "links": 1,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.trendyol.com/",
+      "without": {
+        "failed": "Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://www.trendyol.com/\nCall log:\n\u001b[2m  - navigating to \"http"
+      },
+      "with": {
+        "failed": "Error: page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://www.trendyol.com/\nCall log:\n\u001b[2m  - navigating to \"http"
+      }
+    },
+    {
+      "url": "https://www.hepsiburada.com/",
+      "without": {
+        "status": 403,
+        "domMs": 167,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Hepsiburada | Güvenlik",
+        "textLength": 0,
+        "images": 0,
+        "links": 0,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 403,
+        "domMs": 136,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Hepsiburada | Güvenlik",
+        "textLength": 0,
+        "images": 0,
+        "links": 0,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.amazon.com.tr/",
+      "without": {
+        "status": 202,
+        "domMs": 285,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Amazon.com.tr: Elektronik, bilgisayar, akıllı telefon, kitap",
+        "textLength": 11965,
+        "images": 78,
+        "links": 171,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 202,
+        "domMs": 240,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Amazon.com.tr",
+        "textLength": 199,
+        "images": 0,
+        "links": 2,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://eksisozluk.com/",
+      "without": {
+        "status": 403,
+        "domMs": 106,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Bir dakika lütfen...",
+        "textLength": 275,
+        "images": 1,
+        "links": 2,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 403,
+        "domMs": 129,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "Bir dakika lütfen...",
+        "textLength": 275,
+        "images": 1,
+        "links": 2,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.imdb.com/chart/top/",
+      "without": {
+        "status": 403,
+        "domMs": 247,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "403 Forbidden",
+        "textLength": 13,
+        "images": 0,
+        "links": 0,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 403,
+        "domMs": 252,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "403 Forbidden",
+        "textLength": 13,
+        "images": 0,
+        "links": 0,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=hava+durumu",
+      "without": {
+        "status": 200,
+        "domMs": 863,
+        "blocked": 0,
+        "errors": 1,
+        "errorSample": [
+          "solveSimpleChallenge is not defined"
+        ],
+        "firstPartyFailed": [],
+        "title": "https://www.google.com/search?q=hava+durumu&sei=rEfoaruOJJiX",
+        "textLength": 364,
+        "images": 0,
+        "links": 3,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 200,
+        "domMs": 744,
+        "blocked": 0,
+        "errors": 1,
+        "errorSample": [
+          "solveSimpleChallenge is not defined"
+        ],
+        "firstPartyFailed": [],
+        "title": "https://www.google.com/search?q=hava+durumu&sei=tUfoat_0JbyT",
+        "textLength": 364,
+        "images": 0,
+        "links": 3,
+        "scriptHidden": false
+      }
+    },
+    {
+      "url": "https://www.youtube.com/",
+      "without": {
+        "status": 200,
+        "domMs": 1188,
+        "blocked": 0,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "YouTube",
+        "textLength": 180,
+        "images": 0,
+        "links": 8,
+        "scriptHidden": false
+      },
+      "with": {
+        "status": 200,
+        "domMs": 1178,
+        "blocked": 3,
+        "errors": 0,
+        "errorSample": [],
+        "firstPartyFailed": [],
+        "title": "YouTube",
+        "textLength": 180,
+        "images": 0,
+        "links": 8,
+        "scriptHidden": false
+      }
+    }
+  ]
+}

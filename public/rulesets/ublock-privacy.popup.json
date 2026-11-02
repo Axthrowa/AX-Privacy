@@ -1,0 +1,1 @@
+[{"priority":3,"action":{"type":"allow"},"condition":{"urlFilter":"||track.adtraction.com/*^url=https://www.gog.com/"}},{"priority":3,"action":{"type":"allow"},"condition":{"urlFilter":"||track.adtraction.com/*^url=http://www.gog.com/"}}]

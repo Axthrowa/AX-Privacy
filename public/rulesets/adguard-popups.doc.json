@@ -1,0 +1,1 @@
+[{"priority":1,"action":{"type":"block"},"condition":{"urlFilter":"||cem.nexon.com/contentstemplate|","resourceTypes":["main_frame","sub_frame"]}}]

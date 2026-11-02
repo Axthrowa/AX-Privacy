@@ -1,0 +1,277 @@
+{
+  "measuredAt": "2026-11-02T14:37:23.230Z",
+  "runsPerConfig": 5,
+  "results": [
+    {
+      "label": "Hiçbiri (Shields kapalı)",
+      "adsBlocked": "0/6",
+      "trackersBlocked": "0/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "0/4",
+      "hiddenSelectors": [],
+      "blockedUrls": [],
+      "loadMsMedian": 28,
+      "memoryMb": 410,
+      "mainContentHidden": false
+    },
+    {
+      "label": "AX 0.13.0",
+      "adsBlocked": "6/6",
+      "trackersBlocked": "7/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "1/4",
+      "hiddenSelectors": [
+        "#div-gpt-ad-1"
+      ],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        "http://static.criteo.net/js/ld/publishertag.js",
+        "http://cdn.taboola.com/libtrc/test/loader.js",
+        "http://widgets.outbrain.com/outbrain.js",
+        "http://c.amazon-adsystem.com/aax2/apstag.js",
+        "http://www.googletagmanager.com/gtag/js",
+        "http://cdn.segment.com/analytics.js/v1/test/analytics.min.js",
+        "http://js.hs-analytics.net/analytics/1/1.js",
+        "http://sb.scorecardresearch.com/beacon.js",
+        "http://static.hotjar.com/c/hotjar-1.js",
+        "http://script.crazyegg.com/pages/scripts/0000/0000.js",
+        "http://mc.yandex.ru/metrika/tag.js"
+      ],
+      "loadMsMedian": 31,
+      "memoryMb": 509,
+      "mainContentHidden": false
+    },
+    {
+      "label": "AdGuard",
+      "adsBlocked": "3/6",
+      "trackersBlocked": "0/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "1/4",
+      "hiddenSelectors": [
+        "#div-gpt-ad-1"
+      ],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        "http://c.amazon-adsystem.com/aax2/apstag.js"
+      ],
+      "loadMsMedian": 40,
+      "memoryMb": 1089,
+      "mainContentHidden": false
+    },
+    {
+      "label": "uBO Lite",
+      "adsBlocked": "6/6",
+      "trackersBlocked": "7/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "0/4",
+      "hiddenSelectors": [],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        "http://static.criteo.net/js/ld/publishertag.js",
+        "http://cdn.taboola.com/libtrc/test/loader.js",
+        "http://widgets.outbrain.com/outbrain.js",
+        "http://c.amazon-adsystem.com/aax2/apstag.js",
+        "http://www.googletagmanager.com/gtag/js",
+        "http://cdn.segment.com/analytics.js/v1/test/analytics.min.js",
+        "http://js.hs-analytics.net/analytics/1/1.js",
+        "http://sb.scorecardresearch.com/beacon.js",
+        "http://static.hotjar.com/c/hotjar-1.js",
+        "http://script.crazyegg.com/pages/scripts/0000/0000.js",
+        "http://mc.yandex.ru/metrika/tag.js"
+      ],
+      "loadMsMedian": 28,
+      "memoryMb": 544,
+      "mainContentHidden": false
+    },
+    {
+      "label": "Ghostery",
+      "adsBlocked": "6/6",
+      "trackersBlocked": "6/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "1/4",
+      "hiddenSelectors": [
+        "#div-gpt-ad-1"
+      ],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        "http://static.criteo.net/js/ld/publishertag.js",
+        "http://cdn.taboola.com/libtrc/test/loader.js",
+        "http://widgets.outbrain.com/outbrain.js",
+        "http://c.amazon-adsystem.com/aax2/apstag.js",
+        "http://www.googletagmanager.com/gtag/js",
+        "http://js.hs-analytics.net/analytics/1/1.js",
+        "http://sb.scorecardresearch.com/beacon.js",
+        "http://static.hotjar.com/c/hotjar-1.js",
+        "http://script.crazyegg.com/pages/scripts/0000/0000.js",
+        "http://mc.yandex.ru/metrika/tag.js"
+      ],
+      "loadMsMedian": 40,
+      "memoryMb": 816,
+      "mainContentHidden": false
+    },
+    {
+      "label": "Malwarebytes",
+      "adsBlocked": "5/6",
+      "trackersBlocked": "7/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "1/4",
+      "hiddenSelectors": [
+        "#div-gpt-ad-1"
+      ],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        "http://static.criteo.net/js/ld/publishertag.js",
+        "http://widgets.outbrain.com/outbrain.js",
+        "http://c.amazon-adsystem.com/aax2/apstag.js",
+        "http://www.googletagmanager.com/gtag/js",
+        "http://cdn.segment.com/analytics.js/v1/test/analytics.min.js",
+        "http://js.hs-analytics.net/analytics/1/1.js",
+        "http://sb.scorecardresearch.com/beacon.js",
+        "http://static.hotjar.com/c/hotjar-1.js",
+        "http://script.crazyegg.com/pages/scripts/0000/0000.js",
+        "http://mc.yandex.ru/metrika/tag.js"
+      ],
+      "loadMsMedian": 52,
+      "memoryMb": 1239,
+      "mainContentHidden": false
+    },
+    {
+      "label": "Privacy Badger",
+      "adsBlocked": "3/6",
+      "trackersBlocked": "5/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "0/4",
+      "hiddenSelectors": [],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://static.criteo.net/js/ld/publishertag.js",
+        "http://cdn.taboola.com/libtrc/test/loader.js",
+        "http://cdn.segment.com/analytics.js/v1/test/analytics.min.js",
+        "http://js.hs-analytics.net/analytics/1/1.js",
+        "http://static.hotjar.com/c/hotjar-1.js",
+        "http://script.crazyegg.com/pages/scripts/0000/0000.js",
+        "http://mc.yandex.ru/metrika/tag.js"
+      ],
+      "loadMsMedian": 42,
+      "memoryMb": 614,
+      "mainContentHidden": false
+    },
+    {
+      "label": "AX 0.13.0 + AdGuard",
+      "adsBlocked": "6/6",
+      "trackersBlocked": "7/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "1/4",
+      "hiddenSelectors": [
+        "#div-gpt-ad-1"
+      ],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        "http://static.criteo.net/js/ld/publishertag.js",
+        "http://cdn.taboola.com/libtrc/test/loader.js",
+        "http://widgets.outbrain.com/outbrain.js",
+        "http://c.amazon-adsystem.com/aax2/apstag.js",
+        "http://www.googletagmanager.com/gtag/js",
+        "http://cdn.segment.com/analytics.js/v1/test/analytics.min.js",
+        "http://js.hs-analytics.net/analytics/1/1.js",
+        "http://sb.scorecardresearch.com/beacon.js",
+        "http://static.hotjar.com/c/hotjar-1.js",
+        "http://script.crazyegg.com/pages/scripts/0000/0000.js",
+        "http://mc.yandex.ru/metrika/tag.js"
+      ],
+      "loadMsMedian": 40,
+      "memoryMb": 1089,
+      "mainContentHidden": false
+    },
+    {
+      "label": "AX 0.13.0 + uBO Lite",
+      "adsBlocked": "6/6",
+      "trackersBlocked": "7/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "1/4",
+      "hiddenSelectors": [
+        "#div-gpt-ad-1"
+      ],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        "http://static.criteo.net/js/ld/publishertag.js",
+        "http://cdn.taboola.com/libtrc/test/loader.js",
+        "http://widgets.outbrain.com/outbrain.js",
+        "http://c.amazon-adsystem.com/aax2/apstag.js",
+        "http://www.googletagmanager.com/gtag/js",
+        "http://cdn.segment.com/analytics.js/v1/test/analytics.min.js",
+        "http://js.hs-analytics.net/analytics/1/1.js",
+        "http://sb.scorecardresearch.com/beacon.js",
+        "http://static.hotjar.com/c/hotjar-1.js",
+        "http://script.crazyegg.com/pages/scripts/0000/0000.js",
+        "http://mc.yandex.ru/metrika/tag.js"
+      ],
+      "loadMsMedian": 34,
+      "memoryMb": 643,
+      "mainContentHidden": false
+    },
+    {
+      "label": "Beş engelleyici birlikte",
+      "adsBlocked": "6/6",
+      "trackersBlocked": "7/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "1/4",
+      "hiddenSelectors": [
+        "#div-gpt-ad-1"
+      ],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        "http://static.criteo.net/js/ld/publishertag.js",
+        "http://cdn.taboola.com/libtrc/test/loader.js",
+        "http://widgets.outbrain.com/outbrain.js",
+        "http://c.amazon-adsystem.com/aax2/apstag.js",
+        "http://www.googletagmanager.com/gtag/js",
+        "http://cdn.segment.com/analytics.js/v1/test/analytics.min.js",
+        "http://js.hs-analytics.net/analytics/1/1.js",
+        "http://sb.scorecardresearch.com/beacon.js",
+        "http://static.hotjar.com/c/hotjar-1.js",
+        "http://script.crazyegg.com/pages/scripts/0000/0000.js",
+        "http://mc.yandex.ru/metrika/tag.js"
+      ],
+      "loadMsMedian": 87,
+      "memoryMb": 2702,
+      "mainContentHidden": false
+    },
+    {
+      "label": "Beş engelleyici + AX",
+      "adsBlocked": "6/6",
+      "trackersBlocked": "7/7",
+      "firstPartyBroken": [],
+      "cosmeticHidden": "1/4",
+      "hiddenSelectors": [
+        "#div-gpt-ad-1"
+      ],
+      "blockedUrls": [
+        "http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+        "http://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        "http://static.criteo.net/js/ld/publishertag.js",
+        "http://cdn.taboola.com/libtrc/test/loader.js",
+        "http://widgets.outbrain.com/outbrain.js",
+        "http://c.amazon-adsystem.com/aax2/apstag.js",
+        "http://www.googletagmanager.com/gtag/js",
+        "http://cdn.segment.com/analytics.js/v1/test/analytics.min.js",
+        "http://js.hs-analytics.net/analytics/1/1.js",
+        "http://sb.scorecardresearch.com/beacon.js",
+        "http://static.hotjar.com/c/hotjar-1.js",
+        "http://script.crazyegg.com/pages/scripts/0000/0000.js",
+        "http://mc.yandex.ru/metrika/tag.js"
+      ],
+      "loadMsMedian": 95,
+      "memoryMb": 2718,
+      "mainContentHidden": false
+    }
+  ]
+}
