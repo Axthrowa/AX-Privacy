@@ -21,6 +21,31 @@ const reason = (line: string, o = opts) => {
   return out.kind === 'unsupported' ? out.reason : out.kind;
 };
 
+describe('$csp', () => {
+  it('adds the policy to the pages it names', () => {
+    const r = rule('*$csp=script-src *,domain=site.example');
+    expect(r.action).toEqual({
+      type: 'modifyHeaders',
+      responseHeaders: [
+        { header: 'content-security-policy', operation: 'append', value: 'script-src *' },
+      ],
+    });
+    expect(r.condition).toEqual({
+      resourceTypes: ['main_frame', 'sub_frame'],
+      requestDomains: ['site.example'],
+    });
+    expect(rule("||site.example^$csp=script-src 'self'").condition.urlFilter).toBe(
+      '||site.example^',
+    );
+  });
+
+  it('refuses a policy for every site, and exceptions it cannot express', () => {
+    expect(reason('*$csp=script-src *')).toBe('too-broad');
+    expect(reason('@@||site.example^$csp=script-src *')).toBe('csp');
+    expect(reason('/re/$csp=script-src *')).toBe('csp');
+  });
+});
+
 describe('wildcard domains', () => {
   it('expands site.* to the usual endings, on both sides of a rule', () => {
     const r = rule('||ads.example/x$script,domain=movies.*|~keep.*');
@@ -152,7 +177,7 @@ describe('compileFilter', () => {
     expect(reason('||x.example^$removeparam=/^utm_/')).toBe('removeparam');
     expect(reason('||x.example^$removeparam')).toBe('removeparam');
     expect(reason('@@*$removeparam=utm')).toBe('removeparam-exception');
-    expect(reason('||x.example^$csp=script-src')).toBe('csp');
+    expect(reason('||x.example^$replace=a')).toBe('replace');
     expect(reason('$script,third-party')).toBe('too-broad');
     expect(reason('||ödeme.example^')).toBe('non-ascii');
     expect(reason('a b')).toBe('syntax');
@@ -201,7 +226,7 @@ describe('compileList', () => {
 
   it('counts cosmetic, popup and unsupported lines separately', () => {
     const { popupRules, stats } = compileList(
-      ['##.ad', '||pop.example^$popup', '||x^$csp=a', '! c'],
+      ['##.ad', '||pop.example^$popup', '||x^$replace=a', '! c'],
       opts,
     );
     expect(popupRules).toHaveLength(1);
@@ -209,7 +234,7 @@ describe('compileList', () => {
       cosmetic: 1,
       popupRules: 1,
       dnrRules: 0,
-      unsupported: { csp: 1 },
+      unsupported: { replace: 1 },
     });
   });
 

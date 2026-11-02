@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { send } from '../shared/messages.ts';
 import type { RiskLevel } from '../engines/security/heuristics.ts';
-import type { PopupState, TabReport } from '../shared/types.ts';
+import { hidingRulesFor, problemReport } from '../shared/picked.ts';
+import type { PopupState, Settings, TabReport } from '../shared/types.ts';
 import { detectBrave } from './brave.ts';
 import { mount } from './mount.tsx';
 import { Toggle } from './Toggle.tsx';
@@ -90,12 +91,15 @@ function Popup() {
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<TabReport | null>(null);
   const [matched, setMatched] = useState<number | null>(null);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     void (async () => {
       const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
       const s = await send('popup/state', { url: active?.url ?? '' });
       setTab(active ?? null);
+      setSettings(await send('settings/get', {}));
       setState({ ...s, isBrave: await detectBrave(s.isBrave) });
       if (active?.id !== undefined) {
         setReport(await send('tab/report', { tabId: active.id }));
@@ -169,8 +173,57 @@ function Popup() {
           Sayfada bir öğeyi gizle
         </button>
       )}
+      {settings && site !== null && hidingRulesFor(site, settings.customRules).length > 0 && (
+        <details>
+          <summary>Bu sitede gizlediklerim</summary>
+          <ul className="hosts">
+            {hidingRulesFor(site, settings.customRules).map((line) => (
+              <li key={line}>
+                <span>{line.slice(line.indexOf('##') + 2)}</span>
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() =>
+                    void run(async () => {
+                      setSettings(await send('rules/removeLine', { line }));
+                    })
+                  }
+                >
+                  Geri al
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {report && <Report report={report} matched={matched} />}
       {state.isBrave && <p className="note">Brave algılandı. Brave Shields ayrıca çalışıyor.</p>}
+      {settings && (
+        <button
+          type="button"
+          className="link"
+          onClick={() =>
+            void navigator.clipboard
+              .writeText(
+                problemReport({
+                  version: chrome.runtime.getManifest().version,
+                  browser: state.isBrave ? 'Brave' : navigator.userAgent,
+                  site,
+                  enabled: state.enabled,
+                  paused: state.paused,
+                  lists: settings.enabledLists,
+                  customRules: settings.customRules.split(/\r?\n/).filter(Boolean).length,
+                  userLists: settings.userLists.length,
+                  matched,
+                }),
+              )
+              .then(() => setCopied(true))
+              .catch((e: unknown) => setError(String(e)))
+          }
+        >
+          {copied ? 'Rapor panoya kopyalandı' : 'Sorun raporunu kopyala (hiçbir yere gönderilmez)'}
+        </button>
+      )}
       <button type="button" className="link" onClick={() => void chrome.runtime.openOptionsPage()}>
         Kontrol paneli
       </button>

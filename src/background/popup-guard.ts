@@ -25,6 +25,10 @@ export function noteUserOpen(tabId: number, url: string): void {
   const list = (userOpens.get(tabId) ?? []).filter((o) => o.until > now);
   list.push({ url, until: now + USER_OPEN_MS });
   userOpens.set(tabId, list.slice(-10));
+  // Entries expire within seconds, so closed tabs need no listener, which would wake the worker.
+  for (const [id, opens] of userOpens) {
+    if (opens.every((o) => o.until <= now)) userOpens.delete(id);
+  }
 }
 
 function openedByUser(sourceTabId: number, url: string): boolean {
@@ -93,9 +97,5 @@ export function installPopupGuard(
       pending.set(d.tabId, { openerUrl: frame.url, until: Date.now() + WINDOW_MS, byUser });
       await check(load, d.tabId, d.url, onPopup);
     })();
-  });
-  chrome.tabs.onRemoved.addListener((tabId) => {
-    pending.delete(tabId);
-    userOpens.delete(tabId);
   });
 }

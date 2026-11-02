@@ -5,7 +5,7 @@
  * Usage: npm run build && node e2e/firefox.ts   (FIREFOX_PATH overrides the binary)
  */
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -23,7 +23,25 @@ const server = createServer((req, res) => {
     res.writeHead(200, { 'content-type': type });
     res.end(body);
   };
-  if (req.url?.endsWith('.js')) send('application/javascript', 'window.__loaded = true;');
+  if (req.url === '/guard') {
+    send(
+      'text/html; charset=utf-8',
+      `<!doctype html><div id="space" style="height:300px">bos</div>
+<script>document.addEventListener('click', () => {
+  const f = document.createElement('form');
+  f.action = 'http://ads.nexus-other.example:' + location.port + '/landing';
+  f.target = '_blank';
+  document.body.append(f);
+  f.submit();
+});</script>`,
+    );
+  } else if (req.url === '/links') {
+    const target = encodeURIComponent(`http://${host}:${port}/done`);
+    send(
+      'text/html; charset=utf-8',
+      `<!doctype html><a id="out" style="display:block;height:200px" href="http://www.youtube.com:${port}/redirect?q=${target}">git</a>`,
+    );
+  } else if (req.url?.endsWith('.js')) send('application/javascript', 'window.__loaded = true;');
   else if (host === 'www.youtube.com') {
     send(
       'text/html; charset=utf-8',
@@ -139,6 +157,24 @@ async function poll<T>(fn: () => Promise<T>, ok: (v: T) => boolean, ms = 10_000)
   return v;
 }
 
+const clickAt = (x: number, y: number) =>
+  bidi('input.performActions', {
+    context,
+    actions: [
+      {
+        type: 'pointer',
+        id: 'mouse',
+        actions: [
+          { type: 'pointerMove', x, y },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pointerUp', button: 0 },
+        ],
+      },
+    ],
+  });
+const tabCount = async () =>
+  (await bidi<{ contexts: unknown[] }>('browsingContext.getTree', {})).contexts.length;
+
 const results: { name: string; pass: boolean; detail: unknown }[] = [];
 const check = (name: string, pass: boolean, detail: unknown) => {
   results.push({ name, pass, detail });
@@ -204,6 +240,50 @@ try {
     `getComputedStyle(document.getElementById('ad-card')).outlineStyle`,
   );
   check('sponsored card marked (CSS-only registered script)', outline === 'dashed', outline);
+
+  // A real rule from the packaged data, on the host it names.
+  const data = await readFile(join(EXTENSION, 'scriptlets/ublock.js'), 'utf8');
+  const table = JSON.parse(data.slice(data.indexOf('push(') + 5, data.lastIndexOf(');'))) as string;
+  const id = /\n~(\d+)\t\["aopr","([A-Za-z_]\w*)"\]\n/.exec(table);
+  const hostRow = id && new RegExp(`\\n([a-z0-9-]+\\.[a-z]+)\\t${id[1]}\\n`).exec(table);
+  if (!id || !hostRow) throw new Error('no plain aopr rule found in the packaged table');
+  await navigate(`http://${hostRow[1]}:${port}/`);
+  const aborted = await evaluate<string>(
+    `(() => { try { void window[${JSON.stringify(id[2])}]; return 'read'; } catch (e) { return e.name; } })()`,
+  );
+  check('scriptlet from a list runs in the page', aborted === 'ReferenceError', aborted);
+
+  await navigate(site);
+  const before = hits.length;
+  // shortcut: Firefox does not load the surrogate, so these rules act as plain blocks there: the ad
+  // stays out, but a page calling it can break. Assert the surrogate here once that is solved.
+  const redirected = await load(
+    `http://pagead2.googlesyndication.com:${port}/pagead/js/adsbygoogle.js`,
+  );
+  check(
+    'a surrogate rule keeps the real ad script from reaching the server',
+    hits.length === before,
+    { redirected, hits: hits.slice(before) },
+  );
+
+  await navigate(`http://www.nexus-test.example:${port}/guard`);
+  const tabs = await tabCount();
+  await clickAt(100, 100);
+  await sleep(1000);
+  check('ad tab opened through a form is stopped', (await tabCount()) === tabs, await tabCount());
+
+  await navigate(`http://www.nexus-test.example:${port}/links`);
+  const hitsBefore = hits.length;
+  await clickAt(100, 100);
+  const landed = await poll(
+    () => evaluate<string>('location.pathname'),
+    (p) => p === '/done',
+  );
+  check(
+    'tracking link goes straight to its target',
+    landed === '/done' && !hits.slice(hitsBefore).some((h) => h.includes('/redirect')),
+    { landed, hits: hits.slice(hitsBefore) },
+  );
 } catch (e) {
   check('run', false, e instanceof Error ? e.message : String(e));
 } finally {

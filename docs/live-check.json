@@ -1,5 +1,5 @@
 {
-  "date": "2026-11-02T14:29:34.060Z",
+  "date": "2026-11-02T18:18:58.987Z",
   "videoId": "dQw4w9WgXcQ",
   "youtubeWithout": {
     "response": {
@@ -11,7 +11,7 @@
     },
     "parseLooksNative": true,
     "adMarkerSeen": false,
-    "videoAdvancedSeconds": 20.025429
+    "videoAdvancedSeconds": 20.261423999999998
   },
   "youtubeWithNexus": {
     "response": {
@@ -20,26 +20,26 @@
     },
     "parseLooksNative": true,
     "adMarkerSeen": false,
-    "videoAdvancedSeconds": 20.021218
+    "videoAdvancedSeconds": 20.250468
   },
   "twitchWithout": {
-    "channel": "riseonlinedede",
+    "channel": "vonemanarmy",
     "markersInPlayerCode": [
       "video-ad-countdown",
       "video-ad-label",
       "Learn more about this ad"
     ],
     "adMarkerSeen": false,
-    "videoAdvancedSeconds": 20.131196
+    "videoAdvancedSeconds": 20.12769
   },
   "twitchWithNexus": {
-    "channel": "riseonlinedede",
+    "channel": "vonemanarmy",
     "markersInPlayerCode": [
       "video-ad-countdown",
       "video-ad-label",
       "Learn more about this ad"
     ],
     "adMarkerSeen": false,
-    "videoAdvancedSeconds": 20.215192
+    "videoAdvancedSeconds": 20.049715
   }
 }

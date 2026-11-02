@@ -55,7 +55,7 @@ const panel = el('div');
 panel.id = 'panel';
 panel.setAttribute('role', 'dialog');
 panel.setAttribute('aria-label', 'Öğe gizleme');
-const hint = el('p', 'Gizlemek istediğiniz öğeye tıklayın. Esc ile çıkın.');
+const hint = el('p', 'Öğeye tıklayın ya da ok tuşlarıyla seçin. Enter gizler, Esc çıkar.');
 hint.setAttribute('aria-live', 'polite');
 const code = el('code');
 code.hidden = true;
@@ -125,12 +125,36 @@ function swallow(e: Event): void {
   }
 }
 
+/** Up: the container. Down: first thing inside. Left and right: the elements beside it. */
+function moved(from: Element, key: string): Element | null {
+  if (key === 'ArrowUp') return from.parentElement;
+  if (key === 'ArrowDown') return from.firstElementChild;
+  return key === 'ArrowLeft' ? from.previousElementSibling : from.nextElementSibling;
+}
+
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     e.preventDefault();
     e.stopImmediatePropagation();
     cancel();
+    return;
   }
+  if (e.key === 'Enter' && picked && !inPanel(e)) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.isTrusted) save();
+    return;
+  }
+  if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const next = picked
+    ? selectable(moved(picked, e.key))
+    : selectable(document.elementFromPoint(innerWidth / 2, innerHeight / 2));
+  if (!next) return;
+  picked = next;
+  next.scrollIntoView({ block: 'nearest' });
+  show();
 }
 
 const SWALLOWED = ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'auxclick'];
@@ -157,9 +181,8 @@ parentButton.addEventListener('click', () => {
   }
 });
 cancelButton.addEventListener('click', cancel);
-saveButton.addEventListener('click', (e) => {
-  // A rule is only ever saved by a real click, not one the page synthesized on this panel.
-  if (!e.isTrusted || !picked) return;
+function save(): void {
+  if (!picked) return;
   const s = selector();
   saveButton.disabled = true;
   send('picker/add', { selector: s })
@@ -174,6 +197,10 @@ saveButton.addEventListener('click', (e) => {
       hint.className = 'error';
       hint.textContent = `Kural kaydedilemedi: ${err instanceof Error ? err.message : String(err)}`;
     });
+}
+saveButton.addEventListener('click', (e) => {
+  // A rule is only ever saved by a real click, not one the page synthesized on this panel.
+  if (e.isTrusted) save();
 });
 
 addEventListener('mousemove', onMove, true);

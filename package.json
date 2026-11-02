@@ -1,6 +1,6 @@
 {
   "name": "ax-privacy",
-  "version": "0.13.1",
+  "version": "0.14.0",
   "private": true,
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -23,6 +23,8 @@
     "e2e": "playwright test",
     "e2e:firefox": "node e2e/firefox.ts",
     "live-check": "node e2e/live-check.ts",
+    "sites": "node e2e/site-check.ts",
+    "resource-check": "node e2e/resource-check.ts",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test"
   },
   "dependencies": {

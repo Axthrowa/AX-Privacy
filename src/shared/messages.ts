@@ -37,6 +37,8 @@ export interface Api {
   'env/brave': { req: { isBrave: boolean }; res: Settings };
   'rules/setCustom': { req: { text: string }; res: CustomRulesResult };
   'rules/report': { req: NoPayload; res: CustomRulesResult };
+  /** Removes exactly one line of the custom rules. */
+  'rules/removeLine': { req: { line: string }; res: Settings };
   /** From the popup: opens the element picker in that tab and allows it to save one rule. */
   'picker/start': { req: { tabId: number }; res: null };
   /** From the picker in the top frame; refused unless the popup started it. */
@@ -232,6 +234,10 @@ export function parseMessage(raw: unknown): Message | null {
     }
     case 'env/brave':
       return typeof m.isBrave === 'boolean' ? { type: m.type, isBrave: m.isBrave } : null;
+    case 'rules/removeLine':
+      return typeof m.line === 'string' && m.line.length <= 2048
+        ? { type: m.type, line: m.line }
+        : null;
     case 'picker/start':
       return typeof m.tabId === 'number' ? { type: m.type, tabId: m.tabId } : null;
     case 'picker/add':

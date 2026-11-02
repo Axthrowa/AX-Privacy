@@ -177,6 +177,17 @@ export function createRouter(deps: RouterDeps) {
         return deps.customRulesReport(
           await update((s) => ({ ...s, customRules: msg.text }), 'filters'),
         );
+      case 'rules/removeLine':
+        return update(
+          (s) => ({
+            ...s,
+            customRules: s.customRules
+              .split(/\r?\n/)
+              .filter((line) => line !== msg.line)
+              .join('\n'),
+          }),
+          'filters',
+        );
       case 'lists/setAutoUpdate':
         return view(await update((s) => ({ ...s, autoUpdateLists: msg.enabled }), 'none'));
       case 'lists/updateNow':
