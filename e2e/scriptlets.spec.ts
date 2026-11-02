@@ -167,6 +167,15 @@ test('an ordinary page does not wake the worker for generic rules; an ad page do
   await expect(p.locator('#generic-ad')).toBeHidden();
   await expect(p.locator('#text')).toBeVisible();
   expect(await seen()).toContain('cosmetic/dom');
+
+  // A site seen before is hidden from storage: the worker hears nothing, the ad stays hidden.
+  await p.waitForTimeout(500);
+  const before = (await seen()).length;
+  await p.goto(`http://${SITE}:${port}/ad`);
+  await expect(p.locator('#generic-ad')).toBeHidden();
+  await expect(p.locator('#text')).toBeVisible();
+  await p.waitForTimeout(500);
+  expect((await seen()).slice(before)).toEqual([]);
   server.close();
 });
 
@@ -237,6 +246,12 @@ test('the element picker hides what was clicked, on this site, and does not fire
   await other.goto(`http://other.nexus-test.example:${port}/`);
   await expect(other.locator('#promo')).toBeVisible();
   await other.close();
+
+  // By keyboard alone: arrows choose, Enter saves.
+  await start();
+  await p.keyboard.press('ArrowUp');
+  await expect(p.getByRole('dialog').locator('code')).toBeVisible();
+  await p.keyboard.press('Escape');
 
   // "Similar" widens to all cards; Esc leaves without saving or disturbing the page.
   await start();

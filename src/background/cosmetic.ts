@@ -1,4 +1,5 @@
 import { parse } from 'tldts';
+import { CACHE_PREFIX, domKey, startKey } from '../shared/cosmetic-cache.ts';
 import type { DomFeatures } from '../shared/messages.ts';
 import type { ExtendedRule, Settings } from '../shared/types.ts';
 import { cosmeticEngine } from './filters.ts';
@@ -9,13 +10,17 @@ function page(url: string) {
   return { url, hostname: p.hostname ?? '', domain: p.domain ?? '' };
 }
 
-const CACHE_PREFIX = 'cosmetic/';
 const CACHE_MAX_BYTES = 5_000_000;
 
 /** Forgets cached page styles; the filters behind them changed. */
 export async function clearCosmeticCache(): Promise<void> {
-  const all = await chrome.storage.session.get(null);
-  await chrome.storage.session.remove(Object.keys(all).filter((k) => k.startsWith(CACHE_PREFIX)));
+  const all = await chrome.storage.local.get(null);
+  await chrome.storage.local.remove(Object.keys(all).filter((k) => k.startsWith(CACHE_PREFIX)));
+}
+
+async function remember(key: string, entry: { css: string; extended: ExtendedRule[] }) {
+  if ((await chrome.storage.local.getBytesInUse()) > CACHE_MAX_BYTES) await clearCosmeticCache();
+  await chrome.storage.local.set({ [key]: entry });
 }
 
 /** USER origin so page `!important` rules cannot override hiding. */
@@ -29,17 +34,10 @@ async function inject(ctx: SenderContext, css: string): Promise<void> {
 }
 
 /**
- * Generic and hostname-specific hiding for a frame at document_start. Repeat visits to a host are
- * answered from session storage, so the worker does not load the engine for them.
+ * Generic and hostname-specific hiding for a frame at document_start. Only the first visit to a host
+ * gets here; after that the content script reads the stored result itself.
  */
 export async function cosmeticStart(s: Settings, ctx: SenderContext): Promise<ExtendedRule[]> {
-  const key = CACHE_PREFIX + page(ctx.url).hostname;
-  const cached = (await chrome.storage.session.get(key))[key] as
-    { css: string; extended: ExtendedRule[] } | undefined;
-  if (cached) {
-    await inject(ctx, cached.css);
-    return cached.extended;
-  }
   const engine = await cosmeticEngine(s);
   if (!engine) return [];
   const { active, styles, extended } = engine.getCosmeticsFilters({
@@ -52,8 +50,7 @@ export async function cosmeticStart(s: Settings, ctx: SenderContext): Promise<Ex
   });
   const entry = active ? { css: styles, extended } : { css: '', extended: [] };
   await inject(ctx, entry.css);
-  if ((await chrome.storage.session.getBytesInUse()) > CACHE_MAX_BYTES) await clearCosmeticCache();
-  await chrome.storage.session.set({ [key]: entry });
+  await remember(startKey(page(ctx.url).hostname), entry);
   return entry.extended;
 }
 
@@ -76,7 +73,8 @@ export async function cosmeticDom(
     getRulesFromHostname: false,
     getRulesFromDOM: true,
   });
-  if (!active) return [];
-  await inject(ctx, styles);
-  return extended;
+  const entry = active ? { css: styles, extended } : { css: '', extended: [] };
+  await inject(ctx, entry.css);
+  await remember(domKey(page(ctx.url).hostname, features), entry);
+  return entry.extended;
 }

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AX Privacy",
   "short_name": "AX Privacy",
-  "version": "0.13.1",
+  "version": "0.14.0",
   "description": "Yerel çalışan reklam, izleyici ve tehdit koruması.",
   "minimum_chrome_version": "121",
   "icons": {

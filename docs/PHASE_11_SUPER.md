@@ -91,3 +91,15 @@ Sınırlar: yeni bir eklenti sürümü eski güncellemeleri geçersiz kılar ve 
 - **Sürüm üretimi:** `npm run release` ve `.github/workflows/lists.yml` (haftalık). İş akışı henüz bir uzak depoda çalıştırılmadı.
 
 **AdGuard listeleri:** `filters.adtidy.org` tarayıcıdan gelen güncelleme isteklerini reddediyor (`HTTP 403`, ardından `Failed to fetch`); `curl` ile derleme sırasında iniyor. Nedeni doğrulanmadı. Bu yüzden `adguard-tr`, `adguard-urltracking` ve `adguard-popups` periyodik güncellemenin dışında (`buildOnly`), yalnızca yeni sürümle yenileniyor. `adguard-popups` için red ayrıca denenmedi; aynı sunucuda olduğu için dahil edildi.
+
+## 0.14.0
+
+- **`$csp`:** sayfaya içerik politikası ekleyen kurallar `modifyHeaders` ile çalışıyor; tüm siteleri kapsayan biçim reddediliyor.
+- **`redirect-rule` eklenmedi (bilerek):** 442 satırın 323'ü `*$...,redirect-rule=x,domain=site` biçiminde, yani "bu sitede engellenecek olan her şey yerine". DNR "engellenecek olan" koşulunu kuramaz; olduğu gibi çevirmek sitenin tüm betiklerini kırar. Engellenen alan adlarıyla sınırlamak 94.784 alan adını grup başına tekrarlar (grup başına yaklaşık 2 MB).
+- **Açılır pencere:** bu sitede gizlenen öğeler ve geri alma; panoya kopyalanan sorun raporu (hiçbir yere gönderilmez, sayfa adresi içermez).
+- **Öğe seçici:** ok tuşları ve Enter. Başka alan adından gelen iframe'in içi hâlâ seçilemez.
+- **`npm run sites`:** gerçek sitelerde bozulma ve reklam sekmesi denetimi, sorun varsa çıkış kodu 1.
+- **`npm run resource-check`:** service worker'ın gezinme sırasında uyanık kaldığı süre (`docs/resource-check.json`).
+- **Firefox testleri:** scriptlet, form yoluyla açılan reklam sekmesi ve yönlendirme atlama eklendi. **Bilinen sınır:** surrogate dosyaları Firefox'ta yüklenmiyor (neden bulunamadı); kural düz engel gibi çalışıyor.
+- **Uyanıklık:** ilk ölçümde service worker gezinme boyunca %99 uyanıktı, çünkü her çerçeve açılışta mesaj atıyordu. Gizleme sonuçları artık `storage.local`'da; içerik betiği daha önce görülen host için arka planı hiç uyandırmıyor. Sonuç `docs/resource-check.json` dosyasında. uBO Lite'ın aynı ölçümdeki değeri doğrudan karşılaştırılamaz: varsayılan temel kipte büyük olasılıkla sayfa betiği çalıştırmıyor, bu doğrulanmadı.
+- **Uyanıklık ölçümü** (`npm run resource-check`, aynı siteye 10 saniyede bir ziyaret, 2 dakika): düzeltme öncesi %99; içerik önbelleği ve `tabs.onRemoved` dinleyicisinin kaldırılmasıyla %41 (tek uyanış, ilk ziyaret sonrası arka plan bir daha uyanmadı). Ayrıntılı raporlar açıkken %99. Her yeni site ilk ziyarette yine uyandırır; çok farklı site gezinmede oran daha yüksek olur.

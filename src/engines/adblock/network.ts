@@ -37,6 +37,10 @@ export interface DnrCondition {
 export type DnrAction =
   | { type: 'block' | 'allow' | 'allowAllRequests' }
   | { type: 'redirect'; redirect: { extensionPath: string } }
+  | {
+      type: 'modifyHeaders';
+      responseHeaders: { header: string; operation: 'append'; value: string }[];
+    }
   | { type: 'redirect'; redirect: { transform: { queryTransform: { removeParams: string[] } } } };
 
 export interface DnrRule {
@@ -223,7 +227,8 @@ export function toRe2(source: string): { regex: string; loosened: boolean } | nu
 export function compileFilter(line: string, opts: CompileOptions): Outcome {
   if (!line || line.startsWith('!') || line.startsWith('[')) return { kind: 'comment' };
   if (COSMETIC_RE.test(line)) return { kind: 'cosmetic' };
-  if (/\s/.test(line)) return unsupported('syntax');
+  // A `$csp` policy is the one option whose value has spaces.
+  if (/\s/.test(line) && !/[$,]csp=/.test(line)) return unsupported('syntax');
 
   const exception = line.startsWith('@@');
   const { pattern, options } = splitOptions(exception ? line.slice(2) : line);
@@ -242,6 +247,7 @@ export function compileFilter(line: string, opts: CompileOptions): Outcome {
   let document = false;
   let popup = false;
   let surrogate: string | null = null;
+  let csp: string | null = null;
   /** undefined: not a `$removeparam` filter; null: regex or every parameter. */
   let removeParam: string | null | undefined;
 
@@ -267,6 +273,10 @@ export function compileFilter(line: string, opts: CompileOptions): Outcome {
       case 'mp4':
         if (neg || exception) return unsupported(name);
         surrogate = surrogatePath(name === 'mp4' ? 'noopmp4-1s' : 'empty');
+        break;
+      case 'csp':
+        if (neg || exception || !value) return unsupported('csp');
+        csp = value;
         break;
       case 'popunder':
       case 'popup':
@@ -385,6 +395,30 @@ export function compileFilter(line: string, opts: CompileOptions): Outcome {
       condition,
     };
     return { kind: 'rule', rule, param: removeParam };
+  }
+
+  if (csp !== null) {
+    // A policy belongs to the page being loaded, so `domain=` names that page, not an initiator.
+    if (popup || pattern.startsWith('/') || types.size > 0 || /[^\x20-\x7e]/.test(pattern)) {
+      return unsupported('csp');
+    }
+    const p = ['', '*'].includes(pattern) ? '' : pattern.replace(/\*+$/, '');
+    const condition: DnrCondition = { resourceTypes: ['main_frame', 'sub_frame'] };
+    if (p) condition.urlFilter = p;
+    if (initiators.length) condition.requestDomains = initiators;
+    if (excludedInitiators.length) condition.excludedRequestDomains = excludedInitiators;
+    if (!p && !initiators.length) return unsupported('too-broad');
+    return {
+      kind: 'rule',
+      rule: {
+        priority: PRIORITY.block + (important ? PRIORITY.important : 0),
+        action: {
+          type: 'modifyHeaders',
+          responseHeaders: [{ header: 'content-security-policy', operation: 'append', value: csp }],
+        },
+        condition,
+      },
+    };
   }
 
   if (popup && (types.size > 0 || document)) return unsupported('popup');

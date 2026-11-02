@@ -60,7 +60,7 @@ export async function buildDynamicRules(
         stats.dnrRules--;
         continue;
       }
-      const isUnsafe = rule.action.type === 'redirect';
+      const isUnsafe = rule.action.type === 'redirect' || rule.action.type === 'modifyHeaders';
       if (
         rules.length >= MAX_FILTER_RULES ||
         (re !== undefined && regex >= MAX_REGEX_RULES) ||
@@ -79,7 +79,7 @@ export async function buildDynamicRules(
   let truncatedUpdates = 0;
   for (const rule of precompiled) {
     const re = rule.condition.regexFilter;
-    const isUnsafe = rule.action.type === 'redirect';
+    const isUnsafe = rule.action.type === 'redirect' || rule.action.type === 'modifyHeaders';
     if (
       rules.length >= MAX_FILTER_RULES ||
       (re !== undefined && regex >= MAX_REGEX_RULES) ||

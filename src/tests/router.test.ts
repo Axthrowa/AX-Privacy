@@ -218,6 +218,16 @@ describe('router', () => {
     expect(get().pausedSites).toEqual(['a.example']);
   });
 
+  it('removes one custom rule, and only from the extension UI', async () => {
+    const { route, deps, get } = setup({ customRules: 'a.example##.x\nb.example##.y' });
+    await expect(
+      route({ type: 'rules/removeLine', line: 'a.example##.x' }, page('https://a.example/')),
+    ).rejects.toThrow('not allowed');
+    await route({ type: 'rules/removeLine', line: 'a.example##.x' }, ui);
+    expect(get().customRules).toBe('b.example##.y');
+    expect(deps.applyFilters).toHaveBeenCalled();
+  });
+
   it('toggles built-in lists and rejects unknown ids', async () => {
     const { route, deps, get } = setup();
     await route({ type: 'lists/setEnabled', id: 'ublock', enabled: false }, ui);

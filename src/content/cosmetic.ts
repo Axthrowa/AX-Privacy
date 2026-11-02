@@ -5,6 +5,7 @@ import {
   type AST,
 } from '@ghostery/adblocker-extended-selectors';
 import { decodeTokens, knownFeatures } from '../engines/adblock/generic-tokens.ts';
+import { domKey, startKey, type CachedStyle } from '../shared/cosmetic-cache.ts';
 import { send } from '../shared/messages.ts';
 import type { ExtendedRule } from '../shared/types.ts';
 
@@ -40,6 +41,25 @@ function addExtended(rules: ExtendedRule[]): void {
 }
 
 /** The packaged word table, plus words from list updates that came after the package. */
+async function cached(key: string): Promise<CachedStyle<ExtendedRule> | undefined> {
+  return (await chrome.storage.local.get(key))[key] as CachedStyle<ExtendedRule> | undefined;
+}
+
+/** Stored hiding CSS, applied from here. Constructed sheets are exempt from the page's style CSP. */
+function applyStored(css: string): void {
+  if (!css) return;
+  try {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(css);
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  } catch {
+    // Firefox can refuse a sheet built in a content script.
+    const style = document.createElement('style');
+    style.textContent = css;
+    (document.head ?? document.documentElement).append(style);
+  }
+}
+
 async function wordTables(): Promise<Uint32Array[] | null> {
   if (!self.__nexusTokens) return null;
   const { genericTokensExtra: extra } = (await chrome.storage.local.get('genericTokensExtra')) as {
@@ -54,9 +74,18 @@ async function startMonitor(): Promise<void> {
     if (update.type === 'features') {
       const { classes, ids, hrefs } = tables ? knownFeatures(update, tables) : update;
       if (classes.length + ids.length + hrefs.length === 0) return;
-      void send('cosmetic/dom', { classes, ids, hrefs })
-        .then((r) => addExtended(r.extended))
-        .catch(() => undefined);
+      void (async () => {
+        const features = { classes, ids, hrefs };
+        const stored = location.hostname
+          ? await cached(domKey(location.hostname, features))
+          : undefined;
+        if (stored) {
+          applyStored(stored.css);
+          addExtended(stored.extended);
+        } else {
+          addExtended((await send('cosmetic/dom', features)).extended);
+        }
+      })().catch(() => undefined);
     } else {
       schedule();
     }
@@ -92,8 +121,15 @@ if (location.protocol === 'http:' && window === window.top) {
   addEventListener('focusin', (e) => check(e.target), true);
 }
 
-void send('cosmetic/start', {})
-  .then(({ extended: rules }) => {
+void (async () => {
+  const stored = location.hostname ? await cached(startKey(location.hostname)) : undefined;
+  if (stored) {
+    applyStored(stored.css);
+    return stored.extended;
+  }
+  return (await send('cosmetic/start', {})).extended;
+})()
+  .then((rules) => {
     addExtended(rules);
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => void startMonitor(), { once: true });

@@ -1,0 +1,24 @@
+{
+  "measuredAt": "2026-11-02T18:18:58.500Z",
+  "windowMs": 120000,
+  "results": [
+    {
+      "label": "AX Privacy",
+      "visits": 12,
+      "alivePercent": 41,
+      "starts": 1
+    },
+    {
+      "label": "AX Privacy, ayrıntılı raporlar açık",
+      "visits": 12,
+      "alivePercent": 99,
+      "starts": 1
+    },
+    {
+      "label": "uBO Lite",
+      "visits": 12,
+      "alivePercent": 0,
+      "starts": 0
+    }
+  ]
+}
