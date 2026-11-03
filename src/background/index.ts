@@ -30,7 +30,7 @@ import { sponsorSegments } from './sponsor.ts';
 import { setTabReports, sessionStore, TabReports } from './tab-report.ts';
 
 const stats = new StatsRecorder();
-const reports = new TabReports(sessionStore, (host, url, type) => stats.request(url, type, host));
+const reports = new TabReports(sessionStore, (host) => stats.request(host));
 const consentDeps = chromeConsentDeps(async (tabId, r) => {
   await reports.consent(tabId, r);
   if (r.result === true) stats.consent();
@@ -155,7 +155,6 @@ const route = createRouter({
   apply: (s) => inQueue(() => apply(s)),
   applyFilters: (s) =>
     inQueue(async () => {
-      stats.forgetMatches();
       await applyFilters(s);
       await clearCosmeticCache();
       await apply(s);

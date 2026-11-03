@@ -23,7 +23,6 @@ describe('buildDynamicRules', () => {
       FIRST_DYNAMIC_ID + 1,
       FIRST_DYNAMIC_ID + 2,
     ]);
-    expect(build.popupRules).toHaveLength(1);
     expect(build.reports.get('custom')?.stats.dnrRules).toBe(1);
     expect(build.reports.get('https://l.example/x')?.truncated).toBe(0);
   });

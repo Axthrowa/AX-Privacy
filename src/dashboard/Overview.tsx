@@ -1,16 +1,14 @@
+import { blockedRequests } from '../engines/core/stats.ts';
 import type { Settings, StatsView } from '../shared/types.ts';
 
 const nf = new Intl.NumberFormat('tr-TR');
 const LABELS = {
-  ads: 'Reklam isteği',
-  trackers: 'İzleyici isteği',
-  security: 'Güvenlik listesi (ağ)',
+  requests: 'Engellenen istek',
+  security: 'Güvenlik listesinden sayfa',
   pages: 'Engellenen sayfa',
   popups: 'Kapatılan açılır pencere',
   consent: 'Reddedilen çerez bildirimi',
 } as const;
-
-const BAR = ['ads', 'trackers', 'security', 'pages'] as const;
 
 export function Overview({
   settings,
@@ -28,16 +26,15 @@ export function Overview({
   const today = stats.days.at(-1);
   const max = Math.max(
     1,
-    ...stats.days.map((d) => d.ads + d.trackers + d.security + d.pages + d.popups + d.consent),
+    ...stats.days.map((d) => blockedRequests(d) + d.pages + d.popups + d.consent),
   );
   return (
     <section id="overview">
       <h2>Özet</h2>
       <p className="muted">
-        Koruma {settings.enabled ? 'açık' : 'kapalı'}. Ağ sayıları yalnızca AX kuralı eşleşince
-        artar (DNR <code>testMatchOutcome</code>). Liste kategorisi: EasyList/uBlock/AdGuard TR =
-        reklam, EasyPrivacy/URL Tracking = izleyici, Badware/URLhaus = güvenlik. Başka eklenti veya
-        Brave Shields sayılmaz. Kimlik avı listesi yok; o sütun uydurulmaz.
+        Koruma {settings.enabled ? 'açık' : 'kapalı'}. Tarayıcı bir isteği kimin engellediğini
+        bildirmez: istek sayısına Brave Shields veya başka bir engelleyicinin durdurdukları da
+        girer. Sayfa sayıları yalnızca AX'indir.
       </p>
       {!settings.privacy.detailedReports && (
         <p className="note">
@@ -48,9 +45,9 @@ export function Overview({
       <div className="cards">
         {(
           [
-            ['ads', today?.ads ?? 0],
-            ['trackers', today?.trackers ?? 0],
+            ['requests', today ? blockedRequests(today) : 0],
             ['pages', today?.pages ?? 0],
+            ['security', today?.security ?? 0],
             ['popups', today?.popups ?? 0],
             ['consent', today?.consent ?? 0],
           ] as const
@@ -82,19 +79,26 @@ export function Overview({
       </div>
       <div className="bars" role="img" aria-label={`${range} günlük yığın grafik`}>
         {stats.days.map((d) => (
-          <div key={d.day} title={`${d.day}: reklam ${d.ads}, izleyici ${d.trackers}`}>
-            {BAR.map((k) => (
-              <i key={k} className={k} style={{ height: `${Math.round((d[k] / max) * 100)}%` }} />
+          <div key={d.day} title={`${d.day}: ${blockedRequests(d)} istek, ${d.pages} sayfa`}>
+            {(
+              [
+                ['ads', blockedRequests(d)],
+                ['security', d.security],
+                // Security pages are counted in `pages` too.
+                ['pages', d.pages - d.security],
+              ] as const
+            ).map(([k, n]) => (
+              <i key={k} className={k} style={{ height: `${Math.round((n / max) * 100)}%` }} />
             ))}
           </div>
         ))}
       </div>
       <p className="note">
-        Çubuk: yeşil reklam, mavi izleyici, kırmızı güvenlik ağı, turuncu sayfa.
+        Çubuk: yeşil engellenen istek, kırmızı güvenlik listesinden sayfa, turuncu diğer sayfa.
       </p>
       <h3>En çok engellenen alan adları</h3>
       {stats.topHosts.length === 0 ? (
-        <p className="muted">Henüz AX'in eşleştirdiği istek yok.</p>
+        <p className="muted">Henüz engellenen istek yok.</p>
       ) : (
         <ul className="hosts">
           {stats.topHosts.map((h) => (

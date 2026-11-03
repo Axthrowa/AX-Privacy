@@ -6,6 +6,7 @@ import {
   RULE_CDN_COOKIES,
   RULE_GPC,
   RULE_GLOBAL_OFF,
+  RULE_GLOBAL_OFF_FRAMELESS,
   RULE_NOCOOKIE_EMBEDS,
   RULE_PAUSED_SITES,
   RULE_SITE_NETWORK,
@@ -48,6 +49,12 @@ describe('controlRules', () => {
         action: { type: 'allowAllRequests' },
         condition: { resourceTypes: ['main_frame', 'sub_frame'] },
       },
+      {
+        id: RULE_GLOBAL_OFF_FRAMELESS,
+        priority: CONTROL_PRIORITY,
+        action: { type: 'allow' },
+        condition: {},
+      },
     ]);
   });
   it('allows paused sites at top level only', () => {
@@ -57,6 +64,15 @@ describe('controlRules', () => {
         priority: CONTROL_PRIORITY,
         action: { type: 'allowAllRequests' },
         condition: { requestDomains: ['a.com', '10.0.0.1'], resourceTypes: ['main_frame'] },
+      },
+      {
+        id: RULE_SITE_NETWORK,
+        priority: CONTROL_PRIORITY,
+        action: { type: 'allow' },
+        condition: {
+          initiatorDomains: ['10.0.0.1', 'a.com'],
+          excludedResourceTypes: ['main_frame'],
+        },
       },
     ]);
   });
@@ -78,6 +94,7 @@ describe('controlRules', () => {
     expect(COOKIE_RULE_PRIORITY).toBeLessThan(CONTROL_PRIORITY);
     expect(controlRules({ ...on, enabled: false, privacy }).map((r) => r.id)).toEqual([
       RULE_GLOBAL_OFF,
+      RULE_GLOBAL_OFF_FRAMELESS,
     ]);
   });
   it('lifts network filters for a site without disabling page blocks', () => {
@@ -287,6 +304,7 @@ describe('nocookie embeds', () => {
     ]);
     expect(controlRules({ ...on, enabled: false, video }).map((r) => r.id)).toEqual([
       RULE_GLOBAL_OFF,
+      RULE_GLOBAL_OFF_FRAMELESS,
     ]);
   });
 });

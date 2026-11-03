@@ -300,7 +300,11 @@ export function createRouter(deps: RouterDeps) {
         if (!next) throw new Error('Geçersiz yedek dosyası');
         const bag = msg.data as { stats?: unknown };
         if (bag.stats) await deps.restoreStats(bag.stats);
-        return update(() => next, 'all');
+        await update(() => next, 'all');
+        // A backup holds list addresses, not their text.
+        if (next.userLists.length === 0) return next;
+        for (const l of next.userLists) await deps.refreshUserList(l.url);
+        return update((cur) => cur, 'filters');
       }
       case 'video/segments': {
         const s = await deps.load();

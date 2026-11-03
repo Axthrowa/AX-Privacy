@@ -25,8 +25,8 @@ test('overview counts a blocked request, theme changes, and a site can be paused
     chrome.runtime.sendMessage({ type: 'privacy/set', privacy: { detailedReports: true } }),
   );
   await expect(dash.getByRole('heading', { name: 'Özet' })).toBeVisible();
-  await expect(dash.getByText('bugün · Reklam isteği')).toBeVisible();
-  await expect(dash.getByText('Henüz AX')).toBeVisible();
+  await expect(dash.getByText('bugün · Engellenen istek')).toBeVisible();
+  await expect(dash.getByText('Henüz engellenen istek yok')).toBeVisible();
   const nav = dash.getByRole('navigation', { name: 'Sayfalar' });
   for (const name of [
     'Özet',

@@ -35,7 +35,7 @@ describe('TabReports', () => {
       ],
     });
     expect(onBlocked).toHaveBeenCalledTimes(2);
-    expect(onBlocked).toHaveBeenCalledWith('tracker.test', 'https://tracker.test/p.gif', 'other');
+    expect(onBlocked).toHaveBeenCalledWith('tracker.test');
   });
 
   it('starts over on navigation and survives a service worker restart', async () => {

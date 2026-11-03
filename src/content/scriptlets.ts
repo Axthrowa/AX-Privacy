@@ -7,6 +7,8 @@ declare global {
   var __nexusSl: string[] | undefined;
 }
 
+// shortcut: this world cannot read settings, so a third-party frame inside a paused site still runs
+// these; registered scripts can only exclude by a frame's own address.
 const tables = self.__nexusSl ?? [];
 delete self.__nexusSl;
 const parent = location.ancestorOrigins[0];

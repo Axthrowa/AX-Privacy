@@ -80,7 +80,7 @@ export function About({
       </div>
       <p className="note">
         Yedek ayarları, özel kuralları, liste adreslerini ve varsa son 30 günün sayaçlarını içerir.
-        Abone listenin metni yoktur; içe aktarınca listeler yeniden uygulanır.
+        Abone listenin metni yoktur; içe aktarınca listeler yeniden indirilir.
       </p>
     </section>
   );

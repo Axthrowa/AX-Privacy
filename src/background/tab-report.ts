@@ -30,7 +30,7 @@ export class TabReports {
       set(k: string, v: Entry): Promise<void>;
       remove(k: string): Promise<void>;
     },
-    private onBlocked?: (host: string, url: string, type: string) => void,
+    private onBlocked?: (host: string) => void,
   ) {}
 
   private async entry(tabId: number): Promise<Entry> {
@@ -73,7 +73,7 @@ export class TabReports {
     this.touch(tabId);
   }
 
-  async request(tabId: number, url: string, error?: string, type = 'other'): Promise<void> {
+  async request(tabId: number, url: string, error?: string): Promise<void> {
     let host: string;
     try {
       host = new URL(url).hostname;
@@ -91,7 +91,7 @@ export class TabReports {
     if (error === undefined) h.loaded++;
     else if (error === BLOCKED) {
       h.blocked++;
-      this.onBlocked?.(host, url, type);
+      this.onBlocked?.(host);
     } else return;
     this.touch(tabId);
   }
@@ -154,7 +154,7 @@ export function setTabReports(reports: TabReports, on: boolean): void {
   };
   const failed = (d: chrome.webRequest.OnErrorOccurredDetails) => {
     if (d.tabId >= 0 && d.type !== 'main_frame') {
-      void reports.request(d.tabId, d.url, d.error, d.type);
+      void reports.request(d.tabId, d.url, d.error);
     }
   };
   const committed = (d: chrome.webNavigation.WebNavigationTransitionCallbackDetails) => {

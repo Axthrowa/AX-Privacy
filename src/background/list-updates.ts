@@ -24,6 +24,8 @@ import {
 
 export const STATUS_KEY = 'listUpdateStatus';
 export const EXTRA_TOKENS_KEY = 'genericTokensExtra';
+/** Set while a run may have stored lists it has not applied yet. */
+const UNAPPLIED_KEY = 'listUpdateUnapplied';
 
 const version = () => chrome.runtime.getManifest().version;
 
@@ -169,6 +171,8 @@ export function updateBuiltinLists(apply: () => Promise<void>): Promise<ListUpda
       changed: [],
       errors: {},
     };
+    const interrupted = (await chrome.storage.local.get(UNAPPLIED_KEY))[UNAPPLIED_KEY] === true;
+    await chrome.storage.local.set({ [UNAPPLIED_KEY]: true });
     for (const list of BUILTIN_LISTS) {
       if (list.buildOnly || !s.enabledLists.includes(list.id)) continue;
       try {
@@ -182,10 +186,11 @@ export function updateBuiltinLists(apply: () => Promise<void>): Promise<ListUpda
         status.errors[list.id] = e instanceof Error ? e.message : String(e);
       }
     }
-    if (status.changed.length > 0) {
+    if (status.changed.length > 0 || interrupted) {
       await rebuildDefaults();
       await apply();
     }
+    await chrome.storage.local.remove(UNAPPLIED_KEY);
     await chrome.storage.local.set({ [STATUS_KEY]: status });
     return status;
   })().finally(() => {

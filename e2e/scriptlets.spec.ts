@@ -1,3 +1,4 @@
+import type { Worker } from '@playwright/test';
 import { expect, startHttpsServer, startServer, test } from './fixtures.ts';
 
 // Local pages only: every host below resolves to the test server.
@@ -458,3 +459,172 @@ declare global {
     __ranInline?: boolean;
   }
 }
+
+/** Scripts and rules are in place only once the first setup has finished. */
+const setUpDone = (worker: Worker) =>
+  expect
+    .poll(() =>
+      worker.evaluate(
+        async () => (await chrome.storage.local.get('appliedVersion')).appliedVersion,
+      ),
+    )
+    .toBeTruthy();
+
+const FOUGHT_AD = `<div class="ad-links-text" id="generic-ad">reklam</div>`;
+
+test('stored hiding holds on pages that fight it', async ({ context, worker }) => {
+  const { port, server } = await startServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(
+      req.url === '/important'
+        ? page(`<style>#generic-ad{display:block!important}</style>${FOUGHT_AD}`)
+        : page(
+            `${FOUGHT_AD}<script>setTimeout(() => { document.adoptedStyleSheets = []; }, 300);</script>`,
+          ),
+    );
+  });
+  const stored = () =>
+    worker.evaluate(
+      async () =>
+        Object.keys(await chrome.storage.local.get(null)).filter((k) => k.startsWith('cosmetic/'))
+          .length,
+    );
+  await setUpDone(worker);
+  const p = await context.newPage();
+  for (const [host, path] of [
+    [SITE, '/important'],
+    ['other.nexus-test.example', '/reset'],
+  ] as const) {
+    const before = await stored();
+    await p.goto(`http://${host}:${port}${path}`);
+    await expect(p.locator('#generic-ad')).toBeHidden({ timeout: 15_000 });
+    await expect.poll(stored).toBeGreaterThan(before + 1);
+    await p.reload();
+    await p.waitForTimeout(2000);
+    await expect(p.locator('#generic-ad')).toBeHidden();
+  }
+  server.close();
+});
+
+test('a frame inside a paused site gets no stored hiding', async ({
+  context,
+  extensionId,
+  worker,
+}) => {
+  await setUpDone(worker);
+  const OTHER = 'frame.nexus-other.example';
+  const { port, server } = await startServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(
+      req.url === '/top'
+        ? page(`<iframe src="http://${OTHER}:${port}/frame"></iframe>`)
+        : page(FOUGHT_AD),
+    );
+  });
+  const p = await context.newPage();
+  await p.goto(`http://${OTHER}:${port}/frame`);
+  await expect(p.locator('#generic-ad')).toBeHidden({ timeout: 15_000 });
+  await p.waitForTimeout(500);
+  const ui = await context.newPage();
+  await ui.goto(`chrome-extension://${extensionId}/dashboard.html`);
+  await ui.evaluate(() =>
+    chrome.runtime.sendMessage({
+      type: 'site/setPaused',
+      site: 'nexus-test.example',
+      paused: true,
+    }),
+  );
+  await p.goto(`http://${SITE}:${port}/top`);
+  const frame = p.frames().find((f) => f.url().includes('/frame'));
+  await p.waitForTimeout(1500);
+  await expect(frame?.locator('#generic-ad') ?? p.locator('#none')).toBeVisible();
+  server.close();
+});
+
+test('protection off also reaches a service worker, and a paused site too', async ({
+  context,
+  extensionId,
+}) => {
+  const { port, server } = await startServer((req, res) => {
+    if (req.url === '/sw.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript' });
+      res.end(`self.addEventListener('message', async (e) => {
+        let r = 'ok';
+        try { await fetch(e.data, { mode: 'no-cors' }); } catch { r = 'blocked'; }
+        e.source.postMessage(r);
+      });`);
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(page('x'));
+  });
+  const ui = await context.newPage();
+  await ui.goto(`chrome-extension://${extensionId}/dashboard.html`);
+  await ui.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'rules/setCustom', text: '||blocked.nexus-other.example^' }),
+  );
+  const p = await context.newPage();
+  await p.goto(`http://127.0.0.1:${port}/`);
+  const viaWorker = () =>
+    p.evaluate(async (u) => {
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      return new Promise((done) => {
+        navigator.serviceWorker.addEventListener('message', (e) => done(e.data), { once: true });
+        reg.active?.postMessage(u);
+      });
+    }, `http://blocked.nexus-other.example:${port}/x`);
+  expect(await viaWorker()).toBe('blocked');
+
+  await ui.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'site/setPaused', site: '127.0.0.1', paused: true }),
+  );
+  await p.reload();
+  expect(await viaWorker()).toBe('ok');
+  await ui.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'site/setPaused', site: '127.0.0.1', paused: false }),
+  );
+  await p.reload();
+  expect(await viaWorker()).toBe('blocked');
+
+  await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'global/set', enabled: false }));
+  await p.reload();
+  expect(await viaWorker()).toBe('ok');
+  server.close();
+});
+
+test('an interrupted list update is applied by the next run', async ({
+  context,
+  extensionId,
+  worker,
+}) => {
+  await worker.evaluate(async () => {
+    const { settings } = await chrome.storage.local.get('settings');
+    await chrome.storage.local.set({
+      settings: { ...(settings as object), enabledLists: [] },
+      listUpdateUnapplied: true,
+    });
+  });
+  const ui = await context.newPage();
+  await ui.goto(`chrome-extension://${extensionId}/dashboard.html`);
+  // No list is enabled, so nothing is downloaded; only the leftover work runs.
+  await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'lists/updateNow' }));
+  const left = await worker.evaluate(
+    async () => (await chrome.storage.local.get('listUpdateUnapplied')).listUpdateUnapplied,
+  );
+  expect(left).toBeUndefined();
+  const merged = await ui.evaluate(
+    () =>
+      new Promise((done) => {
+        const open = indexedDB.open('nexus');
+        open.onsuccess = () => {
+          const get = open.result
+            .transaction('engines')
+            .objectStore('engines')
+            .getKey('update:default');
+          get.onsuccess = () => done(get.result);
+        };
+      }),
+  );
+  expect(merged).toBe('update:default');
+});
