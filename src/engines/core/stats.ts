@@ -54,7 +54,13 @@ const empty = (): Omit<DayCounts, 'day'> => ({
   consent: 0,
 });
 
-const CATEGORY_OF = new Map(BUILTIN_LISTS.map((l) => [l.id, l.category]));
+/** By id and by name: a blocked page is reported under the name the warning shows. */
+const CATEGORY_OF = new Map(
+  BUILTIN_LISTS.flatMap((l) => [
+    [l.id, l.category],
+    [l.name, l.category],
+  ]),
+);
 
 /**
  * Which bucket a DNR match belongs to. Empty means not this extension (Shields or another blocker).
@@ -70,11 +76,12 @@ export function classifyRulesets(ids: readonly string[]): StatKey | null {
   return 'other';
 }
 
-export function utcDay(ms = Date.now()): string {
-  return new Date(ms).toISOString().slice(0, 10);
+/** The user's calendar day, as YYYY-MM-DD. */
+export function localDay(ms = Date.now()): string {
+  return new Date(ms).toLocaleDateString('sv');
 }
 
-export function daysAgo(n: number, from = utcDay()): string {
+export function daysAgo(n: number, from = localDay()): string {
   const d = new Date(`${from}T00:00:00.000Z`);
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
@@ -88,7 +95,8 @@ export function eachDay(from: string, to: string): string[] {
 
 const isKey = (c: string): c is StatKey => (STAT_KEYS as readonly string[]).includes(c);
 
-const requestSum = (d: Omit<DayCounts, 'day'>) => d.ads + d.trackers + d.security + d.other;
+/** `ads` and `trackers` only exist in rows from older versions; see `StatsRecorder.request`. */
+export const blockedRequests = (d: Omit<DayCounts, 'day'>) => d.ads + d.trackers + d.other;
 
 /** Fills every calendar day in the range, even when nothing was recorded. */
 export function summarize(
@@ -122,8 +130,8 @@ export function summarize(
     .slice(0, 10);
   return {
     days,
-    totals: { ...totals, requests: requestSum(totals) },
+    totals: { ...totals, requests: blockedRequests(totals) },
     topHosts,
-    events: events.filter((e) => utcDay(e.at) >= from).slice(0, 50),
+    events: events.filter((e) => localDay(e.at) >= from).slice(0, 50),
   };
 }

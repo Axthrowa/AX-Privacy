@@ -418,6 +418,21 @@ describe('router', () => {
     );
   });
 
+  it('downloads the lists of a restored backup', async () => {
+    const { route, get, deps } = setup();
+    const url = 'https://l.example/list.txt';
+    await route(
+      {
+        type: 'settings/import',
+        data: { nexus: 1, settings: { userLists: [{ url, enabled: true }] } },
+      },
+      ui,
+    );
+    expect(deps.refreshUserList).toHaveBeenCalledWith(url);
+    expect(deps.applyFilters).toHaveBeenCalledTimes(2);
+    expect(get().userLists).toEqual([{ url, enabled: true }]);
+  });
+
   it('refuses privileged messages from content scripts', async () => {
     const { route, deps } = setup();
     await expect(

@@ -80,6 +80,11 @@ async function lastReports(): Promise<Map<string, SourceReport>> {
 let engineCache: { key: string; engine: Promise<FiltersEngine | null> } | null = null;
 let popupCache: { key: string; matcher: Promise<PopupMatcher> } | null = null;
 
+async function sha256(text: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return new Uint8Array(hash).join();
+}
+
 function cacheKey(s: Settings, fetched: readonly (number | null)[]): string {
   return JSON.stringify([s.enabledLists, s.customRules, s.userLists, fetched]);
 }
@@ -110,6 +115,29 @@ export async function applyFilters(s: Settings): Promise<void> {
   const updates = (
     await Promise.all(BUILTIN_LISTS.filter((l) => enabled.has(l.id)).map((l) => liveUpdate(l.id)))
   ).filter((u): u is ListUpdate => u !== null);
+  const sources = [
+    { name: CUSTOM_SOURCE, lines: splitRules(s.customRules).network },
+    ...(await userListLines(s)).map((l) => ({ name: l.url, lines: l.lines })),
+  ];
+  const build = await buildDynamicRules(
+    sources,
+    async (regex, isCaseSensitive) =>
+      (await chrome.declarativeNetRequest.isRegexSupported({ regex, isCaseSensitive })).isSupported,
+    updates.flatMap((u) => u.add),
+  );
+  // Only a digest: session storage holds 10 MB, and one big list can compile to more than that.
+  const payload = await sha256(JSON.stringify(build.rules));
+  const prev = (await chrome.storage.session.get(FILTER_RULES_KEY))[FILTER_RULES_KEY];
+  if (prev !== payload) {
+    const existing = await chrome.declarativeNetRequest.getDynamicRules();
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: existing.map((r) => r.id).filter((id) => !CONTROL_RULE_IDS.includes(id)),
+      addRules: build.rules as chrome.declarativeNetRequest.Rule[],
+    });
+    await chrome.storage.session.set({ [FILTER_RULES_KEY]: payload });
+  }
+
+  // After the additions: if those fail, old rules stay on instead of leaving a gap.
   // A rule the list dropped stays on once this limit is reached: stale, not missing protection.
   let disableBudget = MAX_DISABLED_STATIC_RULES;
   for (const list of BUILTIN_LISTS) {
@@ -130,26 +158,6 @@ export async function applyFilters(s: Settings): Promise<void> {
     }
   }
 
-  const sources = [
-    { name: CUSTOM_SOURCE, lines: splitRules(s.customRules).network },
-    ...(await userListLines(s)).map((l) => ({ name: l.url, lines: l.lines })),
-  ];
-  const build = await buildDynamicRules(
-    sources,
-    async (regex, isCaseSensitive) =>
-      (await chrome.declarativeNetRequest.isRegexSupported({ regex, isCaseSensitive })).isSupported,
-    updates.flatMap((u) => u.add),
-  );
-  const payload = JSON.stringify(build.rules);
-  const prev = (await chrome.storage.session.get(FILTER_RULES_KEY))[FILTER_RULES_KEY];
-  if (prev !== payload) {
-    const existing = await chrome.declarativeNetRequest.getDynamicRules();
-    await chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds: existing.map((r) => r.id).filter((id) => !CONTROL_RULE_IDS.includes(id)),
-      addRules: build.rules as chrome.declarativeNetRequest.Rule[],
-    });
-    await chrome.storage.session.set({ [FILTER_RULES_KEY]: payload });
-  }
   await chrome.storage.session.set({ [REPORTS_KEY]: Object.fromEntries(build.reports) });
   const key = cacheKey(s, await userFetchTimes(s));
   if (engineCache?.key !== key) {

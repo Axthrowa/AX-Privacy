@@ -15,6 +15,7 @@ export const RULE_SITE_NETWORK = 5;
 export const RULE_SITE_SECURITY = 6;
 export const RULE_GPC = 7;
 export const RULE_CDN_COOKIES = 8;
+export const RULE_GLOBAL_OFF_FRAMELESS = 9;
 export const CONTROL_RULE_IDS = [
   RULE_GLOBAL_OFF,
   RULE_PAUSED_SITES,
@@ -24,6 +25,7 @@ export const CONTROL_RULE_IDS = [
   RULE_SITE_SECURITY,
   RULE_GPC,
   RULE_CDN_COOKIES,
+  RULE_GLOBAL_OFF_FRAMELESS,
 ];
 /** Above filter-list exceptions (which would otherwise skip header removal), below pausing. */
 export const COOKIE_RULE_PRIORITY = 100;
@@ -74,6 +76,13 @@ export function controlRules(s: Settings): Rule[] {
       priority: CONTROL_PRIORITY,
       action: { type: ALLOW_ALL },
       condition: { resourceTypes: [MAIN_FRAME, SUB_FRAME] },
+    });
+    // allowAllRequests only reaches into frames; a service worker's requests have none.
+    rules.push({
+      id: RULE_GLOBAL_OFF_FRAMELESS,
+      priority: CONTROL_PRIORITY,
+      action: { type: 'allow' as RuleActionType },
+      condition: {},
     });
   }
   if (s.pausedSites.length > 0) {
@@ -156,7 +165,7 @@ export function controlRules(s: Settings): Rule[] {
       },
     });
   }
-  const networkOff = profileOnlyOff(s, 'network');
+  const networkOff = sitesOff(s, 'network');
   if (s.enabled && networkOff.length > 0) {
     rules.push({
       id: RULE_SITE_NETWORK,

@@ -179,3 +179,12 @@ describe('isValidListUrl', () => {
     expect(isValidListUrl(`https://e.com/${'a'.repeat(2048)}`)).toBe(false);
   });
 });
+
+describe('site profiles', () => {
+  it('keeps every site, however many', () => {
+    const siteProfiles = Object.fromEntries(
+      Array.from({ length: 60 }, (_, i) => [`s${i}.example`, { network: false }]),
+    );
+    expect(Object.keys(normalizeSettings({ siteProfiles }).siteProfiles)).toHaveLength(60);
+  });
+});

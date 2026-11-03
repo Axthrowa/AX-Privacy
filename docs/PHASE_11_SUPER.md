@@ -103,3 +103,7 @@ Sınırlar: yeni bir eklenti sürümü eski güncellemeleri geçersiz kılar ve 
 - **Firefox testleri:** scriptlet, form yoluyla açılan reklam sekmesi ve yönlendirme atlama eklendi. **Bilinen sınır:** surrogate dosyaları Firefox'ta yüklenmiyor (neden bulunamadı); kural düz engel gibi çalışıyor.
 - **Uyanıklık:** ilk ölçümde service worker gezinme boyunca %99 uyanıktı, çünkü her çerçeve açılışta mesaj atıyordu. Gizleme sonuçları artık `storage.local`'da; içerik betiği daha önce görülen host için arka planı hiç uyandırmıyor. Sonuç `docs/resource-check.json` dosyasında. uBO Lite'ın aynı ölçümdeki değeri doğrudan karşılaştırılamaz: varsayılan temel kipte büyük olasılıkla sayfa betiği çalıştırmıyor, bu doğrulanmadı.
 - **Uyanıklık ölçümü** (`npm run resource-check`, aynı siteye 10 saniyede bir ziyaret, 2 dakika): düzeltme öncesi %99; içerik önbelleği ve `tabs.onRemoved` dinleyicisinin kaldırılmasıyla %41 (tek uyanış, ilk ziyaret sonrası arka plan bir daha uyanmadı). Ayrıntılı raporlar açıkken %99. Her yeni site ilk ziyarette yine uyandırır; çok farklı site gezinmede oran daha yüksek olur.
+
+## 0.14.1
+
+Denetim düzeltmeleri. Koruma kapalıyken veya site duraklatılmışken service worker istekleri de serbest; önbellekten gelen gizlemeye direnen sayfada arka plan güçlü CSS ekliyor; duraklatılmış sitenin içindeki çerçeveler önbellekteki gizlemeyi kullanmıyor. Paketli eklentide `testMatchOutcome` çalışmadığı için reklam/izleyici ayrımı kalktı: Özet tek bir "engellenen istek" sayısı gösteriyor, buna Shields da dahil.

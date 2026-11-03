@@ -93,8 +93,8 @@ export function Privacy({
         onChange={(on) => set({ detailedReports: on })}
       />
       <p className="note">
-        Açılır penceredeki alan adı listesini ve Özet’teki reklam / izleyici sayaçlarını tutar.
-        Bunun için arka plan her istekte uyanır, bu yüzden varsayılan olarak kapalıdır. Engelleme bu
+        Açılır penceredeki alan adı listesini ve Özet’teki engellenen istek sayacını tutar. Bunun
+        için arka plan her istekte uyanır, bu yüzden varsayılan olarak kapalıdır. Engelleme bu
         ayardan etkilenmez.
       </p>
 

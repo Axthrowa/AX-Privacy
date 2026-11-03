@@ -90,16 +90,7 @@ export function deleteList(db: NexusDB, url: string): Promise<void> {
   return db.delete('lists', url);
 }
 
-export async function addStat(
-  db: NexusDB,
-  day: string,
-  category: string,
-  n: number,
-): Promise<void> {
-  await addStats(db, day, [[category, n]]);
-}
-
-/** One transaction for a day's batch; calling addStat per key was waking IDB repeatedly. */
+/** One transaction for a day's batch; one per key was waking IDB repeatedly. */
 export async function addStats(
   db: NexusDB,
   day: string,

@@ -184,7 +184,6 @@ function normalizeProfiles(raw: unknown): Record<string, SiteProfile> {
     const profile: SiteProfile = { ...DEFAULT_SITE_PROFILE };
     for (const k of PROFILE_KEYS) if (typeof p[k] === 'boolean') profile[k] = p[k];
     if (PROFILE_KEYS.some((k) => !profile[k])) out[site] = profile;
-    if (Object.keys(out).length >= 50) break;
   }
   return out;
 }

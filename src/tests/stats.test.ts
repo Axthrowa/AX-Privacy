@@ -5,13 +5,14 @@ import {
   daysAgo,
   eachDay,
   summarize,
-  utcDay,
+  localDay,
 } from '../engines/core/stats.ts';
 import { parseStatsDump } from '../background/stats.ts';
 
 describe('calendar helpers', () => {
   it('walks UTC days inclusive', () => {
-    expect(utcDay(Date.UTC(2026, 10, 1, 23))).toBe('2026-11-01');
+    expect(localDay(new Date(2026, 10, 1, 23, 30).getTime())).toBe('2026-11-01');
+    expect(localDay(new Date(2026, 10, 2, 0, 30).getTime())).toBe('2026-11-02');
     expect(daysAgo(1, '2026-11-01')).toBe('2026-10-31');
     expect(eachDay('2026-10-30', '2026-11-01')).toEqual(['2026-10-30', '2026-10-31', '2026-11-01']);
   });
@@ -26,6 +27,9 @@ describe('classifyRulesets', () => {
     expect(classifyRulesets(['easylist', 'easyprivacy'])).toBe('trackers');
     expect(classifyRulesets(['urlhaus', 'easylist'])).toBe('security');
     expect(classifyRulesets(['_dynamic'])).toBe('other');
+    expect(classifyRulesets(['Online Malicious URL Blocklist (URLhaus, alan adları)'])).toBe(
+      'security',
+    );
   });
 });
 

@@ -27,7 +27,6 @@ export interface SourceReport {
 
 export interface DynamicBuild {
   rules: DnrRule[];
-  popupRules: CompiledRule[];
   reports: Map<string, SourceReport>;
 }
 
@@ -41,10 +40,25 @@ export async function buildDynamicRules(
   precompiled: readonly CompiledRule[] = [],
 ): Promise<DynamicBuild> {
   const rules: DnrRule[] = [];
-  const popupRules: CompiledRule[] = [];
   const reports = new Map<string, SourceReport>();
   let regex = 0;
   let unsafe = 0;
+  /** Adds the rule unless a quota is full. */
+  const take = (rule: CompiledRule): boolean => {
+    const re = rule.condition.regexFilter;
+    const isUnsafe = rule.action.type === 'redirect' || rule.action.type === 'modifyHeaders';
+    if (
+      rules.length >= MAX_FILTER_RULES ||
+      (re !== undefined && regex >= MAX_REGEX_RULES) ||
+      (isUnsafe && unsafe >= MAX_UNSAFE_RULES)
+    ) {
+      return false;
+    }
+    if (re !== undefined) regex++;
+    if (isUnsafe) unsafe++;
+    rules.push({ id: FIRST_DYNAMIC_ID + rules.length, ...rule });
+    return true;
+  };
   for (const src of sources) {
     const compiled = compileList(src.lines, { allowRegex: true });
     const { stats } = compiled;
@@ -60,40 +74,16 @@ export async function buildDynamicRules(
         stats.dnrRules--;
         continue;
       }
-      const isUnsafe = rule.action.type === 'redirect' || rule.action.type === 'modifyHeaders';
-      if (
-        rules.length >= MAX_FILTER_RULES ||
-        (re !== undefined && regex >= MAX_REGEX_RULES) ||
-        (isUnsafe && unsafe >= MAX_UNSAFE_RULES)
-      ) {
-        truncated++;
-        continue;
-      }
-      if (re !== undefined) regex++;
-      if (isUnsafe) unsafe++;
-      rules.push({ id: FIRST_DYNAMIC_ID + rules.length, ...rule });
+      if (!take(rule)) truncated++;
     }
-    popupRules.push(...compiled.popupRules);
     reports.set(src.name, { stats, truncated });
   }
   let truncatedUpdates = 0;
   for (const rule of precompiled) {
-    const re = rule.condition.regexFilter;
-    const isUnsafe = rule.action.type === 'redirect' || rule.action.type === 'modifyHeaders';
-    if (
-      rules.length >= MAX_FILTER_RULES ||
-      (re !== undefined && regex >= MAX_REGEX_RULES) ||
-      (isUnsafe && unsafe >= MAX_UNSAFE_RULES)
-    ) {
-      truncatedUpdates++;
-      continue;
-    }
-    if (re !== undefined) regex++;
-    if (isUnsafe) unsafe++;
-    rules.push({ id: FIRST_DYNAMIC_ID + rules.length, ...rule });
+    if (!take(rule)) truncatedUpdates++;
   }
   if (truncatedUpdates > 0) {
     console.warn(`Dinamik kural kotası doldu: ${truncatedUpdates} güncelleme kuralı atlandı`);
   }
-  return { rules, popupRules, reports };
+  return { rules, reports };
 }

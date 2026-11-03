@@ -54,6 +54,11 @@ test('custom hiding rule from the dashboard hides the element, pausing restores 
       action: { type: 'allowAllRequests' },
       condition: expect.objectContaining({ requestDomains: ['127.0.0.1'] }),
     }),
+    expect.objectContaining({
+      id: 5,
+      action: { type: 'allow' },
+      condition: expect.objectContaining({ initiatorDomains: ['127.0.0.1'] }),
+    }),
   ]);
   expect(scripts[0]?.excludeMatches).toContain('*://127.0.0.1/*');
   await dash.goto(`chrome-extension://${extensionId}/dashboard.html#sites`);
@@ -93,7 +98,9 @@ test('global switch in the popup turns everything off and back on', async ({
   await expect(global).toBeChecked();
 
   await global.click();
-  await expect.poll(async () => (await browserState(worker)).rules.map((r) => r.id)).toEqual([1]);
+  await expect
+    .poll(async () => (await browserState(worker)).rules.map((r) => r.id))
+    .toEqual([1, 9]);
   expect((await browserState(worker)).scripts).toEqual([]);
   await expect(global).not.toBeChecked();
 

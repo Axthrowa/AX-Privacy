@@ -1,11 +1,11 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
 import {
-  addStat,
   addStats,
   clearStats,
   getEngine,
   openNexusDB,
+  type NexusDB,
   pruneStatsBefore,
   putEngine,
   statsSince,
@@ -24,6 +24,9 @@ describe('engines store', () => {
     expect(await getEngine(db, 'missing')).toBeUndefined();
   });
 });
+
+const addStat = (db: NexusDB, day: string, category: string, n: number) =>
+  addStats(db, day, [[category, n]]);
 
 describe('stats store', () => {
   it('accumulates counts per day and category', async () => {
