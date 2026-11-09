@@ -12,6 +12,22 @@ describe('shouldBlockOpen', () => {
     );
   });
 
+  it('blocks window.open() with no URL, which a script fills in afterwards', () => {
+    expect(shouldBlockOpen(page, '', null, false)).toBe(true);
+    expect(shouldBlockOpen(page, '', 'https://netprime.me/title', false)).toBe(true);
+  });
+
+  it('allows the clicked link after the page wrapped it or added to it', () => {
+    const link = 'https://click.mailer.example/ls?u=abc';
+    const wrapped = `https://redirect.mail.example/url?q=${encodeURIComponent(link)}`;
+    expect(shouldBlockOpen(page, wrapped, link, false)).toBe(false);
+    expect(shouldBlockOpen(page, 'https://click.mailer.example/ls?u=abc&x=1', link, false)).toBe(
+      false,
+    );
+    expect(shouldBlockOpen(page, link, wrapped, false)).toBe(false);
+    expect(shouldBlockOpen(page, 'https://ads.example/a', link, false)).toBe(true);
+  });
+
   it('allows the link under the cursor, and any same-site window', () => {
     expect(
       shouldBlockOpen(page, 'https://fine.example/out', 'https://fine.example/out', false),

@@ -66,6 +66,16 @@ function covers(el: Element): boolean {
   return r.width >= innerWidth * 0.7 && r.height >= innerHeight * 0.7;
 }
 
+/** A link with nothing to see in it, lying on a player: the click was meant for the player. */
+function hidesPlayer(link: Element, x: number, y: number): boolean {
+  return (
+    !link.textContent?.trim() &&
+    !link.querySelector('img,picture,svg,video,canvas') &&
+    getComputedStyle(link).backgroundImage === 'none' &&
+    document.elementsFromPoint(x, y).some((el) => el !== link && el.matches('video,iframe,embed'))
+  );
+}
+
 function guard(win: Window): void {
   if (guarded.has(win)) return;
   let native: typeof win.open;
@@ -89,16 +99,20 @@ function guard(win: Window): void {
   }
 }
 
-const view = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
-if (view?.get) {
+// A fresh frame's window is reachable through either property.
+for (const prop of ['contentWindow', 'contentDocument'] as const) {
+  const view = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, prop);
+  if (!view?.get) continue;
   const get = view.get;
-  Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+  Object.defineProperty(HTMLIFrameElement.prototype, prop, {
     configurable: true,
     enumerable: view.enumerable,
     get() {
-      const win = get.call(this) as Window | null;
-      if (win) guard(win);
-      return win;
+      const value = get.call(this) as Window | Document | null;
+      // Not `instanceof Document`: a frame's document comes from that frame's own globals.
+      const win = prop === 'contentDocument' ? (value as Document | null)?.defaultView : value;
+      if (win) guard(win as Window);
+      return value;
     },
   });
 }
@@ -108,31 +122,47 @@ const CONTROLS =
   'button,input,select,label,summary,[role=button],[role=link],[role=menuitem],[onclick]';
 
 function isControl(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return !!target.closest(CONTROLS) || getComputedStyle(target).cursor === 'pointer';
+  // A click on a page-wide layer, or under a page-wide pointer cursor, says nothing about intent.
+  // Inside a frame that is normal: a pay or sign-in button fills its own frame.
+  if (!(target instanceof Element) || (window === top && covers(target))) return false;
+  if (target.closest(CONTROLS)) return true;
+  return (
+    getComputedStyle(target).cursor === 'pointer' &&
+    getComputedStyle(document.body).cursor !== 'pointer'
+  );
 }
 
 function arm(e: MouseEvent): void {
   if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-  armedUntil = Date.now() + POPUP_ARM_MS;
+  const link = e.target instanceof Element ? e.target.closest('a[href]') : null;
   if (!e.isTrusted) {
-    clickedHref = null;
-    overlay = false;
-    onControl = false;
-    const link = e.target instanceof Element ? e.target.closest('a[href]') : null;
-    if (link instanceof HTMLAnchorElement && isForeignPopup(location.href, link.href)) {
+    // Pages replay the user's click with their own events; those must not erase what was clicked.
+    const armed = Date.now() < armedUntil;
+    if (!armed) {
+      armedUntil = Date.now() + POPUP_ARM_MS;
+      clickedHref = null;
+      overlay = false;
+      onControl = false;
+    }
+    if (
+      link instanceof HTMLAnchorElement &&
+      isForeignPopup(location.href, link.href) &&
+      (!armed || isAdWindow(link.href))
+    ) {
       e.preventDefault();
       e.stopPropagation();
     }
     return;
   }
-  const link = e.target instanceof Element ? e.target.closest('a[href]') : null;
+  armedUntil = Date.now() + POPUP_ARM_MS;
   const href = link instanceof HTMLAnchorElement ? link.href : null;
   const scriptLink = href !== null && isScriptLink(location.href, href);
   clickedHref = scriptLink ? null : href;
   onControl = scriptLink || isControl(e.target);
   overlay =
-    link instanceof HTMLAnchorElement && isForeignPopup(location.href, link.href) && covers(link);
+    link instanceof HTMLAnchorElement &&
+    isForeignPopup(location.href, link.href) &&
+    (covers(link) || hidesPlayer(link, e.clientX, e.clientY));
   if (!overlay || !(link instanceof HTMLAnchorElement)) return;
   e.preventDefault();
   e.stopPropagation();

@@ -1,5 +1,5 @@
-/** Click-hijack scripts open the ad in this window after the click. */
-export const POPUP_ARM_MS = 1500;
+/** As long as a click lets a page open a window (Chromium's transient activation): ads wait it out. */
+export const POPUP_ARM_MS = 5000;
 
 function resolved(base: string, url: string): string | null {
   try {
@@ -32,6 +32,8 @@ function baseDomain(url: string): string | null {
 
 /** about:blank and a different site. Same-site players and logins stay allowed. */
 export function isForeignPopup(pageUrl: string, destUrl: string): boolean {
+  // window.open() with no URL is a blank window the script fills in afterwards.
+  if (destUrl === '') return true;
   const href = resolved(pageUrl, destUrl);
   if (!href) return false;
   const dest = new URL(href);
@@ -103,6 +105,17 @@ function foreignCaller(pageUrl: string, destUrl: string, callers: readonly strin
 }
 
 /**
+ * The window is the clicked link after the page's own link handling: mail and social sites wrap links
+ * in their redirect or add parameters. Hijacks send you to another site without carrying the link.
+ */
+function sameDestination(want: string, got: string): boolean {
+  if (want === got || baseDomain(want) === baseDomain(got)) return true;
+  const carries = (outer: string, inner: string) =>
+    outer.includes(inner) || outer.includes(encodeURIComponent(inner));
+  return carries(got, want) || carries(want, got);
+}
+
+/**
  * A click-time new window is an ad when it leaves the site and is not the link under the cursor.
  * A full-page third-party overlay is an ad even when the opened URL matches that overlay.
  * Without a link to compare, sign-in and share buttons must keep working, while ad scripts that hook
@@ -117,10 +130,10 @@ export function shouldBlockOpen(
 ): boolean {
   if (!isForeignPopup(pageUrl, destUrl)) return false;
   if (overlay) return true;
-  const got = resolved(pageUrl, destUrl);
+  const got = resolved(pageUrl, destUrl || 'about:blank');
   if (clickedHref) {
     const want = resolved(pageUrl, clickedHref);
-    return want === null || got === null || want !== got;
+    return want === null || got === null || !sameDestination(want, got);
   }
   const dest = got ? baseDomain(got) : null;
   if (dest && TRUSTED_DESTINATIONS.has(dest)) return false;

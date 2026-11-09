@@ -297,7 +297,9 @@ test('every regex rule shipped in a ruleset is one the browser accepts, within i
 
 test('ad tabs opened through forms and detached links are stopped; real buttons still work', async ({
   context,
+  worker,
 }) => {
+  await setUpDone(worker);
   const { port, server } = await startServer((req, res) => {
     if (req.url === '/hook.js') {
       res.writeHead(200, { 'content-type': 'text/javascript' });
@@ -316,6 +318,14 @@ test('ad tabs opened through forms and detached links are stopped; real buttons 
           a.dispatchEvent(new MouseEvent('click'));
         } else if (window.__mode === 'open') {
           window.open(ad);
+        } else if (window.__mode === 'blank') {
+          window.open();
+        } else if (window.__mode === 'late') {
+          setTimeout(() => window.open(ad), 2000);
+        } else if (window.__mode === 'frame-doc') {
+          const f = document.createElement('iframe');
+          document.body.append(f);
+          f.contentDocument.defaultView.open(ad);
         }
       });`);
       return;
@@ -327,11 +337,38 @@ test('ad tabs opened through forms and detached links are stopped; real buttons 
         <a id="js-link" href="#" onclick="window.open(window.__share);return false">Paylas 2</a>
         <button id="plain">Dugme</button>
         <form action="/same" target="_blank"><button id="same-form">Ayni site</button></form>
+        <a id="replayed" target="_blank">Yeniden tiklanan</a>
+        <a id="wrapped" target="_blank">Sarilan</a>
+        <div style="position:relative;width:320px;height:180px">
+          <video style="width:100%;height:100%"></video>
+          <a id="veil" target="_blank" style="position:absolute;inset:0"></a>
+        </div>
         <script>
           window.__ad = 'http://ads.nexus-other.example:${port}/landing';
           window.__share = 'http://share.nexus-other.example:${port}/s';
+          const out = 'http://mailer.nexus-other.example:${port}/out';
+          document.getElementById('veil').href = window.__ad;
+          const replayed = document.getElementById('replayed');
+          replayed.href = out;
+          // Web mail replays the user's click with its own events, on a copy of the link.
+          replayed.onclick = (e) => {
+            if (!e.isTrusted) return;
+            e.preventDefault();
+            replayed.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            const copy = replayed.cloneNode();
+            copy.id = '';
+            document.body.append(copy);
+            copy.click();
+            copy.remove();
+          };
+          const wrapped = document.getElementById('wrapped');
+          wrapped.href = out;
+          wrapped.onclick = (e) => {
+            e.preventDefault();
+            window.open('http://redirect.nexus-other.example:${port}/url?q=' + encodeURIComponent(out));
+          };
         </script>
-        <script src="http://cdn.nexus-other.example:${port}/hook.js"></script>`),
+        <script src="http://cdn.nexus-third.example:${port}/hook.js"></script>`),
     );
   });
   const p = await context.newPage();
@@ -341,17 +378,28 @@ test('ad tabs opened through forms and detached links are stopped; real buttons 
       (window as unknown as { __mode: string | null }).__mode = m;
     }, mode);
     const before = new Set(context.pages());
-    await p.click(selector);
+    // The veil steps aside on press, which Playwright's own hit check would keep retrying.
+    await p.click(selector, { force: selector === '#veil' });
     await p.waitForTimeout(500);
     const fresh = context.pages().filter((t) => !before.has(t));
     await Promise.all(fresh.map((t) => t.close()));
     return fresh.length;
   };
-  for (const mode of ['form', 'detached', 'dispatch', 'open']) {
+  for (const mode of ['form', 'detached', 'dispatch', 'open', 'blank', 'frame-doc']) {
     expect(await clickAndCount('#empty', mode), `${mode} on empty space`).toBe(0);
     // The hijacker also hooks clicks on real buttons; it is the third-party script that is refused.
     expect(await clickAndCount('#plain', mode), `${mode} on a button`).toBe(0);
   }
+  expect(await clickAndCount('#veil', null), 'empty link over a player').toBe(0);
+  await p.evaluate(() => {
+    (window as unknown as { __mode: string }).__mode = 'late';
+  });
+  const late = new Set(context.pages());
+  await p.click('#empty');
+  await p.waitForTimeout(2500);
+  expect(context.pages().filter((t) => !late.has(t)).length, 'window after a delay').toBe(0);
+  expect(await clickAndCount('#replayed', null), 'link the page replays').toBe(1);
+  expect(await clickAndCount('#wrapped', null), 'link the page wraps').toBe(1);
   expect(await clickAndCount('#share', null), 'share button').toBe(1);
   expect(await clickAndCount('#js-link', null), 'script link').toBe(1);
   expect(await clickAndCount('#same-form', null), 'same-site form').toBe(1);

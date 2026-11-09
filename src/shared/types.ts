@@ -44,6 +44,10 @@ export interface PrivacySettings {
   cleanLinks: boolean;
   /** Drop cookies of hosts that pages need but that also track (see `engines/core/cdn-cookies.ts`). */
   cdnCookies: boolean;
+  /** Keep WebRTC to the public address sites already see: no local or behind-VPN addresses. */
+  hideLocalIps: boolean;
+  /** Report US English and UTC instead of the real language and time zone. */
+  hideLocale: boolean;
   /**
    * Per-page host lists and daily counters. They need a listener on every request, which keeps the
    * service worker awake while any page loads, so they are off unless asked for.

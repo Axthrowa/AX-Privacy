@@ -23,7 +23,8 @@ import {
   refreshUserList,
 } from './filters.ts';
 import { chromeConsentDeps, handleConsent } from './consent.ts';
-import { installPopupGuard, noteUserOpen } from './popup-guard.ts';
+import { applyWebRtcPolicy } from './location.ts';
+import { installPopupGuard, isPagePopup, noteUserOpen } from './popup-guard.ts';
 import { createRouter } from './router.ts';
 import { installSecurityGuard, proceed, wasProceeded } from './security.ts';
 import { sponsorSegments } from './sponsor.ts';
@@ -91,6 +92,7 @@ async function apply(s: Settings): Promise<void> {
     if (scripts.length > 0) await chrome.scripting.registerContentScripts(scripts);
   }
   await chrome.storage.session.set({ [APPLY_KEY]: { control, scripts: key } });
+  await applyWebRtcPolicy(s).catch(() => undefined);
   syncListeners(s);
   const tabs = await chrome.tabs.query({});
   await Promise.all(tabs.map((t) => setBadge(s, t)));
@@ -196,7 +198,13 @@ const route = createRouter({
 
 installPopupGuard(loadSettings, (url) => stats.popup(url));
 void loadSettings().then(syncListeners);
-installSecurityGuard(loadSettings, blockingList, (url, list) => stats.page(url, list));
+installSecurityGuard(
+  loadSettings,
+  blockingList,
+  (url, list) => stats.page(url, list),
+  isPagePopup,
+  (url) => stats.popup(url),
+);
 
 /** Subscribed lists are re-downloaded daily; built-in lists update with the extension. */
 const LIST_REFRESH_ALARM = 'userLists/refresh';

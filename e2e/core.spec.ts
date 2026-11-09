@@ -5,8 +5,10 @@ import { join } from 'node:path';
 import { BASE_SCRIPTS, BRAVE_PATH, EXTENSION_DIR, expect, test } from './fixtures.ts';
 
 const RULE_CDN_COOKIES = 8;
+// Rotating ad loaders and their fallback host, blocked whenever protection is on.
+const RULE_ROTATING_ADS = [11, 12];
 // Brave sends the GPC header itself, so the rule for it is not installed there.
-const DEFAULT_RULES = [RULE_CDN_COOKIES];
+const DEFAULT_RULES = [RULE_CDN_COOKIES, ...RULE_ROTATING_ADS];
 
 const send = (page: Page, msg: object) => page.evaluate((m) => chrome.runtime.sendMessage(m), msg);
 

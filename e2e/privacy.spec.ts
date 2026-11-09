@@ -21,6 +21,9 @@ function handle(req: IncomingMessage, res: ServerResponse) {
   if (path === '/consent') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(`<!doctype html><title>consent</title><p>İçerik</p>${BANNER}`);
+  } else if (path === '/lang') {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end(String(req.headers['accept-language'] ?? ''));
   } else if (path === '/data') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end('{}');
@@ -297,4 +300,39 @@ test('strict fingerprint level caps CPU cores and hides the GPU model', async ({
   });
   expect(probe.cores).toBeLessThanOrEqual(4);
   expect(probe.gpu).toBe(probe.generic);
+});
+
+test('WebRTC keeps local addresses private by default; language and time zone hide on request', async ({
+  context,
+  extensionId,
+  worker,
+}) => {
+  await expect
+    .poll(() =>
+      worker.evaluate(
+        async () => (await chrome.privacy.network.webRTCIPHandlingPolicy.get({})).value,
+      ),
+    )
+    .toBe('default_public_interface_only');
+  const page = await context.newPage();
+  const seen = async () => {
+    await page.goto(`${host(SITE)}/`);
+    return page.evaluate(() => ({
+      language: navigator.language,
+      zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      offset: new Date().getTimezoneOffset(),
+    }));
+  };
+  const dash = await dashboard(context, extensionId);
+  const toggle = dash.getByRole('switch', { name: 'Dil ve saat dilimini gizle' });
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect.poll(() => scriptIds(worker)).toEqual([...BASE_SCRIPTS, 'locale'].sort());
+  const after = await seen();
+  expect(after).toEqual({ language: 'en-US', zone: 'UTC', offset: 0 });
+  await page.goto(`${host(SITE)}/lang`);
+  expect(await page.textContent('body')).toBe('en-US,en;q=0.9');
+
+  await toggle.click();
+  await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS);
 });

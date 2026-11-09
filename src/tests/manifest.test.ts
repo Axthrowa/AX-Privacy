@@ -16,6 +16,8 @@ describe('manifest', () => {
       // Daily refresh of user-added filter lists.
       'alarms',
       'declarativeNetRequest',
+      // WebRTC address policy (background/location.ts).
+      'privacy',
       'storage',
       'scripting',
       'tabs',

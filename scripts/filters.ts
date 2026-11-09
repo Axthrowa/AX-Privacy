@@ -23,7 +23,7 @@ import {
   withIds,
   type CompiledRule,
 } from '../src/engines/adblock/network.ts';
-import { BUILTIN_LISTS } from '../src/filters/catalog.ts';
+import { BUILTIN_LISTS, strictHosts } from '../src/filters/catalog.ts';
 import { safeCosmeticLines } from '../src/filters/custom.ts';
 import type { BuiltinListMeta } from '../src/filters/meta.ts';
 import { includesOf, preprocess } from '../src/filters/preprocess.ts';
@@ -87,7 +87,10 @@ for (const list of BUILTIN_LISTS) {
   await fetchIncludes(text, list.url, includes);
   const lines = preprocess(text, undefined, includes);
 
-  const { rules, popupRules, documentRules, stats } = compileList(lines, { allowRegex: true });
+  const { rules, popupRules, documentRules, stats } = compileList(lines, {
+    allowRegex: true,
+    strictHosts: strictHosts(list),
+  });
   compiled.push({ id: list.id, rules, documentRules });
   await writeFile(resolve(rulesetDir, `${list.id}.popup.json`), JSON.stringify(popupRules));
 

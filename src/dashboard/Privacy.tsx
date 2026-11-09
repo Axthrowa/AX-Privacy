@@ -65,6 +65,27 @@ export function Privacy({
       </p>
 
       <Toggle
+        label="WebRTC ile yerel IP adresini gizle"
+        checked={privacy.hideLocalIps}
+        onChange={(on) => set({ hideLocalIps: on })}
+      />
+      <p className="note">
+        Görüntülü görüşme ve eşler arası bağlantılar yalnızca sitelerin zaten gördüğü genel adresi
+        kullanır; bilgisayarın yerel adresi ve VPN arkasındaki gerçek adres sayfalara verilmez.
+      </p>
+
+      <Toggle
+        label="Dil ve saat dilimini gizle"
+        checked={privacy.hideLocale}
+        onChange={(on) => set({ hideLocale: on })}
+      />
+      <p className="note">
+        Siteler dil olarak İngilizce (ABD), saat dilimi olarak UTC görür; bazı siteler İngilizce
+        açılabilir ve saatleri UTC gösterebilir. Ülkeyi asıl gösteren şey IP adresidir ve onu hiçbir
+        eklenti değiştiremez; bunun için VPN gerekir.
+      </p>
+
+      <Toggle
         label="İzleme yönlendirmelerini atla"
         checked={privacy.cleanLinks}
         onChange={(on) => set({ cleanLinks: on })}
@@ -116,7 +137,7 @@ export function Privacy({
         Gürültü aynı sitede hep aynıdır, farklı sitelerde farklıdır; böylece okunan değer siteler
         arası eşleştirmede işe yaramaz. Sınırlar: Web Worker’lar kapsanmaz, sarmalanan fonksiyonlar
         tespit edilebilir, AX'e özel yazılmış bir betik gürültüyü geri alabilir. Yazı tipi, ekran,
-        saat dilimi ve WebRTC yüzeyleri bu aşamada korunmuyor.
+        saat dilimi ve WebRTC aşağıdaki konum ayarlarıyla korunur.
         {settings.isBrave &&
           ' Brave kendi parmak izi korumasını (farbling) zaten uyguluyor; ikisini birlikte açmak gerekmez.'}
       </p>

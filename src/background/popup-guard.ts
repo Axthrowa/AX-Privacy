@@ -36,6 +36,12 @@ function openedByUser(sourceTabId: number, url: string): boolean {
   return !!userOpens.get(sourceTabId)?.some((o) => o.url === url && o.until > now);
 }
 
+/** A tab a page opened by itself moments ago, not one the user opened from a link. */
+export async function isPagePopup(tabId: number): Promise<boolean> {
+  const p = pending.get(tabId);
+  return !!p && Date.now() <= p.until && !(await p.byUser);
+}
+
 async function check(
   load: () => Promise<Settings>,
   tabId: number,

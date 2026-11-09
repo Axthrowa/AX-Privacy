@@ -16,6 +16,9 @@ export const RULE_SITE_SECURITY = 6;
 export const RULE_GPC = 7;
 export const RULE_CDN_COOKIES = 8;
 export const RULE_GLOBAL_OFF_FRAMELESS = 9;
+export const RULE_LOCALE = 10;
+export const RULE_ROTATING_ADS = 11;
+export const RULE_ROTATING_AD_HOST = 12;
 export const CONTROL_RULE_IDS = [
   RULE_GLOBAL_OFF,
   RULE_PAUSED_SITES,
@@ -26,6 +29,9 @@ export const CONTROL_RULE_IDS = [
   RULE_GPC,
   RULE_CDN_COOKIES,
   RULE_GLOBAL_OFF_FRAMELESS,
+  RULE_LOCALE,
+  RULE_ROTATING_ADS,
+  RULE_ROTATING_AD_HOST,
 ];
 /** Above filter-list exceptions (which would otherwise skip header removal), below pausing. */
 export const COOKIE_RULE_PRIORITY = 100;
@@ -43,6 +49,7 @@ export const CONTENT_SCRIPT_FILES = {
   popups: 'content/popups.js',
   scriptlets: 'content/scriptlets.js',
   gpc: 'content/gpc.js',
+  locale: 'content/locale.js',
   'tw-ads': 'content/tw-ads.js',
   'link-clean': 'content/link-clean.js',
   /** Not registered: injected once, when the user opens the picker from the popup. */
@@ -140,6 +147,28 @@ export function controlRules(s: Settings): Rule[] {
       },
     });
   }
+  // Pages only, for the same reason as the GPC header above.
+  if (s.enabled && s.privacy.hideLocale) {
+    const skip = sitesOff(s, 'privacy');
+    rules.push({
+      id: RULE_LOCALE,
+      priority: COOKIE_RULE_PRIORITY,
+      action: {
+        type: 'modifyHeaders' as RuleActionType,
+        requestHeaders: [
+          {
+            header: 'accept-language',
+            operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
+            value: 'en-US,en;q=0.9',
+          },
+        ],
+      },
+      condition: {
+        resourceTypes: [MAIN_FRAME, SUB_FRAME],
+        ...(skip.length > 0 && { excludedInitiatorDomains: skip, excludedRequestDomains: skip }),
+      },
+    });
+  }
   if (s.enabled && s.privacy.cdnCookies && !s.privacy.blockThirdPartyCookies) {
     const skip = sitesOff(s, 'privacy');
     rules.push({
@@ -188,6 +217,27 @@ export function controlRules(s: Settings): Rule[] {
         resourceTypes: [MAIN_FRAME, SUB_FRAME],
       },
     });
+  }
+  // An ad network moves its hosts every few days, so lists lag behind; the address shape stays.
+  // Its loaders sit on a three-word .com, and the page's fallback goes straight to a random .in.
+  // Two rules: Chromium rejects the joined regex as too large, and then every control rule fails.
+  if (s.enabled) {
+    const regexes: [number, string][] = [
+      [RULE_ROTATING_ADS, '^https?://[a-z]{14,}\\.com/(?:bn|in|on)\\.js$'],
+      [RULE_ROTATING_AD_HOST, '^https?://(?:www\\.)?[a-z]{10,14}\\.in(?:/[a-z]{2,10}){1,3}$'],
+    ];
+    for (const [id, regexFilter] of regexes) {
+      rules.push({
+        id,
+        priority: 1,
+        action: { type: 'block' as RuleActionType },
+        condition: {
+          regexFilter,
+          resourceTypes: ['script', 'sub_frame'] as chrome.declarativeNetRequest.ResourceType[],
+          domainType: 'thirdParty' as chrome.declarativeNetRequest.DomainType,
+        },
+      });
+    }
   }
   if (s.enabled && s.video.nocookieEmbeds) {
     rules.push({
@@ -279,6 +329,7 @@ export function contentScripts(s: Settings): chrome.scripting.RegisteredContentS
   if (onlyBuiltin) cosmetic.js = [GENERIC_TOKENS_JS, CONTENT_SCRIPT_FILES.cosmetic];
   const scripts = [cosmetic, script('popups', 'MAIN'), scriptlets];
   if (s.privacy.gpc) scripts.push(script('gpc', 'MAIN', undefined, 'privacy'));
+  if (s.privacy.hideLocale) scripts.push(script('locale', 'MAIN', undefined, 'privacy'));
   if (s.privacy.cleanLinks) {
     scripts.push({ ...script('link-clean', 'ISOLATED', undefined, 'privacy'), allFrames: false });
   }

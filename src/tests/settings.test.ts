@@ -49,6 +49,8 @@ describe('normalizeSettings', () => {
       gpc: true,
       cleanLinks: true,
       cdnCookies: true,
+      hideLocalIps: true,
+      hideLocale: false,
       detailedReports: false,
     });
     expect(
