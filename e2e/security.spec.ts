@@ -17,7 +17,9 @@ function handle(req: IncomingMessage, res: ServerResponse) {
   res.end(
     req.url?.startsWith('/login')
       ? '<!doctype html><title>login</title><form><input type="password"></form>'
-      : '<!doctype html><title>page</title><p>sayfa</p>',
+      : req.url?.startsWith('/opener')
+        ? `<!doctype html><button id="open" onclick="window.open('${host(BAD)}/ad')">Ac</button><a id="link" href="${host(BAD)}/x">x</a>`
+        : '<!doctype html><title>page</title><p>sayfa</p>',
   );
 }
 
@@ -129,4 +131,26 @@ test('malware lists are active as page-blocking rules (checked, not visited)', a
     `https://${listed}/`,
   );
   expect(matched).toContain('urlhaus');
+});
+
+test('a tab the page opens to a blocked address is closed; one the user opens shows the warning', async ({
+  context,
+  extensionId,
+}) => {
+  const ui = await context.newPage();
+  await ui.goto(`chrome-extension://${extensionId}/dashboard.html`);
+  await ui.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'rules/setCustom', text: '||bad.nexus-other.example^$doc' }),
+  );
+  const page = await context.newPage();
+  await page.goto(`${host(SITE)}/opener`);
+  const popup = context.waitForEvent('page');
+  await page.click('#open');
+  await (await popup).waitForEvent('close');
+
+  const opened = context.waitForEvent('page');
+  await page.click('#link', { modifiers: ['Control'] });
+  const tab = await opened;
+  await expect(tab).toHaveURL(/\/blocked\.html\?/);
+  expect(hits.filter((h) => h.startsWith(BAD))).toEqual([]);
 });

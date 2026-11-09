@@ -63,12 +63,20 @@ export function installSecurityGuard(
   load: () => Promise<Settings>,
   blockingList: (s: Settings, url: string) => Promise<string | null>,
   onPage?: (url: string, list: string) => void,
+  isPagePopup?: (tabId: number) => Promise<boolean>,
+  onPopup?: (url: string) => void,
 ): void {
   chrome.webNavigation.onErrorOccurred.addListener((d) => {
     if (d.frameId !== 0 || d.error !== 'net::ERR_BLOCKED_BY_CLIENT') return;
     void (async () => {
       const s = await load();
       if (!moduleOn(s, siteKey(d.url), 'security')) return;
+      // A blocked ad tab is closed rather than left behind as an error or warning page.
+      if (await isPagePopup?.(d.tabId)) {
+        await chrome.tabs.remove(d.tabId);
+        onPopup?.(d.url);
+        return;
+      }
       const list = await blockingList(s, d.url);
       if (list) {
         onPage?.(d.url, list);

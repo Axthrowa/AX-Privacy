@@ -142,6 +142,8 @@ function parsePrivacy(raw: unknown): Partial<PrivacySettings> | null {
       k === 'gpc' ||
       k === 'cleanLinks' ||
       k === 'cdnCookies' ||
+      k === 'hideLocalIps' ||
+      k === 'hideLocale' ||
       k === 'detailedReports';
     if (flag && typeof v === 'boolean') {
       out[k] = v;

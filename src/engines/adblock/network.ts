@@ -66,6 +66,11 @@ export type Outcome =
 export interface CompileOptions {
   /** Regex filters need `isRegexSupported` validation, which only exists at runtime. */
   allowRegex: boolean;
+  /**
+   * uBO's strict blocking: a bare `||host^` from an ad list stops pages too, so a click that takes
+   * the tab straight to an ad server ends on the warning page instead of the ad.
+   */
+  strictHosts?: boolean;
 }
 
 export interface ListStats {
@@ -422,6 +427,14 @@ export function compileFilter(line: string, opts: CompileOptions): Outcome {
   }
 
   if (popup && (types.size > 0 || document)) return unsupported('popup');
+  if (
+    opts.strictHosts &&
+    !exception &&
+    options.length === 0 &&
+    /^\|\|[a-z0-9.-]+\^$/.test(pattern)
+  ) {
+    for (const t of ALL_TYPES) types.add(t);
+  }
   // Blocking a page: the navigation never reaches the server, and the background shows a
   // warning page with a way through (see background/security.ts).
   if (document && !exception) {

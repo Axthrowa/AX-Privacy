@@ -25,6 +25,7 @@ export const BASE_SCRIPTS = [
 export const TEST_HOSTS = [
   '*.nexus-test.example',
   '*.nexus-other.example',
+  '*.nexus-third.example',
   'www.googletagmanager.com',
   'www.youtube.com',
   'www.youtube-nocookie.com',

@@ -1,1 +1,1 @@
-[]
+[{"priority":1,"action":{"type":"block"},"condition":{"resourceTypes":["main_frame","sub_frame","stylesheet","script","image","font","object","xmlhttprequest","ping","media","websocket","other"],"requestDomains":["loader.nyitvatartas24.hu","mjzeexubcswjka.com","uijarxbm.com"]}}]

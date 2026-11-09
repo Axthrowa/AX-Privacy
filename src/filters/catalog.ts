@@ -1,3 +1,10 @@
+/**
+ * Lists whose bare host rules name ad servers, which nobody opens on purpose (see `strictHosts`).
+ * Not hosts files: they also list link shorteners and shop redirects people do click through.
+ */
+export const strictHosts = (list: Pick<BuiltinList, 'category' | 'format'>): boolean =>
+  (list.category === 'ads' || list.category === 'regional') && list.format !== 'hosts';
+
 export interface BuiltinList {
   /** Also the DNR static ruleset ID and the cosmetic engine file name. */
   id: string;

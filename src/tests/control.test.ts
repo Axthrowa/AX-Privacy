@@ -5,6 +5,9 @@ import {
   COOKIE_RULE_PRIORITY,
   RULE_CDN_COOKIES,
   RULE_GPC,
+  RULE_LOCALE,
+  RULE_ROTATING_ADS,
+  RULE_ROTATING_AD_HOST,
   RULE_GLOBAL_OFF,
   RULE_GLOBAL_OFF_FRAMELESS,
   RULE_NOCOOKIE_EMBEDS,
@@ -18,6 +21,10 @@ import {
 } from '../engines/core/control.ts';
 import { PRIORITY } from '../engines/adblock/network.ts';
 import { DEFAULT_SETTINGS } from '../storage/settings.ts';
+
+/** Everything but the always-on loader rule, which has its own test. */
+const otherRules = (s: Parameters<typeof controlRules>[0]) =>
+  controlRules(s).filter((r) => r.id !== RULE_ROTATING_ADS && r.id !== RULE_ROTATING_AD_HOST);
 
 const noVideo = {
   youtubeAds: false,
@@ -39,7 +46,7 @@ describe('controlRules', () => {
     expect(CONTROL_PRIORITY).toBeLessThan(2 ** 24);
   });
   it('adds no rules when protection is fully on', () => {
-    expect(controlRules(on)).toEqual([]);
+    expect(otherRules(on)).toEqual([]);
   });
   it('allows everything in every frame when globally off', () => {
     expect(controlRules({ ...on, enabled: false })).toEqual([
@@ -58,7 +65,7 @@ describe('controlRules', () => {
     ]);
   });
   it('allows paused sites at top level only', () => {
-    expect(controlRules({ ...on, pausedSites: ['a.com', '10.0.0.1'] })).toEqual([
+    expect(otherRules({ ...on, pausedSites: ['a.com', '10.0.0.1'] })).toEqual([
       {
         id: RULE_PAUSED_SITES,
         priority: CONTROL_PRIORITY,
@@ -78,7 +85,7 @@ describe('controlRules', () => {
   });
   it('strips third-party cookies on request, below pausing but above filter exceptions', () => {
     const privacy = { ...on.privacy, blockThirdPartyCookies: true };
-    expect(controlRules({ ...on, privacy })).toEqual([
+    expect(otherRules({ ...on, privacy })).toEqual([
       {
         id: RULE_THIRD_PARTY_COOKIES,
         priority: COOKIE_RULE_PRIORITY,
@@ -101,7 +108,7 @@ describe('controlRules', () => {
     const siteProfiles = {
       'a.com': { network: false, privacy: true, video: true, security: true },
     };
-    expect(controlRules({ ...on, siteProfiles })).toEqual([
+    expect(otherRules({ ...on, siteProfiles })).toEqual([
       {
         id: RULE_SITE_NETWORK,
         priority: CONTROL_PRIORITY,
@@ -244,6 +251,40 @@ describe('contentScripts', () => {
     expect(rule?.condition.resourceTypes).toEqual(['main_frame', 'sub_frame']);
     expect(controlRules({ ...s, isBrave: true }).some((r) => r.id === RULE_GPC)).toBe(false);
   });
+  it('reports US English and UTC only when asked, never on paused sites', () => {
+    const s = { ...on, privacy: { ...on.privacy, hideLocale: true }, pausedSites: ['a.com'] };
+    const rule = controlRules(s).find((r) => r.id === RULE_LOCALE);
+    expect(rule?.action.requestHeaders).toEqual([
+      { header: 'accept-language', operation: 'set', value: 'en-US,en;q=0.9' },
+    ]);
+    expect(rule?.condition.excludedRequestDomains).toEqual(['a.com']);
+    const script = contentScripts(s).find((c) => c.id === 'locale');
+    expect(script?.world).toBe('MAIN');
+    expect(script?.excludeMatches).toEqual(expect.arrayContaining(['*://a.com/*']));
+    expect(controlRules(on).some((r) => r.id === RULE_LOCALE)).toBe(false);
+    expect(contentScripts(on).some((c) => c.id === 'locale')).toBe(false);
+  });
+  it('blocks rotating ad loaders by their address shape only', () => {
+    const rules = controlRules(on).filter(
+      (r) => r.id === RULE_ROTATING_ADS || r.id === RULE_ROTATING_AD_HOST,
+    );
+    const res = rules.map((r) => new RegExp(r.condition.regexFilter ?? '$^'));
+    const re = { test: (url: string) => res.some((x) => x.test(url)) };
+    const rule = rules[1];
+    expect(re.test('https://quietmapleharbor.com/on.js')).toBe(true);
+    expect(re.test('https://brightorchardlantern.com/bn.js')).toBe(true);
+    expect(re.test('https://cdn.example.com/on.js')).toBe(false);
+    expect(re.test('https://qwertyuiopas.in/lwaokza')).toBe(true);
+    expect(re.test('https://qwertyuiopas.in/ca/tanock/ohhkucck')).toBe(true);
+    expect(re.test('https://qwertyuiopas.in/static/app.js')).toBe(false);
+    expect(re.test('https://shop.in/lwaokza')).toBe(false);
+    expect(re.test('https://quietmapleharbor.com/on.js?v=1')).toBe(false);
+    expect(rule?.condition.domainType).toBe('thirdParty');
+    expect(rules).toHaveLength(2);
+    expect(controlRules({ ...on, enabled: false }).some((r) => r.id === RULE_ROTATING_ADS)).toBe(
+      false,
+    );
+  });
   it('cleans links in top frames only, and honors the site profile', () => {
     const s = { ...on, privacy: { ...on.privacy, cleanLinks: true }, pausedSites: ['a.com'] };
     const script = contentScripts(s).find((c) => c.id === 'link-clean');
@@ -289,7 +330,7 @@ describe('contentScripts', () => {
 describe('nocookie embeds', () => {
   it('moves third-party YouTube embeds to youtube-nocookie.com when chosen', () => {
     const video = { ...noVideo, nocookieEmbeds: true };
-    expect(controlRules({ ...on, video })).toEqual([
+    expect(otherRules({ ...on, video })).toEqual([
       {
         id: RULE_NOCOOKIE_EMBEDS,
         priority: COOKIE_RULE_PRIORITY,

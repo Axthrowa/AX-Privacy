@@ -37,6 +37,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
     gpc: true,
     cleanLinks: true,
     cdnCookies: true,
+    hideLocalIps: true,
+    hideLocale: false,
     detailedReports: false,
   },
   video: {
@@ -85,6 +87,8 @@ function normalizePrivacy(raw: unknown): PrivacySettings {
     gpc: bool(r.gpc, d.gpc),
     cleanLinks: bool(r.cleanLinks, d.cleanLinks),
     cdnCookies: bool(r.cdnCookies, d.cdnCookies),
+    hideLocalIps: bool(r.hideLocalIps, d.hideLocalIps),
+    hideLocale: bool(r.hideLocale, d.hideLocale),
     detailedReports: bool(r.detailedReports, d.detailedReports),
   };
 }

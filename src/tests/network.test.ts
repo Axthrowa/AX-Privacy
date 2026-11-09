@@ -322,3 +322,21 @@ describe('compileList', () => {
     expect(withIds(rules, 1000).map((r) => r.id)).toEqual([1000, 1001]);
   });
 });
+
+describe('strict host blocking', () => {
+  const types = (line: string, strictHosts: boolean) => {
+    const out = compileFilter(line, { allowRegex: true, strictHosts });
+    return out.kind === 'rule' ? out.rule.condition.resourceTypes : 'none';
+  };
+
+  it('stops pages on a bare ad-server host only when the list asks for it', () => {
+    expect(types('||ads.example^', true)).toContain('main_frame');
+    expect(types('||ads.example^', false)).toBeUndefined();
+  });
+
+  it('leaves rules with options, paths and exceptions as they were', () => {
+    expect(types('||ads.example^$script', true)).toEqual(['script']);
+    expect(types('||ads.example/banner^', true)).toBeUndefined();
+    expect(types('@@||ads.example^', true)).toBeUndefined();
+  });
+});

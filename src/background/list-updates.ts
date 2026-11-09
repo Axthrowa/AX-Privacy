@@ -7,7 +7,7 @@ import {
   usefulTokens,
 } from '../engines/adblock/generic-tokens.ts';
 import { compileList, type DnrRule } from '../engines/adblock/network.ts';
-import { BUILTIN_LISTS, type BuiltinList } from '../filters/catalog.ts';
+import { BUILTIN_LISTS, strictHosts, type BuiltinList } from '../filters/catalog.ts';
 import { safeCosmeticLines } from '../filters/custom.ts';
 import { includesOf, preprocess } from '../filters/preprocess.ts';
 import { diffRules, fitRegexRules, listText, MIN_SIZE_RATIO } from '../filters/updates.ts';
@@ -100,7 +100,10 @@ async function updateList(list: BuiltinList): Promise<{ added: number; removed: 
   const includes = new Map<string, string>();
   await downloadIncludes(text, list.url, validators, includes);
   const lines = preprocess(text, undefined, includes);
-  const { rules, popupRules, documentRules } = compileList(lines, { allowRegex: true });
+  const { rules, popupRules, documentRules } = compileList(lines, {
+    allowRegex: true,
+    strictHosts: strictHosts(list),
+  });
 
   const bundled = await fetchPackaged<DnrRule[]>(`rulesets/${list.id}.json`, 'json');
   const fitted = await fitRegexRules(rules, regexCheck);

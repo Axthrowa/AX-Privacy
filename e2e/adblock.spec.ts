@@ -125,13 +125,13 @@ test('a click does not open a third-party ad tab, and the link under the cursor 
       });
       document.body.append(a);
     },
-    `${host('fine.nexus-other.example')}/page`,
+    `${host('fine.nexus-third.example')}/page`,
   );
   const opened = context.waitForEvent('page');
   await page.click('#real-out');
   const fine = await opened;
   await fine.waitForLoadState();
-  expect(new URL(fine.url()).hostname).toBe('fine.nexus-other.example');
+  expect(new URL(fine.url()).hostname).toBe('fine.nexus-third.example');
   await fine.close();
 
   await page.evaluate((url) => {
