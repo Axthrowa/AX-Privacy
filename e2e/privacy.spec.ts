@@ -84,6 +84,12 @@ test('tracking parameters are stripped from pages and requests without redirect 
   await page.goto(`${host(SITE)}/landing?xfbclid=1`);
   expect(page.url()).toBe(`${host(SITE)}/landing?xfbclid=1`);
 
+  // The standard campaign tags are not in the list; a control rule drops them from pages.
+  await page.goto(`${host(SITE)}/landing?utm_source=x&utm_medium=y&keep=2`);
+  expect(page.url()).toBe(`${host(SITE)}/landing?keep=2`);
+  await page.goto(`${host(SITE)}/landing?utm_other=1`);
+  expect(page.url()).toBe(`${host(SITE)}/landing?utm_other=1`);
+
   await page.evaluate(() => fetch('/data?gclid=1&q=2'));
   expect(hits).toContain(`${SITE}/data?q=2`);
   expect(hits.some((h) => h.includes('gclid'))).toBe(false);

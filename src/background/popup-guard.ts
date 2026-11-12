@@ -42,11 +42,18 @@ export async function isPagePopup(tabId: number): Promise<boolean> {
   return !!p && Date.now() <= p.until && !(await p.byUser);
 }
 
+/** Asked before a tab is closed; a tab that is already gone counts as an ordinary one. */
+export const isPrivateTab = (tabId: number): Promise<boolean> =>
+  chrome.tabs.get(tabId).then(
+    (t) => t.incognito,
+    () => false,
+  );
+
 async function check(
   load: () => Promise<Settings>,
   tabId: number,
   url: string,
-  onPopup?: (url: string) => void,
+  onPopup?: (url: string, incognito: boolean) => void,
 ): Promise<void> {
   const p = pending.get(tabId);
   if (!p) return;
@@ -60,8 +67,9 @@ async function check(
   if (!(await popupMatcher(s))(url, p.openerUrl)) return;
   if (await p.byUser) return;
   pending.delete(tabId);
+  const incognito = await isPrivateTab(tabId);
   await chrome.tabs.remove(tabId).catch(() => undefined);
-  onPopup?.(url);
+  onPopup?.(url, incognito);
 }
 
 /**
@@ -70,7 +78,7 @@ async function check(
  */
 export function installPopupGuard(
   load: () => Promise<Settings>,
-  onPopup?: (url: string) => void,
+  onPopup?: (url: string, incognito: boolean) => void,
 ): void {
   const onNav = (d: { tabId: number; frameId: number; url: string }) => {
     if (d.frameId === 0) void check(load, d.tabId, d.url, onPopup);

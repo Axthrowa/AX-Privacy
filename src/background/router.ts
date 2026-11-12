@@ -35,6 +35,8 @@ export interface SenderContext {
   tabId?: number;
   frameId?: number;
   documentId?: string;
+  /** Private window: nothing about the page may reach storage. */
+  incognito?: boolean;
 }
 
 export interface RouterDeps {

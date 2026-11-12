@@ -3,6 +3,7 @@ import {
   ALWAYS_EXCLUDED,
   CONTROL_PRIORITY,
   COOKIE_RULE_PRIORITY,
+  RULE_CAMPAIGN_PARAMS,
   RULE_CDN_COOKIES,
   RULE_GPC,
   RULE_LOCALE,
@@ -37,7 +38,13 @@ const noVideo = {
 const on = {
   ...DEFAULT_SETTINGS,
   video: noVideo,
-  privacy: { ...DEFAULT_SETTINGS.privacy, gpc: false, cleanLinks: false, cdnCookies: false },
+  privacy: {
+    ...DEFAULT_SETTINGS.privacy,
+    gpc: false,
+    cleanLinks: false,
+    cdnCookies: false,
+    fingerprint: 'off' as const,
+  },
 };
 
 describe('controlRules', () => {
@@ -284,6 +291,15 @@ describe('contentScripts', () => {
     expect(controlRules({ ...on, enabled: false }).some((r) => r.id === RULE_ROTATING_ADS)).toBe(
       false,
     );
+  });
+  it('drops the standard campaign tags from page addresses, never on paused sites', () => {
+    const s = { ...on, privacy: { ...on.privacy, cleanLinks: true }, pausedSites: ['a.com'] };
+    const rule = controlRules(s).find((r) => r.id === RULE_CAMPAIGN_PARAMS);
+    expect(rule?.action.redirect?.transform?.queryTransform?.removeParams).toContain('utm_source');
+    expect(rule?.priority).toBe(PRIORITY.block);
+    expect(rule?.condition.resourceTypes).toEqual(['main_frame']);
+    expect(rule?.condition.excludedRequestDomains).toEqual(['a.com']);
+    expect(controlRules(on).some((r) => r.id === RULE_CAMPAIGN_PARAMS)).toBe(false);
   });
   it('cleans links in top frames only, and honors the site profile', () => {
     const s = { ...on, privacy: { ...on.privacy, cleanLinks: true }, pausedSites: ['a.com'] };

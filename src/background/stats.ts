@@ -44,15 +44,16 @@ export class StatsRecorder {
     this.bump('consent');
   }
 
-  page(url: string, list: string): void {
+  /** Counted always; the address is logged only outside private windows. */
+  page(url: string, list: string, incognito = false): void {
     this.bump('pages');
     if (classifyRulesets([list]) === 'security') this.bump('security');
-    void this.note({ at: Date.now(), kind: 'page', url, list });
+    if (!incognito) void this.note({ at: Date.now(), kind: 'page', url, list });
   }
 
-  popup(url: string): void {
+  popup(url: string, incognito = false): void {
     this.bump('popups');
-    void this.note({ at: Date.now(), kind: 'popup', url });
+    if (!incognito) void this.note({ at: Date.now(), kind: 'popup', url });
   }
 
   private async loadEvents(): Promise<SecurityEvent[]> {
