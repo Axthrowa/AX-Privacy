@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   HOST_PREFIX,
   classifyRulesets,
@@ -7,7 +7,7 @@ import {
   summarize,
   localDay,
 } from '../engines/core/stats.ts';
-import { parseStatsDump } from '../background/stats.ts';
+import { StatsRecorder, parseStatsDump } from '../background/stats.ts';
 
 describe('calendar helpers', () => {
   it('walks UTC days inclusive', () => {
@@ -85,5 +85,26 @@ describe('parseStatsDump', () => {
     });
     expect(dump?.rows).toEqual([{ day: '2026-11-01', category: 'ads', count: 2 }]);
     expect(dump?.events).toEqual([{ at: 1, kind: 'page', url: 'https://a.example/' }]);
+  });
+});
+
+describe('private windows', () => {
+  it('counts blocked pages and ad tabs but keeps their addresses out of the log', async () => {
+    vi.useFakeTimers();
+    const set = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('chrome', { storage: { local: { get: () => Promise.resolve({}), set } } });
+    const settle = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+    const stats = new StatsRecorder();
+    stats.popup('https://ads.example/', true);
+    stats.page('https://bad.example/', 'easylist', true);
+    await settle();
+    expect(set).not.toHaveBeenCalled();
+    stats.popup('https://ads.example/');
+    await settle();
+    expect(set).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 });

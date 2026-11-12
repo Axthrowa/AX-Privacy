@@ -18,7 +18,13 @@ export async function clearCosmeticCache(): Promise<void> {
   await chrome.storage.local.remove(Object.keys(all).filter((k) => k.startsWith(CACHE_PREFIX)));
 }
 
-async function remember(key: string, entry: { css: string; extended: ExtendedRule[] }) {
+/** Keys carry the hostname, so pages in private windows are never remembered. */
+async function remember(
+  ctx: SenderContext,
+  key: string,
+  entry: { css: string; extended: ExtendedRule[] },
+) {
+  if (ctx.incognito) return;
   if ((await chrome.storage.local.getBytesInUse()) > CACHE_MAX_BYTES) await clearCosmeticCache();
   await chrome.storage.local.set({ [key]: entry });
 }
@@ -50,7 +56,7 @@ export async function cosmeticStart(s: Settings, ctx: SenderContext): Promise<Ex
   });
   const entry = active ? { css: styles, extended } : { css: '', extended: [] };
   await inject(ctx, entry.css);
-  await remember(startKey(page(ctx.url).hostname), entry);
+  await remember(ctx, startKey(page(ctx.url).hostname), entry);
   return entry.extended;
 }
 
@@ -75,6 +81,6 @@ export async function cosmeticDom(
   });
   const entry = active ? { css: styles, extended } : { css: '', extended: [] };
   await inject(ctx, entry.css);
-  await remember(domKey(page(ctx.url).hostname, features), entry);
+  await remember(ctx, domKey(page(ctx.url).hostname, features), entry);
   return entry.extended;
 }

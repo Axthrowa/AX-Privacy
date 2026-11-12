@@ -196,14 +196,14 @@ const route = createRouter({
   },
 });
 
-installPopupGuard(loadSettings, (url) => stats.popup(url));
+installPopupGuard(loadSettings, (url, incognito) => stats.popup(url, incognito));
 void loadSettings().then(syncListeners);
 installSecurityGuard(
   loadSettings,
   blockingList,
-  (url, list) => stats.page(url, list),
+  (url, list, incognito) => stats.page(url, list, incognito),
   isPagePopup,
-  (url) => stats.popup(url),
+  (url, incognito) => stats.popup(url, incognito),
 );
 
 /** Subscribed lists are re-downloaded daily; built-in lists update with the extension. */
@@ -294,6 +294,7 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
     tabId: sender.tab?.id,
     frameId: sender.frameId,
     documentId: sender.documentId,
+    incognito: sender.tab?.incognito,
   }).then(
     (data) => sendResponse({ ok: true, data } satisfies Reply<unknown>),
     (e: unknown) =>

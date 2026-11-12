@@ -3,6 +3,7 @@ import { moduleOn } from '../engines/core/control.ts';
 import type { Settings } from '../shared/types.ts';
 import { hostMatches } from '../shared/site.ts';
 import { siteKey } from '../shared/url.ts';
+import { isPrivateTab } from './popup-guard.ts';
 
 export const BLOCKED_PAGE = 'blocked.html';
 /** Above every filter rule (block 1, allow 2, important +10), below the control rules. */
@@ -62,9 +63,9 @@ export async function proceed(url: string): Promise<void> {
 export function installSecurityGuard(
   load: () => Promise<Settings>,
   blockingList: (s: Settings, url: string) => Promise<string | null>,
-  onPage?: (url: string, list: string) => void,
+  onPage?: (url: string, list: string, incognito: boolean) => void,
   isPagePopup?: (tabId: number) => Promise<boolean>,
-  onPopup?: (url: string) => void,
+  onPopup?: (url: string, incognito: boolean) => void,
 ): void {
   chrome.webNavigation.onErrorOccurred.addListener((d) => {
     if (d.frameId !== 0 || d.error !== 'net::ERR_BLOCKED_BY_CLIENT') return;
@@ -72,14 +73,15 @@ export function installSecurityGuard(
       const s = await load();
       if (!moduleOn(s, siteKey(d.url), 'security')) return;
       // A blocked ad tab is closed rather than left behind as an error or warning page.
+      const incognito = await isPrivateTab(d.tabId);
       if (await isPagePopup?.(d.tabId)) {
         await chrome.tabs.remove(d.tabId);
-        onPopup?.(d.url);
+        onPopup?.(d.url, incognito);
         return;
       }
       const list = await blockingList(s, d.url);
       if (list) {
-        onPage?.(d.url, list);
+        onPage?.(d.url, list, incognito);
         await chrome.tabs.update(d.tabId, { url: blockedPageUrl(d.url, list) });
       }
     })().catch(() => undefined);

@@ -19,6 +19,7 @@ export const RULE_GLOBAL_OFF_FRAMELESS = 9;
 export const RULE_LOCALE = 10;
 export const RULE_ROTATING_ADS = 11;
 export const RULE_ROTATING_AD_HOST = 12;
+export const RULE_CAMPAIGN_PARAMS = 13;
 export const CONTROL_RULE_IDS = [
   RULE_GLOBAL_OFF,
   RULE_PAUSED_SITES,
@@ -32,6 +33,7 @@ export const CONTROL_RULE_IDS = [
   RULE_LOCALE,
   RULE_ROTATING_ADS,
   RULE_ROTATING_AD_HOST,
+  RULE_CAMPAIGN_PARAMS,
 ];
 /** Above filter-list exceptions (which would otherwise skip header removal), below pausing. */
 export const COOKIE_RULE_PRIORITY = 100;
@@ -238,6 +240,31 @@ export function controlRules(s: Settings): Rule[] {
         },
       });
     }
+  }
+  // The tracking-parameter list leaves the five standard campaign tags alone; pages only.
+  // shortcut: ignores the list's few per-site exceptions for these, pause the site if one breaks.
+  if (s.enabled && s.privacy.cleanLinks) {
+    const skip = sitesOff(s, 'privacy');
+    rules.push({
+      id: RULE_CAMPAIGN_PARAMS,
+      // Same as a list's own parameter rules, so a blocked page stays blocked.
+      priority: 1,
+      action: {
+        type: 'redirect' as RuleActionType,
+        redirect: {
+          transform: {
+            queryTransform: {
+              removeParams: ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'],
+            },
+          },
+        },
+      },
+      condition: {
+        urlFilter: 'utm_',
+        resourceTypes: [MAIN_FRAME],
+        ...(skip.length > 0 && { excludedInitiatorDomains: skip, excludedRequestDomains: skip }),
+      },
+    });
   }
   if (s.enabled && s.video.nocookieEmbeds) {
     rules.push({
