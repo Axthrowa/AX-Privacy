@@ -522,9 +522,13 @@ test('click-to-load holds embeds back until a click, for that tab only', async (
   try {
     const page = await context.newPage();
     await page.goto(`${origin}/`);
-    const load = page.getByRole('button', { name: 'X (Twitter) içeriğini yükle' });
+    // One notice for the page, naming every provider it held back.
+    const load = page.getByRole('button', { name: 'İçerikleri yükle' });
+    await expect(load).toHaveCount(1);
     await expect(load).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Facebook içeriğini yükle' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'AX Privacy' })).toContainText(
+      '1 Facebook, 1 X (Twitter)',
+    );
     const tabId = await worker.evaluate(
       async (url) => (await chrome.tabs.query({ url }))[0]?.id ?? -1,
       `${origin}/`,
@@ -533,12 +537,12 @@ test('click-to-load holds embeds back until a click, for that tab only', async (
     expect(await outcome(tabId)).toEqual(['_dynamic#18']);
 
     await Promise.all([page.waitForEvent('load'), load.click()]);
-    await expect(page.getByRole('button', { name: /içeriğini yükle/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'İçerikleri yükle' })).toHaveCount(0);
     expect(await outcome(tabId)).not.toContain('_dynamic#18');
-    // Another tab still gets the placeholder.
+    // Another tab still gets the notice.
     const other = await context.newPage();
     await other.goto(`${origin}/`);
-    await expect(other.getByRole('button', { name: 'Facebook içeriğini yükle' })).toBeVisible();
+    await expect(other.getByRole('button', { name: 'İçerikleri yükle' })).toBeVisible();
 
     await page.close();
     await expect
