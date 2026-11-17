@@ -47,6 +47,7 @@ const noVideo = {
   genericPlayers: false,
   nocookieEmbeds: false,
   adMute: false,
+  adSpeedUp: false,
   sponsorSkip: false,
   sponsorModes: DEFAULT_SETTINGS.video.sponsorModes,
   sponsorChannels: [],
@@ -278,6 +279,19 @@ describe('contentScripts', () => {
       if (s.id === 'popups' || s.id === 'scriptlets') expect(s.world).toBe('MAIN');
       else expect(s.world).toBeUndefined();
     }
+    // Each chosen job is spelled by a file that runs before the script.
+    expect(scripts[4]?.js).toEqual(['content/ad-mode/mute.js', 'content/video-ads.js']);
+    const both = contentScripts({ ...on, video: { ...video, adSpeedUp: true } });
+    expect(both.find((s) => s.id === 'video-ads')?.js).toEqual([
+      'content/ad-mode/mute.js',
+      'content/ad-mode/speed.js',
+      'content/video-ads.js',
+    ]);
+    const speedOnly = contentScripts({ ...on, video: { ...noVideo, adSpeedUp: true } });
+    expect(speedOnly.find((s) => s.id === 'video-ads')?.js).toEqual([
+      'content/ad-mode/speed.js',
+      'content/video-ads.js',
+    ]);
   });
   it('loads list data before the scriptlet runner, for enabled lists only', () => {
     const js = contentScripts({ ...on, enabledLists: ['ublock', 'easylist'] }).find(

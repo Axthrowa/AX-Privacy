@@ -339,6 +339,38 @@ test('stitched-in ads are muted and darkened only while the player marks one', a
   await expect.poll(() => playerState(page)).toEqual(QUIET);
 });
 
+test('the opt-in speed-up runs YouTube ads at 16x and gives the rate back, not on Twitch', async ({
+  context,
+  extensionId,
+  worker,
+}) => {
+  const dash = await dashboard(context, extensionId);
+  await dash.getByRole('switch', { name: /16 kat hızlı oynat/ }).click();
+  await expect.poll(() => scriptIds(worker)).toContain('video-ads');
+  const page = await context.newPage();
+  const rate = () => page.evaluate(() => document.querySelector('video')?.playbackRate);
+
+  await page.goto(`${host('www.youtube.com')}/watch?v=nexus`);
+  await page.evaluate(() => {
+    (document.querySelector('video') as HTMLVideoElement).playbackRate = 1.25;
+    document.getElementById('player')?.classList.add('ad-showing');
+  });
+  await expect.poll(rate).toBe(16);
+  // Speed only: the mute switch is still off.
+  expect(await playerState(page)).toEqual(QUIET);
+  await page.evaluate(() => document.getElementById('player')?.classList.remove('ad-showing'));
+  await expect.poll(rate).toBe(1.25);
+
+  await page.goto(`${host('www.twitch.tv')}/nexus`);
+  await page.evaluate(() => {
+    const label = document.createElement('span');
+    label.dataset.aTarget = 'video-ad-label';
+    document.getElementById('overlay')?.append(label);
+  });
+  await page.waitForTimeout(1_000);
+  expect(await rate()).toBe(1);
+});
+
 test('SponsorBlock acts per category, undoes a skip and is asked only by hash prefix', async ({
   context,
   extensionId,

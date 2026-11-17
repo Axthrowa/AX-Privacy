@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { L } from '../shared/i18n.ts';
 import { send } from '../shared/messages.ts';
 import { currentProfile, profileSettings } from '../shared/privacy-profiles.ts';
@@ -36,6 +37,7 @@ export function Privacy({
   guard(action: () => Promise<unknown>): Promise<void>;
 }) {
   const { privacy } = settings;
+  const [kept, setKept] = useState(privacy.keepSiteData.join('\n'));
   const set = (patch: Partial<PrivacySettings>) =>
     void guard(() => send('privacy/set', { privacy: patch }));
   const profile = currentProfile(privacy);
@@ -192,6 +194,41 @@ export function Privacy({
           'Embedded posts and comment boxes on news sites tell these companies which page you read the moment they load. When on, a button takes their place; a click loads them until that tab closes. Limit: “Log in with Facebook” buttons that use the same SDK also wait for that click.',
         )}
       </p>
+
+      <Toggle
+        label={L(
+          'Sekme kapanınca açık olmayan sitelerin verisini sil',
+          'Clear data of sites with no open tab when a tab closes',
+        )}
+        checked={privacy.clearSiteData}
+        onChange={(on) => set({ clearSiteData: on })}
+      />
+      <p className="note">
+        {L(
+          'Bir sekme kapandığında, açık sekmesi olmayan her sitenin çerezleri ve depoladığı veriler (yerel depolama, IndexedDB, önbellek, service worker) silinir; izleyicilerin bıraktıkları da gider. Bu sitelerdeki oturumlar kapanır. Aşağıdaki sitelerin ve korumasını kapattığınız sitelerin çerezleri hiç silinmez; bu sitelerin www dışındaki alt alan adlarının yerel depolaması silinebilir. Geçmiş, şifreler ve indirmeler silinmez. Yalnızca Chrome, Brave ve Edge’de çalışır.',
+          'When a tab closes, the cookies and stored data (local storage, IndexedDB, cache, service workers) of every site without an open tab are cleared, including what trackers left behind. You are signed out of those sites. Cookies of the sites below and of sites whose protection you turned off are never cleared; local storage on their subdomains other than www can be. History, passwords and downloads are not touched. Works in Chrome, Brave and Edge only.',
+        )}
+      </p>
+      {privacy.clearSiteData && (
+        <>
+          <textarea
+            aria-label={L('Verisi silinmeyecek siteler', 'Sites whose data is kept')}
+            rows={4}
+            spellCheck={false}
+            placeholder="github.com"
+            value={kept}
+            onChange={(e) => setKept(e.target.value)}
+          />
+          <div className="row">
+            <button
+              type="button"
+              onClick={() => set({ keepSiteData: kept.split('\n').filter((l) => l.trim()) })}
+            >
+              {L('Siteleri kaydet', 'Save sites')}
+            </button>
+          </div>
+        </>
+      )}
 
       <Toggle
         label={L(
