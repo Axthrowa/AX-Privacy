@@ -138,7 +138,9 @@ test('cookie auto-reject clicks "reject" on a recognised banner and reports it',
   // On by default: switched off first to see the banner untouched.
   await expect(toggle).toBeChecked();
   await toggle.click();
-  await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS.filter((id) => id !== 'consent'));
+  await expect
+    .poll(() => scriptIds(worker))
+    .toEqual(BASE_SCRIPTS.filter((id) => !id.startsWith('consent')));
 
   const before = await context.newPage();
   await before.goto(`${host(SITE)}/consent`);
@@ -162,6 +164,43 @@ test('cookie auto-reject clicks "reject" on a recognised banner and reports it',
   await expect
     .poll(async () => (await reportFor(dash, tabId)).consent)
     .toEqual({ cmp: '123inkt', result: true });
+});
+
+test('cookie auto-reject leaves the worker alone on a page without a banner', async ({
+  context,
+  worker,
+}) => {
+  await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS);
+  await worker.evaluate(() => {
+    const seen: string[] = [];
+    (self as { seen?: string[] }).seen = seen;
+    chrome.runtime.onMessage.addListener((m: { type: string }) => void seen.push(m.type));
+  });
+  const page = await context.newPage();
+  await page.goto(`${host(SITE)}/plain`);
+  // Page checks run in the main-world helper, which runs bundled snippets only.
+  const check = (snippet: string) =>
+    page.evaluate(
+      (snippet) =>
+        new Promise((done) => {
+          const id = `t-${snippet}`;
+          document.addEventListener('ax-consent-result', (e) => {
+            const r = JSON.parse((e as CustomEvent<string>).detail) as { id: string };
+            if (r.id === id) done(r);
+          });
+          document.dispatchEvent(
+            new CustomEvent('ax-consent-eval', { detail: JSON.stringify({ id, snippet }) }),
+          );
+        }),
+      snippet,
+    );
+  await page.evaluate(() => ((window as { Cookiebot?: object }).Cookiebot = {}));
+  expect(await check('EVAL_COOKIEBOT_1')).toEqual({ id: 't-EVAL_COOKIEBOT_1', result: true });
+  expect(await check('constructor')).toEqual({ id: 't-constructor', result: false });
+  await page.waitForTimeout(3000);
+  // Before, every page asked the worker for rules and for each check.
+  const seen = await worker.evaluate(() => (self as { seen?: string[] }).seen ?? []);
+  expect(seen.filter((t) => t === 'consent/msg')).toEqual([]);
 });
 
 const reportFor = (dash: Page, tabId: number) =>
@@ -544,12 +583,21 @@ test('click-to-load holds embeds back until a click, for that tab only', async (
     await other.goto(`${origin}/`);
     await expect(other.getByRole('button', { name: 'İçerikleri yükle' })).toBeVisible();
 
+    // The closed tab's rule goes when another tab loads its embeds.
     await page.close();
-    await expect
-      .poll(() =>
-        worker.evaluate(async () => (await chrome.declarativeNetRequest.getSessionRules()).length),
-      )
-      .toBe(0);
+    await Promise.all([
+      other.waitForEvent('load'),
+      other.getByRole('button', { name: 'İçerikleri yükle' }).click(),
+    ]);
+    const otherId = await worker.evaluate(
+      async (url) => (await chrome.tabs.query({ url }))[0]?.id ?? -1,
+      `${origin}/`,
+    );
+    expect(
+      await worker.evaluate(async () =>
+        (await chrome.declarativeNetRequest.getSessionRules()).map((r) => r.condition.tabIds),
+      ),
+    ).toEqual([[otherId]]);
   } finally {
     server.close();
   }
