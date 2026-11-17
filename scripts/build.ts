@@ -5,6 +5,8 @@ import { build } from 'vite';
 import {
   CONSENT_RULES_PATH,
   CONTENT_SCRIPT_FILES,
+  AD_MODES,
+  adModeFile,
   FP_SEED_DIGITS,
   fpSeedFile,
   YT_SPONSORED_CSS,
@@ -82,6 +84,15 @@ await writeFile(resolve(chromeOut, YT_SPONSORED_HIDE_CSS), sponsoredCss('hide'))
 await mkdir(resolve(chromeOut, 'content/fp-seed'), { recursive: true });
 for (let d = 0; d < FP_SEED_DIGITS; d++) {
   await writeFile(resolve(chromeOut, fpSeedFile(d)), `(self.__axSeed ??= []).push(${d});\n`);
+}
+
+await mkdir(resolve(chromeOut, 'content/ad-mode'), { recursive: true });
+for (const m of AD_MODES) {
+  await writeFile(
+    resolve(chromeOut, adModeFile(m)),
+    `(self.__axAdModes ??= []).push('${m}');
+`,
+  );
 }
 
 await cp(chromeOut, firefoxOut, { recursive: true });

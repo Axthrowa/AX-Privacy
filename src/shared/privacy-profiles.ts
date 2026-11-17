@@ -2,11 +2,14 @@ import type { PrivacySettings } from './types.ts';
 
 export type PrivacyProfile = 'balanced' | 'strict';
 /** What a profile decides; per-page reports and the language/time zone switch stay the user's. */
-type ProfileKeys = Exclude<keyof PrivacySettings, 'detailedReports' | 'hideLocale'>;
+type ProfileKeys = Exclude<
+  keyof PrivacySettings,
+  'detailedReports' | 'hideLocale' | 'clearSiteData' | 'keepSiteData'
+>;
 
 /**
  * Balanced: everything with a low chance of breaking a site. Strict: also the medium-risk ones
- * (third-party cookies, stronger fingerprint protection). Balanced is the default for new installs.
+ * (third-party cookies, stronger fingerprint protection, click-to-load embeds). Balanced is the default for new installs.
  */
 export function profileSettings(profile: PrivacyProfile): Pick<PrivacySettings, ProfileKeys> {
   const strict = profile === 'strict';
@@ -19,6 +22,7 @@ export function profileSettings(profile: PrivacyProfile): Pick<PrivacySettings, 
     browserAdApis: true,
     limitClientHints: true,
     blockThirdPartyCookies: strict,
+    clickToLoad: strict,
     fingerprint: strict ? 'strict' : 'standard',
   };
 }

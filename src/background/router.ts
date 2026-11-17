@@ -71,6 +71,9 @@ export interface RouterDeps {
   /** List that would block this page, or null. Proceed refuses anything else. */
   pageList(url: string): Promise<string | null>;
   insecurePassword(tabId: number): Promise<void>;
+  /** Whether click-to-load embeds were already let through in this tab. */
+  embedsLoaded(tabId: number): Promise<boolean>;
+  loadEmbeds(tabId: number): Promise<void>;
   sponsorSegments(videoId: string): Promise<Segment[]>;
   youtubeWarned(): Promise<void>;
   youtubeWarnings(): Promise<YoutubeWarnings>;
@@ -364,6 +367,19 @@ export function createRouter(deps: RouterDeps) {
           await deps.insecurePassword(ctx.tabId);
         }
         return null;
+      case 'embed/status':
+      case 'embed/load': {
+        const s = await deps.load();
+        const on =
+          ctx.tabId !== undefined &&
+          s.privacy.clickToLoad &&
+          moduleOn(s, siteKey(ctx.tabUrl ?? ctx.url), 'privacy');
+        if (msg.type === 'embed/status') {
+          return { blocked: on && !(await deps.embedsLoaded(ctx.tabId as number)) };
+        }
+        if (on) await deps.loadEmbeds(ctx.tabId as number);
+        return null;
+      }
     }
   };
 }

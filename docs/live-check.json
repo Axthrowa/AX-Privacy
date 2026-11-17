@@ -1,5 +1,5 @@
 {
-  "date": "2026-11-02T18:18:58.987Z",
+  "date": "2026-11-17T09:52:31.627Z",
   "videoId": "dQw4w9WgXcQ",
   "youtubeWithout": {
     "response": {
@@ -11,7 +11,10 @@
     },
     "parseLooksNative": true,
     "adMarkerSeen": false,
-    "videoAdvancedSeconds": 20.261423999999998
+    "adMarkerSeconds": 0,
+    "stalledSeconds": 0,
+    "watchedSeconds": 20,
+    "videoAdvancedSeconds": 20.197436
   },
   "youtubeWithNexus": {
     "response": {
@@ -20,26 +23,35 @@
     },
     "parseLooksNative": true,
     "adMarkerSeen": false,
-    "videoAdvancedSeconds": 20.250468
+    "adMarkerSeconds": 0,
+    "stalledSeconds": 0,
+    "watchedSeconds": 20,
+    "videoAdvancedSeconds": 20.267449000000003
   },
   "twitchWithout": {
-    "channel": "vonemanarmy",
+    "channel": "ateach",
     "markersInPlayerCode": [
       "video-ad-countdown",
       "video-ad-label",
       "Learn more about this ad"
     ],
     "adMarkerSeen": false,
-    "videoAdvancedSeconds": 20.12769
+    "adMarkerSeconds": 0,
+    "stalledSeconds": 0,
+    "watchedSeconds": 20,
+    "videoAdvancedSeconds": 20.169165
   },
   "twitchWithNexus": {
-    "channel": "vonemanarmy",
+    "channel": "ateach",
     "markersInPlayerCode": [
       "video-ad-countdown",
       "video-ad-label",
       "Learn more about this ad"
     ],
     "adMarkerSeen": false,
-    "videoAdvancedSeconds": 20.049715
+    "adMarkerSeconds": 0,
+    "stalledSeconds": 0,
+    "watchedSeconds": 20,
+    "videoAdvancedSeconds": 20.164096999999998
   }
 }
