@@ -84,6 +84,12 @@ button {
   cursor: pointer;
 }
 
+button[aria-pressed='false'] {
+  background: none;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 button.link {
   background: none;
   color: var(--accent);

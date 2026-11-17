@@ -91,11 +91,31 @@ const adFields = (page: Page) =>
     const w = window as unknown as { ytInitialPlayerResponse: object; __initial: string };
     const fetched = (await (await fetch('/youtubei/v1/player')).json()) as object;
     const parsed = JSON.parse(await (await fetch('/youtubei/v1/player')).text()) as object;
+    const xhr = (type: XMLHttpRequestResponseType) =>
+      new Promise<object>((done) => {
+        const x = new XMLHttpRequest();
+        x.open('GET', '/youtubei/v1/player');
+        x.responseType = type;
+        // Read the raw text without JSON.parse, so only the XHR path is under test.
+        x.onload = () =>
+          done(
+            type === 'json'
+              ? (x.response as object)
+              : Object.fromEntries(
+                  ['adPlacements', 'adSlots', 'playerAds', 'videoDetails']
+                    .filter((k) => x.responseText.includes(`"${k}"`))
+                    .map((k) => [k, 1]),
+                ),
+          );
+        x.send();
+      });
     return {
       initial: keys(JSON.parse(w.__initial) as object),
       global: keys(w.ytInitialPlayerResponse),
       fetched: keys(fetched),
       parsed: keys(parsed),
+      xhrText: keys(await xhr('')),
+      xhrJson: keys(await xhr('json')),
     };
   });
 
@@ -113,6 +133,8 @@ test('YouTube player responses lose their ad schedule, and only while the option
     global: clean,
     fetched: clean,
     parsed: clean,
+    xhrText: clean,
+    xhrJson: clean,
   });
   // The page sees the built-ins, not AX's wrappers.
   expect(
@@ -122,6 +144,7 @@ test('YouTube player responses lose their ad schedule, and only while the option
       Function.prototype.toString.toString(),
       JSON.parse.name,
       JSON.parse.length,
+      String(XMLHttpRequest.prototype.open),
     ]),
   ).toEqual([
     'function parse() { [native code] }',
@@ -129,11 +152,14 @@ test('YouTube player responses lose their ad schedule, and only while the option
     'function toString() { [native code] }',
     'parse',
     2,
+    'function open() { [native code] }',
   ]);
 
   const dash = await dashboard(context, extensionId);
   await dash.getByRole('switch', { name: 'YouTube video reklamlarını kaldır' }).click();
-  await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS.filter((id) => id !== 'yt-ads'));
+  await expect
+    .poll(() => scriptIds(worker))
+    .toEqual(BASE_SCRIPTS.filter((id) => id !== 'yt-ads' && id !== 'yt-guard'));
   await page.reload();
   const all = ['adPlacements', 'adSlots', 'playerAds', 'videoDetails'];
   expect((await adFields(page)).fetched).toEqual(all);
@@ -160,6 +186,75 @@ test('ad cards YouTube still shows are marked, ordinary videos are not', async (
   await expect.poll(() => scriptIds(worker)).not.toContain('yt-sponsored');
   await page.reload();
   expect(await outline('ad-card')).toBe('none');
+});
+
+test('ad cards can be hidden instead of marked', async ({ context, extensionId, worker }) => {
+  const dash = await dashboard(context, extensionId);
+  await dash.getByRole('switch', { name: 'Sponsorlu kartları tamamen gizle' }).click();
+  await expect
+    .poll(() =>
+      worker.evaluate(async () =>
+        (await chrome.scripting.getRegisteredContentScripts({ ids: ['yt-sponsored'] })).map(
+          (s) => s.css,
+        ),
+      ),
+    )
+    .toEqual([['content/yt-sponsored-hide.css']]);
+  const page = await context.newPage();
+  await page.goto(`${host('www.youtube.com')}/`);
+  await expect(page.locator('#ad-card')).toBeHidden();
+  await expect(page.locator('#video-card')).toBeVisible();
+});
+
+test("YouTube's own Skip button is pressed when an ad still plays", async ({ context, worker }) => {
+  await expect.poll(() => scriptIds(worker)).toContain('yt-autoskip');
+  const page = await context.newPage();
+  await page.goto(`${host('www.youtube.com')}/watch?v=nexus`);
+  await page.evaluate(() => {
+    const b = document.createElement('button');
+    b.className = 'ytp-skip-ad-button';
+    b.textContent = 'Geç';
+    b.onclick = () => ((window as unknown as { __skipped: boolean }).__skipped = true);
+    document.getElementById('player')?.append(b);
+  });
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __skipped?: boolean }).__skipped))
+    .toBe(true);
+});
+
+test('after the ad blocker warning, that tab backs off and the video plays', async ({
+  context,
+  worker,
+}) => {
+  await expect.poll(() => scriptIds(worker)).toContain('yt-guard');
+  const page = await context.newPage();
+  await page.goto(`${host('www.youtube.com')}/watch?v=nexus`);
+  expect((await adFields(page)).fetched).toEqual(['videoDetails']);
+  const reloaded = page.waitForEvent('load');
+  await page.evaluate(() =>
+    document.body.append(document.createElement('ytd-enforcement-message-view-model')),
+  );
+  await reloaded;
+  // Once only: the warning comes back, but the tab has already backed off and stays put.
+  await page.evaluate(() =>
+    document.body.append(document.createElement('ytd-enforcement-message-view-model')),
+  );
+  await page.waitForTimeout(1500);
+  expect((await adFields(page)).fetched).toEqual([
+    'adPlacements',
+    'adSlots',
+    'playerAds',
+    'videoDetails',
+  ]);
+  expect(
+    await worker.evaluate(
+      async () => (await chrome.storage.local.get('youtubeWarnings')).youtubeWarnings,
+    ),
+  ).toMatchObject({ count: 1 });
+  // Another tab is not affected.
+  const other = await context.newPage();
+  await other.goto(`${host('www.youtube.com')}/watch?v=nexus`);
+  expect((await adFields(other)).fetched).toEqual(['videoDetails']);
 });
 
 test('embedded YouTube players move to youtube-nocookie.com when chosen', async ({
@@ -244,7 +339,7 @@ test('stitched-in ads are muted and darkened only while the player marks one', a
   await expect.poll(() => playerState(page)).toEqual(QUIET);
 });
 
-test('SponsorBlock skips sponsor segments and is asked only by hash prefix', async ({
+test('SponsorBlock acts per category, undoes a skip and is asked only by hash prefix', async ({
   context,
   extensionId,
   worker,
@@ -261,7 +356,11 @@ test('SponsorBlock skips sponsor segments and is asked only by hash prefix', asy
         { videoID: 'otherVideo1', segments: [{ category: 'sponsor', segment: [1, 50] }] },
         {
           videoID: VIDEO,
-          segments: [{ category: 'sponsor', actionType: 'skip', segment: [10, 20] }],
+          segments: [
+            { category: 'sponsor', actionType: 'skip', segment: [10, 20] },
+            { category: 'intro', actionType: 'skip', segment: [30, 40] },
+            { category: 'selfpromo', actionType: 'skip', segment: [50, 60] },
+          ],
         },
       ]),
     );
@@ -270,6 +369,22 @@ test('SponsorBlock skips sponsor segments and is asked only by hash prefix', asy
     const dash = await dashboard(context, extensionId);
     await dash.getByRole('switch', { name: /SponsorBlock/ }).click();
     await expect.poll(() => scriptIds(worker)).toContain('yt-skip');
+    // All 12 categories can be set; self-promotion goes from automatic to off.
+    await expect(dash.locator('label.field select')).toHaveCount(12);
+    await dash.getByLabel('Kendi tanıtımı').selectOption('off');
+    await expect
+      .poll(() =>
+        worker.evaluate(
+          async () =>
+            (
+              (await chrome.storage.local.get('settings')).settings as {
+                video: { sponsorModes: Record<string, string> };
+              }
+            ).video.sponsorModes.selfpromo,
+        ),
+      )
+      .toBe('off');
+
     const page = await context.newPage();
     await page.goto(`${host('www.youtube.com')}/watch?v=${VIDEO}`);
     const tick = (seek?: number) =>
@@ -279,13 +394,29 @@ test('SponsorBlock skips sponsor segments and is asked only by hash prefix', asy
         v.dispatchEvent(new Event('timeupdate'));
         return v.currentTime;
       }, seek);
+
+    // Automatic: the sponsor is skipped, and one click brings it back.
     await tick(12);
     await expect.poll(() => tick()).toBe(20);
+    await expect(page.getByRole('status')).toContainText('Atlandı: Sponsor');
+    await page.getByRole('button', { name: 'Geri al' }).click();
+    expect(await tick()).toBe(10);
+    await tick(13);
+    expect(await tick()).toBe(13);
+
+    // Button: the intro waits for a click.
+    await tick(31);
+    expect(await tick()).toBe(31);
+    await page.getByRole('button', { name: 'Atla: Giriş' }).click();
+    expect(await tick()).toBe(40);
+
+    // Off: self-promotion plays.
+    await tick(51);
+    expect(await tick()).toBe(51);
 
     const asked = hits.filter((h) => h.startsWith('sponsor.ajay.app'));
-    expect(asked).toEqual([
-      `sponsor.ajay.app/api/skipSegments/5f6b?categories=${encodeURIComponent('["sponsor"]')}`,
-    ]);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatch(/^sponsor\.ajay\.app\/api\/skipSegments\/5f6b\?categories=/);
     expect(asked.join()).not.toContain(VIDEO);
   } finally {
     sponsor.server.close();

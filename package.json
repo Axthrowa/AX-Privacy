@@ -1,6 +1,6 @@
 {
   "name": "ax-privacy",
-  "version": "0.15.0",
+  "version": "1.0.0",
   "private": true,
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -20,7 +20,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "e2e": "playwright test",
+    "e2e": "playwright test --project brave",
+    "e2e:chromium": "playwright test --project chromium",
     "e2e:firefox": "node e2e/firefox.ts",
     "live-check": "node e2e/live-check.ts",
     "sites": "node e2e/site-check.ts",

@@ -4,9 +4,10 @@ import {
   contentScripts,
   controlRules,
   isProtected,
+  newFpSeed,
 } from '../engines/core/control.ts';
 import { parseMessage, senderKind, type Reply } from '../shared/messages.ts';
-import type { Settings } from '../shared/types.ts';
+import type { Settings, YoutubeWarnings } from '../shared/types.ts';
 import { siteKey } from '../shared/url.ts';
 import { exportSettings, importSettings, loadSettings, saveSettings } from '../storage/settings.ts';
 import { parseStatsDump, StatsRecorder } from './stats.ts';
@@ -23,7 +24,7 @@ import {
   refreshUserList,
 } from './filters.ts';
 import { chromeConsentDeps, handleConsent } from './consent.ts';
-import { applyWebRtcPolicy } from './location.ts';
+import { applyBrowserPrivacy, applyWebRtcPolicy } from './location.ts';
 import { installPopupGuard, isPagePopup, noteUserOpen } from './popup-guard.ts';
 import { createRouter } from './router.ts';
 import { installSecurityGuard, proceed, wasProceeded } from './security.ts';
@@ -31,6 +32,12 @@ import { sponsorSegments } from './sponsor.ts';
 import { setTabReports, sessionStore, TabReports } from './tab-report.ts';
 
 const stats = new StatsRecorder();
+const WARNINGS_KEY = 'youtubeWarnings';
+const youtubeWarnings = async (): Promise<YoutubeWarnings> =>
+  ((await chrome.storage.local.get(WARNINGS_KEY))[WARNINGS_KEY] as YoutubeWarnings | undefined) ?? {
+    count: 0,
+    last: null,
+  };
 const reports = new TabReports(sessionStore, (host) => stats.request(host));
 const consentDeps = chromeConsentDeps(async (tabId, r) => {
   await reports.consent(tabId, r);
@@ -38,6 +45,7 @@ const consentDeps = chromeConsentDeps(async (tabId, r) => {
 });
 
 const APPLY_KEY = 'applyFingerprint';
+const FP_SEED_KEY = 'fpSeed';
 
 function scriptsKey(scripts: chrome.scripting.RegisteredContentScript[]): string {
   return JSON.stringify(
@@ -69,6 +77,16 @@ function syncListeners(s: Settings): void {
   }
 }
 
+/** Session storage is emptied when the browser closes, so each browser run gets a new seed. */
+async function sessionFpSeed(): Promise<number[]> {
+  const stored = (await chrome.storage.session.get(FP_SEED_KEY))[FP_SEED_KEY] as
+    number[] | undefined;
+  if (stored) return stored;
+  const seed = newFpSeed(() => (crypto.getRandomValues(new Uint32Array(1))[0] ?? 0) / 2 ** 32);
+  await chrome.storage.session.set({ [FP_SEED_KEY]: seed });
+  return seed;
+}
+
 async function apply(s: Settings): Promise<void> {
   const prev = ((await chrome.storage.session.get(APPLY_KEY))[APPLY_KEY] ?? {}) as {
     control?: string;
@@ -82,7 +100,7 @@ async function apply(s: Settings): Promise<void> {
       addRules: rules,
     });
   }
-  const scripts = contentScripts(s);
+  const scripts = contentScripts(s, await sessionFpSeed());
   const key = scriptsKey(scripts);
   if (key !== prev.scripts) {
     const registered = await chrome.scripting.getRegisteredContentScripts();
@@ -93,6 +111,7 @@ async function apply(s: Settings): Promise<void> {
   }
   await chrome.storage.session.set({ [APPLY_KEY]: { control, scripts: key } });
   await applyWebRtcPolicy(s).catch(() => undefined);
+  await applyBrowserPrivacy(s).catch(() => undefined);
   syncListeners(s);
   const tabs = await chrome.tabs.query({});
   await Promise.all(tabs.map((t) => setBadge(s, t)));
@@ -183,6 +202,12 @@ const route = createRouter({
   insecurePassword: async (tabId) =>
     reports.insecurePassword(tabId, (await chrome.tabs.get(tabId)).url),
   sponsorSegments,
+  // A count and a time only: which video or page showed the warning is not kept.
+  youtubeWarned: async () => {
+    const w = await youtubeWarnings();
+    await chrome.storage.local.set({ [WARNINGS_KEY]: { count: w.count + 1, last: Date.now() } });
+  },
+  youtubeWarnings,
   statsView: (days) => stats.view(days),
   clearStats: async () => {
     await stats.reset();
@@ -266,6 +291,9 @@ function setUpThisVersion(): void {
 }
 
 chrome.runtime.onInstalled.addListener(setUpThisVersion);
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  if (reason === 'install') void chrome.tabs.create({ url: 'dashboard.html#welcome' });
+});
 
 // Files of an unpacked extension can change between browser runs, and then onInstalled never fires:
 // the new code would run on the old version's rules and scripts.

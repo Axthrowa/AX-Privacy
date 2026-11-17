@@ -9,16 +9,25 @@ import { join, resolve } from 'node:path';
 
 export const BRAVE_PATH =
   process.env.BRAVE_PATH ?? 'C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe';
+/** Brave, or Playwright's Chromium standing in for Chrome (which no longer loads unpacked extensions from the command line). */
+export type BrowserKind = 'brave' | 'chromium';
+/** What About shows for the browser, once detected. */
+export const browserLabel = (kind: BrowserKind) =>
+  kind === 'brave' ? 'Tarayıcı: Brave' : 'Tarayıcı: Brave değil (Chromium tabanlı veya Firefox)';
 export const EXTENSION_DIR = resolve(import.meta.dirname, '../dist/chrome');
 /** Content scripts registered with default settings, sorted by id. */
 export const BASE_SCRIPTS = [
+  'consent',
   'cosmetic',
+  'fp-noise',
   'gpc',
   'link-clean',
   'popups',
   'scriptlets',
   'tw-ads',
   'yt-ads',
+  'yt-autoskip',
+  'yt-guard',
   'yt-sponsored',
 ];
 /** Fake hosts resolved to the local test server; nothing leaves the machine. */
@@ -46,15 +55,23 @@ const TEST_PAGE = `<!doctype html><title>AX test</title>
  * Launches Brave with a throwaway profile; never touches the user's real profile. Shields are off
  * in that profile so what gets blocked is AX's doing.
  */
-export async function launchBrave(extensions: string[], args: string[] = []) {
+export async function launchBrave(
+  extensions: string[],
+  args: string[] = [],
+  lang = 'tr',
+  kind: BrowserKind = 'brave',
+) {
   const profile = await mkdtemp(join(tmpdir(), 'nexus-e2e-'));
   await mkdir(join(profile, 'Default'));
+  // The browser's own language, which AX's interface follows. The tests read the Turkish one.
+  await writeFile(join(profile, 'Local State'), JSON.stringify({ intl: { app_locale: lang } }));
   await writeFile(
     join(profile, 'Default', 'Preferences'),
     JSON.stringify({ profile: { default_content_setting_values: { braveShields: 2 } } }),
   );
   const context = await chromium.launchPersistentContext(profile, {
-    executablePath: BRAVE_PATH,
+    ...(kind === 'chromium' ? { channel: 'chromium' } : { executablePath: BRAVE_PATH }),
+    locale: lang,
     headless: true,
     // HSTS-preloaded test hosts (youtube.com, twitch.tv) are served with a throwaway certificate.
     ignoreHTTPSErrors: true,
@@ -135,14 +152,15 @@ export async function startHttpsServer(
 }
 
 export const test = base.extend<{
+  browserKind: BrowserKind;
   context: BrowserContext;
   worker: Worker;
   extensionId: string;
   origin: string;
 }>({
-  // eslint-disable-next-line no-empty-pattern
-  context: async ({}, use) => {
-    const brave = await launchBrave([EXTENSION_DIR]);
+  browserKind: ['brave', { option: true }],
+  context: async ({ browserKind }, use) => {
+    const brave = await launchBrave([EXTENSION_DIR], [], 'tr', browserKind);
     await use(brave.context);
     await brave.close();
   },
