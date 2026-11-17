@@ -70,18 +70,20 @@ describe('parseMessage', () => {
       data: { nexus: 1 },
     });
   });
-  it('passes only the autoconsent messages the background handles, minus page-supplied code', () => {
+  it('passes only the autoconsent reports the background records', () => {
     expect(
       parseMessage({
         type: 'consent/msg',
         msg: { type: 'eval', id: 'a', snippetId: 'EVAL_X', code: 'fetch("//evil")' },
       }),
-    ).toEqual({ type: 'consent/msg', msg: { type: 'eval', id: 'a', snippetId: 'EVAL_X' } });
+    ).toBeNull();
+    expect(
+      parseMessage({ type: 'consent/msg', msg: { type: 'init', url: 'https://a.com/' } }),
+    ).toBeNull();
     expect(
       parseMessage({ type: 'consent/msg', msg: { type: 'optOutResult', cmp: 'X', result: true } }),
     ).toEqual({ type: 'consent/msg', msg: { type: 'optOutResult', cmp: 'X', result: true } });
     expect(parseMessage({ type: 'consent/msg', msg: { type: 'report', state: {} } })).toBeNull();
-    expect(parseMessage({ type: 'consent/msg', msg: { type: 'eval', id: 'a' } })).toBeNull();
   });
   it('trims page features to strings within limits', () => {
     const classes = [

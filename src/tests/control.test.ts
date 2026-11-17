@@ -191,13 +191,18 @@ describe('contentScripts', () => {
       'popups',
       'scriptlets',
       'consent',
+      'consent-eval',
       'fp-noise',
       'fp-strict',
     ]);
     for (const s of scripts) expect(s.excludeMatches).toContain('*://a.com/*');
     const fp = scripts.filter((s) => s.id.startsWith('fp-'));
     for (const s of fp) expect(s).toMatchObject({ world: 'MAIN', matchOriginAsFallback: true });
-    expect(scripts.find((s) => s.id === 'consent')?.world).toBeUndefined();
+    const consent = scripts.find((s) => s.id === 'consent');
+    expect(consent?.world).toBeUndefined();
+    // The rules file runs first, in the same pass.
+    expect(consent?.js).toEqual(['content/consent-rules.js', 'content/consent.js']);
+    expect(scripts.find((s) => s.id === 'consent-eval')?.world).toBe('MAIN');
     const standard = { ...on.privacy, fingerprint: 'standard' as const };
     expect(contentScripts({ ...on, privacy: standard }).map((s) => s.id)).toEqual([
       'cosmetic',

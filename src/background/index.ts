@@ -7,7 +7,7 @@ import {
   newFpSeed,
 } from '../engines/core/control.ts';
 import { parseMessage, senderKind, type Reply } from '../shared/messages.ts';
-import type { Settings, YoutubeWarnings } from '../shared/types.ts';
+import type { ConsentReport, Settings, YoutubeWarnings } from '../shared/types.ts';
 import { siteKey } from '../shared/url.ts';
 import { exportSettings, importSettings, loadSettings, saveSettings } from '../storage/settings.ts';
 import { parseStatsDump, StatsRecorder } from './stats.ts';
@@ -23,13 +23,13 @@ import {
   listsView,
   refreshUserList,
 } from './filters.ts';
-import { chromeConsentDeps, handleConsent } from './consent.ts';
+import { handleConsent } from './consent.ts';
 import { applyBrowserPrivacy, applyWebRtcPolicy } from './location.ts';
 import { installPopupGuard, isPagePopup, noteUserOpen } from './popup-guard.ts';
 import { createRouter } from './router.ts';
-import { embedsLoaded, installEmbedCleanup, loadEmbeds } from './embeds.ts';
+import { embedsLoaded, loadEmbeds } from './embeds.ts';
 import { installSecurityGuard, proceed, wasProceeded } from './security.ts';
-import { installSiteDataCleanup } from './site-data.ts';
+import { syncSiteDataCleanup } from './site-data.ts';
 import { sponsorSegments } from './sponsor.ts';
 import { setTabReports, sessionStore, TabReports } from './tab-report.ts';
 
@@ -41,10 +41,10 @@ const youtubeWarnings = async (): Promise<YoutubeWarnings> =>
     last: null,
   };
 const reports = new TabReports(sessionStore, (host) => stats.request(host));
-const consentDeps = chromeConsentDeps(async (tabId, r) => {
+const recordConsent = async (tabId: number, r: ConsentReport) => {
   await reports.consent(tabId, r);
   if (r.result === true) stats.consent();
-});
+};
 
 const APPLY_KEY = 'applyFingerprint';
 const FP_SEED_KEY = 'fpSeed';
@@ -71,6 +71,7 @@ const onTabUpdated = (_tabId: number, change: chrome.tabs.OnUpdatedInfo, tab: ch
 /** Events that fire on every navigation are subscribed only when something will use them. */
 function syncListeners(s: Settings): void {
   setTabReports(reports, s.enabled && s.privacy.detailedReports);
+  syncSiteDataCleanup(s, loadSettings);
   const badgeNeeded = !s.enabled || s.pausedSites.length > 0;
   if (badgeNeeded && !chrome.tabs.onUpdated.hasListener(onTabUpdated)) {
     chrome.tabs.onUpdated.addListener(onTabUpdated);
@@ -198,7 +199,7 @@ const route = createRouter({
     const bypassed = await wasProceeded(page.url);
     return { ...page, risk: assessRisk(page.url, { insecurePassword, bypassed }) };
   },
-  consent: (msg, ctx) => handleConsent(msg, ctx, consentDeps),
+  consent: (msg, ctx) => handleConsent(msg, ctx, recordConsent),
   proceed,
   pageList: async (url) => blockingList(await loadSettings(), url),
   insecurePassword: async (tabId) =>
@@ -227,8 +228,6 @@ const route = createRouter({
 
 installPopupGuard(loadSettings, (url, incognito) => stats.popup(url, incognito));
 void loadSettings().then(syncListeners);
-installEmbedCleanup();
-installSiteDataCleanup(loadSettings);
 installSecurityGuard(
   loadSettings,
   blockingList,

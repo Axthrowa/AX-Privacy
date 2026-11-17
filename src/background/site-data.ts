@@ -38,20 +38,37 @@ export function keptOrigins(s: Settings, openUrls: readonly string[]): string[] 
   return [...out].sort();
 }
 
-/** Registered at start-up, so a tab closing wakes the worker; it does nothing unless asked. */
-export function installSiteDataCleanup(load: () => Promise<Settings>): void {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const clear = async () => {
-    const s = await load();
-    if (!s.enabled || !s.privacy.clearSiteData) return;
-    // Firefox has no excludeOrigins; without it this call would clear every site.
-    if (chrome.runtime.getURL('').startsWith('moz-extension:')) return;
-    const tabs = await chrome.tabs.query({});
-    const urls = tabs.flatMap((t) => (t.url ? [t.url] : []));
-    await chrome.browsingData.remove({ excludeOrigins: keptOrigins(s, urls) }, DATA_TYPES);
-  };
-  chrome.tabs.onRemoved.addListener(() => {
-    clearTimeout(timer);
-    timer = setTimeout(() => void clear().catch(() => undefined), SETTLE_MS);
-  });
+let timer: ReturnType<typeof setTimeout> | undefined;
+let load: (() => Promise<Settings>) | undefined;
+
+async function clear(): Promise<void> {
+  const s = await load?.();
+  if (!s?.enabled || !s.privacy.clearSiteData) return;
+  const tabs = await chrome.tabs.query({});
+  const urls = tabs.flatMap((t) => (t.url ? [t.url] : []));
+  await chrome.browsingData.remove({ excludeOrigins: keptOrigins(s, urls) }, DATA_TYPES);
+}
+
+function onRemoved(): void {
+  clearTimeout(timer);
+  timer = setTimeout(() => void clear().catch(() => undefined), SETTLE_MS);
+}
+
+/**
+ * Listens for closed tabs only while asked to: the listener wakes the worker for every tab. Added
+ * after start-up, it can miss the close that woke the worker, so each start clears once as well.
+ */
+export function syncSiteDataCleanup(s: Settings, loadSettings: () => Promise<Settings>): void {
+  // Firefox has no excludeOrigins; without it the call would clear every site.
+  const on =
+    s.enabled && s.privacy.clearSiteData && !chrome.runtime.getURL('').startsWith('moz-extension:');
+  if (!on) {
+    chrome.tabs.onRemoved.removeListener(onRemoved);
+    return;
+  }
+  load = loadSettings;
+  if (!chrome.tabs.onRemoved.hasListener(onRemoved)) {
+    chrome.tabs.onRemoved.addListener(onRemoved);
+    onRemoved();
+  }
 }
