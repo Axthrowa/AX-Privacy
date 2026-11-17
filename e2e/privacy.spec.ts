@@ -550,3 +550,62 @@ test('click-to-load holds embeds back until a click, for that tab only', async (
     server.close();
   }
 });
+
+test('closing a tab clears sites without an open tab, keeping the keep list', async ({
+  context,
+  extensionId,
+}) => {
+  const dash = await dashboard(context, extensionId);
+  await dash.evaluate(() =>
+    chrome.runtime.sendMessage({
+      type: 'privacy/set',
+      privacy: { clearSiteData: true, keepSiteData: ['nexus-other.example'] },
+    }),
+  );
+  const THIRD = 'www.nexus-third.example';
+  const store = async (name: string) => {
+    const p = await context.newPage();
+    await p.goto(`${host(name)}/`);
+    await p.evaluate(() => {
+      localStorage.setItem('k', 'v');
+      document.cookie = 'c=1; max-age=3600';
+    });
+    return p;
+  };
+  const read = async (name: string) => {
+    const p = await context.newPage();
+    await p.goto(`${host(name)}/`);
+    const out = await p.evaluate(() => ({
+      storage: localStorage.getItem('k'),
+      cookie: document.cookie,
+    }));
+    await p.close();
+    return out;
+  };
+  const KEPT = 'www.nexus-other.example';
+  const closed = await store(SITE);
+  const kept = await store(KEPT);
+  const keptSub = await store(OTHER);
+  const open = await store(THIRD);
+  await closed.close();
+  await kept.close();
+  await keptSub.close();
+  const EMPTY = { storage: null, cookie: '' };
+  const FULL = { storage: 'v', cookie: 'c=1' };
+  // Reading opens the site again, which keeps it; so wait out the clear first.
+  await dash.waitForTimeout(3_000);
+  expect(await read(SITE)).toEqual(EMPTY);
+  // Cookies stay for the kept site's whole domain (logins). Its storage is kept by exact origin,
+  // which the test server's random port never matches; keptOrigins' unit test covers that.
+  expect((await read(KEPT)).cookie).toBe('c=1');
+  expect((await read(OTHER)).cookie).toBe('c=1');
+  expect(await open.evaluate(() => localStorage.getItem('k'))).toBe('v');
+
+  // Off again: nothing more is cleared.
+  await dash.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'privacy/set', privacy: { clearSiteData: false } }),
+  );
+  await (await store(SITE)).close();
+  await dash.waitForTimeout(2_500);
+  expect(await read(SITE)).toEqual(FULL);
+});

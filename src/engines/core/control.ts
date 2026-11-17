@@ -122,6 +122,9 @@ export const FP_SEED_DIGITS = 16;
 /** Picked per browser session: 16!/8! orderings, about 29 bits. */
 export const FP_SEED_LENGTH = 8;
 export const fpSeedFile = (d: number) => `content/fp-seed/${d.toString(16)}.js`;
+/** Which of its jobs the ad-time script does, spelled the same way: a file per job, run first. */
+export const AD_MODES = ['mute', 'speed'] as const;
+export const adModeFile = (m: (typeof AD_MODES)[number]) => `content/ad-mode/${m}.js`;
 
 /** A random ordered pick of distinct seed digits. */
 export function newFpSeed(random: () => number = Math.random): number[] {
@@ -527,8 +530,14 @@ export function contentScripts(
     scripts.push(script('tw-ads', 'MAIN', TWITCH_SITES.flatMap(sitePatterns), 'video'));
   }
   if (s.video.sponsorSkip) scripts.push(script('yt-skip', 'ISOLATED', youtube, 'video'));
-  if (s.video.adMute) {
-    scripts.push(script('video-ads', 'ISOLATED', AD_MUTE_SITES.flatMap(sitePatterns), 'video'));
+  if (s.video.adMute || s.video.adSpeedUp) {
+    const ads = script('video-ads', 'ISOLATED', AD_MUTE_SITES.flatMap(sitePatterns), 'video');
+    ads.js = [
+      ...(s.video.adMute ? [adModeFile('mute')] : []),
+      ...(s.video.adSpeedUp ? [adModeFile('speed')] : []),
+      CONTENT_SCRIPT_FILES['video-ads'],
+    ];
+    scripts.push(ads);
   }
   if (s.video.markSponsored || s.video.hideSponsored) {
     scripts.push({

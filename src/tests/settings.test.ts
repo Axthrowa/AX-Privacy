@@ -55,6 +55,8 @@ describe('normalizeSettings', () => {
       browserAdApis: true,
       limitClientHints: true,
       clickToLoad: false,
+      clearSiteData: false,
+      keepSiteData: [],
       detailedReports: false,
     });
     expect(
@@ -111,6 +113,7 @@ describe('normalizeSettings', () => {
       genericPlayers: false,
       nocookieEmbeds: false,
       adMute: false,
+      adSpeedUp: false,
       sponsorSkip: false,
       sponsorModes: DEFAULT_SPONSOR_MODES,
       sponsorChannels: [],
@@ -135,6 +138,7 @@ describe('normalizeSettings', () => {
       genericPlayers: false,
       nocookieEmbeds: false,
       adMute: false,
+      adSpeedUp: false,
       sponsorSkip: true,
       sponsorModes: { ...DEFAULT_SPONSOR_MODES, intro: 'auto' },
       sponsorChannels: ['@somechannel'],

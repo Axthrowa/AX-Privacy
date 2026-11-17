@@ -8,7 +8,7 @@ import type {
   UserListRef,
   VideoSettings,
 } from '../shared/types.ts';
-import { isValidSite } from '../shared/site.ts';
+import { isValidSite, siteList } from '../shared/site.ts';
 import { channelList, DEFAULT_SPONSOR_MODES, sponsorModes } from '../shared/sponsor.ts';
 
 const KEY = 'settings';
@@ -43,6 +43,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
     browserAdApis: true,
     limitClientHints: true,
     clickToLoad: false,
+    clearSiteData: false,
+    keepSiteData: [],
     detailedReports: false,
   },
   video: {
@@ -54,6 +56,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
     genericPlayers: false,
     nocookieEmbeds: false,
     adMute: false,
+    adSpeedUp: false,
     sponsorSkip: false,
     sponsorModes: { ...DEFAULT_SPONSOR_MODES },
     sponsorChannels: [],
@@ -85,6 +88,7 @@ function normalizeVideo(raw: unknown): VideoSettings {
     genericPlayers: bool(r.genericPlayers, d.genericPlayers),
     nocookieEmbeds: bool(r.nocookieEmbeds, d.nocookieEmbeds),
     adMute: bool(r.adMute, d.adMute),
+    adSpeedUp: bool(r.adSpeedUp, d.adSpeedUp),
     sponsorSkip: bool(r.sponsorSkip, d.sponsorSkip),
     sponsorModes: sponsorModes(r.sponsorModes),
     sponsorChannels: channelList(r.sponsorChannels),
@@ -104,6 +108,8 @@ function normalizePrivacy(raw: unknown): PrivacySettings {
     browserAdApis: bool(r.browserAdApis, d.browserAdApis),
     limitClientHints: bool(r.limitClientHints, d.limitClientHints),
     clickToLoad: bool(r.clickToLoad, d.clickToLoad),
+    clearSiteData: bool(r.clearSiteData, d.clearSiteData),
+    keepSiteData: siteList(r.keepSiteData),
     hideLocalIps: bool(r.hideLocalIps, d.hideLocalIps),
     hideLocale: bool(r.hideLocale, d.hideLocale),
     detailedReports: bool(r.detailedReports, d.detailedReports),

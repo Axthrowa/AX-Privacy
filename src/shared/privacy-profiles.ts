@@ -2,7 +2,10 @@ import type { PrivacySettings } from './types.ts';
 
 export type PrivacyProfile = 'balanced' | 'strict';
 /** What a profile decides; per-page reports and the language/time zone switch stay the user's. */
-type ProfileKeys = Exclude<keyof PrivacySettings, 'detailedReports' | 'hideLocale'>;
+type ProfileKeys = Exclude<
+  keyof PrivacySettings,
+  'detailedReports' | 'hideLocale' | 'clearSiteData' | 'keepSiteData'
+>;
 
 /**
  * Balanced: everything with a low chance of breaking a site. Strict: also the medium-risk ones

@@ -175,6 +175,21 @@ export function Video({
 
       <Toggle
         label={L(
+          'Kaldırılamayan YouTube reklamlarını 16 kat hızlı oynat',
+          'Play YouTube ads that cannot be removed at 16x',
+        )}
+        checked={video.adSpeedUp}
+        onChange={(on) => set({ adSpeedUp: on })}
+      />
+      <p className="note">
+        {L(
+          'Reklam birkaç saniyede biter; bitince videonun kendi hızı geri gelir. Risk: YouTube oynatma hızını görebilir ve bunu reklam engelleme sayıp hesabı işaretleyebilir. Twitch’te canlı reklam hızlandırılamaz.',
+          'The ad ends in a few seconds; the video’s own speed comes back afterwards. Risk: YouTube can see the playback rate, count it as ad blocking and flag the account. Live Twitch ads cannot be sped up.',
+        )}
+      </p>
+
+      <Toggle
+        label={L(
           'YouTube sponsor bölümlerini atla (SponsorBlock)',
           'Skip YouTube sponsor segments (SponsorBlock)',
         )}

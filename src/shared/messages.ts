@@ -15,7 +15,7 @@ import type {
   VideoSettings,
   YoutubeWarnings,
 } from './types.ts';
-import { isValidSite } from './site.ts';
+import { isValidSite, MAX_KEPT_SITES, siteList } from './site.ts';
 import { channelList, isSkipMode, isSponsorCategory, SPONSOR_CATEGORIES } from './sponsor.ts';
 
 type NoPayload = Record<never, never>;
@@ -159,11 +159,14 @@ function parsePrivacy(raw: unknown): Partial<PrivacySettings> | null {
       k === 'browserAdApis' ||
       k === 'limitClientHints' ||
       k === 'clickToLoad' ||
+      k === 'clearSiteData' ||
       k === 'detailedReports';
     if (flag && typeof v === 'boolean') {
       out[k] = v;
     } else if (k === 'fingerprint' && isFingerprintLevel(v)) {
       out.fingerprint = v;
+    } else if (k === 'keepSiteData' && Array.isArray(v) && v.length <= MAX_KEPT_SITES) {
+      out.keepSiteData = siteList(v);
     } else {
       return null;
     }
@@ -191,6 +194,7 @@ const VIDEO_KEYS: ReadonlySet<string> = new Set<keyof VideoSettings>([
   'genericPlayers',
   'nocookieEmbeds',
   'adMute',
+  'adSpeedUp',
   'sponsorSkip',
 ]);
 
