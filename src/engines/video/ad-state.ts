@@ -21,6 +21,29 @@ export function adSelectorFor(hostname: string): string | null {
   return null;
 }
 
+/** The fastest rate browsers allow for media. */
+export const AD_SPEED = 16;
+
+/**
+ * Plays media at AD_SPEED while an ad plays and puts back each one's own rate afterwards.
+ */
+export class AdSpeeder {
+  private readonly rates = new Map<{ playbackRate: number }, number>();
+
+  update(adPlaying: boolean, media: Iterable<{ playbackRate: number }>): void {
+    if (adPlaying) {
+      for (const m of media) {
+        if (m.playbackRate === AD_SPEED) continue;
+        if (!this.rates.has(m)) this.rates.set(m, m.playbackRate);
+        m.playbackRate = AD_SPEED;
+      }
+      return;
+    }
+    for (const [m, rate] of this.rates) m.playbackRate = rate;
+    this.rates.clear();
+  }
+}
+
 /**
  * Mutes media while an ad plays and gives back only what it took: a video the user had muted stays
  * muted, and one the user unmutes during the ad is left alone.

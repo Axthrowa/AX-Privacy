@@ -27,7 +27,9 @@ import { chromeConsentDeps, handleConsent } from './consent.ts';
 import { applyBrowserPrivacy, applyWebRtcPolicy } from './location.ts';
 import { installPopupGuard, isPagePopup, noteUserOpen } from './popup-guard.ts';
 import { createRouter } from './router.ts';
+import { embedsLoaded, installEmbedCleanup, loadEmbeds } from './embeds.ts';
 import { installSecurityGuard, proceed, wasProceeded } from './security.ts';
+import { installSiteDataCleanup } from './site-data.ts';
 import { sponsorSegments } from './sponsor.ts';
 import { setTabReports, sessionStore, TabReports } from './tab-report.ts';
 
@@ -201,6 +203,8 @@ const route = createRouter({
   pageList: async (url) => blockingList(await loadSettings(), url),
   insecurePassword: async (tabId) =>
     reports.insecurePassword(tabId, (await chrome.tabs.get(tabId)).url),
+  embedsLoaded,
+  loadEmbeds,
   sponsorSegments,
   // A count and a time only: which video or page showed the warning is not kept.
   youtubeWarned: async () => {
@@ -223,6 +227,8 @@ const route = createRouter({
 
 installPopupGuard(loadSettings, (url, incognito) => stats.popup(url, incognito));
 void loadSettings().then(syncListeners);
+installEmbedCleanup();
+installSiteDataCleanup(loadSettings);
 installSecurityGuard(
   loadSettings,
   blockingList,

@@ -476,3 +476,136 @@ test('Client Hints and the browser ad APIs are limited by default, profiles swit
   await expect.poll(() => hintRule(host(SITE))).toBe(true);
   await expect.poll(async () => (await adApis()).topics !== true).toBe(true);
 });
+
+test('click-to-load holds embeds back until a click, for that tab only', async ({
+  context,
+  extensionId,
+  worker,
+}) => {
+  const dash = await dashboard(context, extensionId);
+  const toggle = dash.getByRole('switch', {
+    name: 'Gömülü Facebook, X ve Disqus içeriğini tıklayınca yükle',
+  });
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect
+    .poll(() =>
+      worker.evaluate(async () =>
+        (await chrome.scripting.getRegisteredContentScripts()).map((s) => s.id),
+      ),
+    )
+    .toContain('click-to-load');
+  // A regex Chromium refuses would take every control rule down with it.
+  expect(
+    await worker.evaluate(async () =>
+      (await chrome.declarativeNetRequest.getDynamicRules()).filter(
+        (r) => r.id >= 16 && r.id <= 19,
+      ),
+    ),
+  ).toHaveLength(4);
+  const { origin, server } = await startServer(`<!doctype html><title>haber</title>
+<blockquote class="twitter-tweet"><a href="https://x.com/a/status/1">tweet</a></blockquote>
+<div class="fb-post" data-href="https://www.facebook.com/a/posts/1"></div>`);
+  const outcome = (tabId: number) =>
+    worker.evaluate(
+      async ([id, initiator]) =>
+        (
+          await chrome.declarativeNetRequest.testMatchOutcome({
+            url: 'https://platform.twitter.com/widgets.js',
+            type: 'script' as chrome.declarativeNetRequest.ResourceType,
+            initiator,
+            tabId: id,
+          })
+        ).matchedRules.map((r) => `${r.rulesetId}#${r.ruleId}`),
+      [tabId, origin] as const,
+    );
+  try {
+    const page = await context.newPage();
+    await page.goto(`${origin}/`);
+    const load = page.getByRole('button', { name: 'X (Twitter) içeriğini yükle' });
+    await expect(load).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Facebook içeriğini yükle' })).toBeVisible();
+    const tabId = await worker.evaluate(
+      async (url) => (await chrome.tabs.query({ url }))[0]?.id ?? -1,
+      `${origin}/`,
+    );
+    // X's widget script is the third embed rule (16 + 2).
+    expect(await outcome(tabId)).toEqual(['_dynamic#18']);
+
+    await Promise.all([page.waitForEvent('load'), load.click()]);
+    await expect(page.getByRole('button', { name: /içeriğini yükle/ })).toHaveCount(0);
+    expect(await outcome(tabId)).not.toContain('_dynamic#18');
+    // Another tab still gets the placeholder.
+    const other = await context.newPage();
+    await other.goto(`${origin}/`);
+    await expect(other.getByRole('button', { name: 'Facebook içeriğini yükle' })).toBeVisible();
+
+    await page.close();
+    await expect
+      .poll(() =>
+        worker.evaluate(async () => (await chrome.declarativeNetRequest.getSessionRules()).length),
+      )
+      .toBe(0);
+  } finally {
+    server.close();
+  }
+});
+
+test('closing a tab clears sites without an open tab, keeping the keep list', async ({
+  context,
+  extensionId,
+}) => {
+  const dash = await dashboard(context, extensionId);
+  await dash.evaluate(() =>
+    chrome.runtime.sendMessage({
+      type: 'privacy/set',
+      privacy: { clearSiteData: true, keepSiteData: ['nexus-other.example'] },
+    }),
+  );
+  const THIRD = 'www.nexus-third.example';
+  const store = async (name: string) => {
+    const p = await context.newPage();
+    await p.goto(`${host(name)}/`);
+    await p.evaluate(() => {
+      localStorage.setItem('k', 'v');
+      document.cookie = 'c=1; max-age=3600';
+    });
+    return p;
+  };
+  const read = async (name: string) => {
+    const p = await context.newPage();
+    await p.goto(`${host(name)}/`);
+    const out = await p.evaluate(() => ({
+      storage: localStorage.getItem('k'),
+      cookie: document.cookie,
+    }));
+    await p.close();
+    return out;
+  };
+  const KEPT = 'www.nexus-other.example';
+  const closed = await store(SITE);
+  const kept = await store(KEPT);
+  const keptSub = await store(OTHER);
+  const open = await store(THIRD);
+  await closed.close();
+  await kept.close();
+  await keptSub.close();
+  const EMPTY = { storage: null, cookie: '' };
+  const FULL = { storage: 'v', cookie: 'c=1' };
+  // Reading opens the site again, which keeps it; so wait out the clear first.
+  await dash.waitForTimeout(3_000);
+  expect(await read(SITE)).toEqual(EMPTY);
+  // Cookies stay for the kept site's whole domain (logins). Its storage is kept by exact origin,
+  // which the test server's random port never matches; keptOrigins' unit test covers that.
+  expect((await read(KEPT)).cookie).toBe('c=1');
+  expect((await read(OTHER)).cookie).toBe('c=1');
+  expect(await open.evaluate(() => localStorage.getItem('k'))).toBe('v');
+
+  // Off again: nothing more is cleared.
+  await dash.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'privacy/set', privacy: { clearSiteData: false } }),
+  );
+  await (await store(SITE)).close();
+  await dash.waitForTimeout(2_500);
+  expect(await read(SITE)).toEqual(FULL);
+});

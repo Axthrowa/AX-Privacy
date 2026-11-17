@@ -15,7 +15,7 @@ import type {
   VideoSettings,
   YoutubeWarnings,
 } from './types.ts';
-import { isValidSite } from './site.ts';
+import { isValidSite, MAX_KEPT_SITES, siteList } from './site.ts';
 import { channelList, isSkipMode, isSponsorCategory, SPONSOR_CATEGORIES } from './sponsor.ts';
 
 type NoPayload = Record<never, never>;
@@ -78,6 +78,10 @@ export interface Api {
   'security/proceed': { req: { url: string }; res: null };
   /** A top-level http: page has a password field. */
   'security/insecurePassword': { req: NoPayload; res: null };
+  /** Click-to-load: whether embeds are held back in this tab. */
+  'embed/status': { req: NoPayload; res: { blocked: boolean } };
+  /** The user clicked an embed placeholder: embeds load in this tab until it closes. */
+  'embed/load': { req: NoPayload; res: null };
 }
 
 /** The autoconsent content-script messages the background acts on; the rest are dropped. */
@@ -104,6 +108,8 @@ export const CONTENT_TYPES: ReadonlySet<MessageType> = new Set<MessageType>([
   'security/insecurePassword',
   'video/segments',
   'video/warned',
+  'embed/status',
+  'embed/load',
 ]);
 
 const FINGERPRINT_LEVELS: readonly FingerprintLevel[] = ['off', 'standard', 'strict'];
@@ -152,11 +158,15 @@ function parsePrivacy(raw: unknown): Partial<PrivacySettings> | null {
       k === 'hideLocale' ||
       k === 'browserAdApis' ||
       k === 'limitClientHints' ||
+      k === 'clickToLoad' ||
+      k === 'clearSiteData' ||
       k === 'detailedReports';
     if (flag && typeof v === 'boolean') {
       out[k] = v;
     } else if (k === 'fingerprint' && isFingerprintLevel(v)) {
       out.fingerprint = v;
+    } else if (k === 'keepSiteData' && Array.isArray(v) && v.length <= MAX_KEPT_SITES) {
+      out.keepSiteData = siteList(v);
     } else {
       return null;
     }
@@ -184,6 +194,7 @@ const VIDEO_KEYS: ReadonlySet<string> = new Set<keyof VideoSettings>([
   'genericPlayers',
   'nocookieEmbeds',
   'adMute',
+  'adSpeedUp',
   'sponsorSkip',
 ]);
 
@@ -242,6 +253,8 @@ export function parseMessage(raw: unknown): Message | null {
     case 'security/insecurePassword':
     case 'video/warned':
     case 'video/warnings':
+    case 'embed/status':
+    case 'embed/load':
       return { type: m.type };
     case 'popup/state':
       return typeof m.url === 'string' ? { type: m.type, url: m.url } : null;

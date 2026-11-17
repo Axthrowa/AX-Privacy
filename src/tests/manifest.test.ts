@@ -15,6 +15,8 @@ describe('manifest', () => {
       'activeTab',
       // Daily refresh of user-added filter lists.
       'alarms',
+      // Opt-in: clear cookies and storage of sites with no open tab (background/site-data.ts).
+      'browsingData',
       'declarativeNetRequest',
       // WebRTC address policy (background/location.ts).
       'privacy',

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AD_SPEED,
   AdMuter,
+  AdSpeeder,
   TWITCH_AD_SELECTOR,
   YOUTUBE_AD_SELECTOR,
   adSelectorFor,
@@ -15,6 +17,23 @@ describe('adSelectorFor', () => {
     expect(adSelectorFor('player.twitch.tv')).toBe(TWITCH_AD_SELECTOR);
     expect(adSelectorFor('nottwitch.tv')).toBeNull();
     expect(adSelectorFor('youtube.com.evil.example')).toBeNull();
+  });
+});
+
+describe('AdSpeeder', () => {
+  it('runs ads at full speed and gives each video its own rate back', () => {
+    const s = new AdSpeeder();
+    const video = { playbackRate: 1.5 };
+    s.update(true, [video]);
+    expect(video.playbackRate).toBe(AD_SPEED);
+    // The player resets the rate mid-ad; the original is still the one kept.
+    video.playbackRate = 1;
+    s.update(true, [video]);
+    expect(video.playbackRate).toBe(AD_SPEED);
+    s.update(false, [video]);
+    expect(video.playbackRate).toBe(1.5);
+    s.update(false, [video]);
+    expect(video.playbackRate).toBe(1.5);
   });
 });
 

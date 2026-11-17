@@ -38,6 +38,8 @@ export const RULE_ROTATING_AD_HOST = 12;
 export const RULE_CAMPAIGN_PARAMS = 13;
 export const RULE_EMPTY_VAST = 14;
 export const RULE_CLIENT_HINTS = 15;
+/** Click-to-load: one rule per embed regex, 16 to 19. */
+export const RULE_CLICK_TO_LOAD = 16;
 export const CONTROL_RULE_IDS = [
   RULE_GLOBAL_OFF,
   RULE_PAUSED_SITES,
@@ -54,6 +56,10 @@ export const CONTROL_RULE_IDS = [
   RULE_CAMPAIGN_PARAMS,
   RULE_EMPTY_VAST,
   RULE_CLIENT_HINTS,
+  RULE_CLICK_TO_LOAD,
+  RULE_CLICK_TO_LOAD + 1,
+  RULE_CLICK_TO_LOAD + 2,
+  RULE_CLICK_TO_LOAD + 3,
 ];
 /** Above filter-list exceptions (which would otherwise skip header removal), below pausing. */
 export const COOKIE_RULE_PRIORITY = 100;
@@ -62,6 +68,30 @@ export const COOKIE_RULE_PRIORITY = 100;
  * Chromium shifts the priority 8 bits into a 32-bit key, and larger values silently lose.
  */
 export const CONTROL_PRIORITY = 1_000_000;
+/**
+ * Embed scripts and frames that click-to-load holds back: the Facebook SDK and post frames, X's
+ * widget script and frames, Disqus's loader. Above list exceptions (unbreak lists allow the SDKs),
+ * below a warning-page proceed; a click allows them in its tab one step higher. Separate regexes:
+ * Chromium refuses the joined one as too large, and then every control rule fails.
+ */
+export const EMBED_REGEXES = [
+  '^https://connect\\.facebook\\.net/[^/]+/(?:sdk|all)\\.js',
+  '^https://www\\.facebook\\.com/(?:v[0-9.]+/)?plugins/',
+  '^https://platform\\.(?:twitter|x)\\.com/(?:widgets\\.js|embed/)',
+  '^https://[a-z0-9-]+\\.disqus\\.com/embed\\.js',
+];
+/** What a click lets through in its tab: the hosts behind those regexes. */
+export const EMBED_HOSTS = [
+  'connect.facebook.net',
+  'www.facebook.com',
+  'platform.twitter.com',
+  'platform.x.com',
+  'disqus.com',
+];
+export const EMBED_BLOCK_PRIORITY = 40;
+export const EMBED_ALLOW_PRIORITY = 45;
+/** The embeds' own sites use them as first party. */
+const EMBED_OWNERS = ['facebook.com', 'twitter.com', 'x.com', 'disqus.com'];
 
 export const CONTENT_SCRIPT_FILES = {
   cosmetic: 'content/cosmetic.js',
@@ -82,6 +112,7 @@ export const CONTENT_SCRIPT_FILES = {
   'yt-autoskip': 'content/yt-autoskip.js',
   'video-ads': 'content/video-ads.js',
   'video-generic': 'content/video-generic.js',
+  'click-to-load': 'content/click-to-load.js',
 } as const;
 /**
  * Main-world scripts cannot receive a value from the worker synchronously, so the fingerprint
@@ -91,6 +122,9 @@ export const FP_SEED_DIGITS = 16;
 /** Picked per browser session: 16!/8! orderings, about 29 bits. */
 export const FP_SEED_LENGTH = 8;
 export const fpSeedFile = (d: number) => `content/fp-seed/${d.toString(16)}.js`;
+/** Which of its jobs the ad-time script does, spelled the same way: a file per job, run first. */
+export const AD_MODES = ['mute', 'speed'] as const;
+export const adModeFile = (m: (typeof AD_MODES)[number]) => `content/ad-mode/${m}.js`;
 
 /** A random ordered pick of distinct seed digits. */
 export function newFpSeed(random: () => number = Math.random): number[] {
@@ -350,6 +384,22 @@ export function controlRules(s: Settings): Rule[] {
       },
     });
   }
+  if (s.enabled && s.privacy.clickToLoad) {
+    const skip = [...EMBED_OWNERS, ...sitesOff(s, 'privacy')];
+    EMBED_REGEXES.forEach((regexFilter, i) =>
+      rules.push({
+        id: RULE_CLICK_TO_LOAD + i,
+        priority: EMBED_BLOCK_PRIORITY,
+        action: { type: 'block' as RuleActionType },
+        condition: {
+          regexFilter,
+          isUrlFilterCaseSensitive: true,
+          resourceTypes: ['script', 'sub_frame'] as chrome.declarativeNetRequest.ResourceType[],
+          excludedInitiatorDomains: skip,
+        },
+      }),
+    );
+  }
   if (s.enabled && s.video.nocookieEmbeds) {
     rules.push({
       id: RULE_NOCOOKIE_EMBEDS,
@@ -448,6 +498,12 @@ export function contentScripts(
     scripts.push({ ...script('link-clean', 'ISOLATED', undefined, 'privacy'), allFrames: false });
   }
   if (s.privacy.cookieAutoReject) scripts.push(script('consent', 'ISOLATED', undefined, 'privacy'));
+  if (s.privacy.clickToLoad) {
+    scripts.push({
+      ...script('click-to-load', 'ISOLATED', undefined, 'privacy'),
+      allFrames: false,
+    });
+  }
   if (s.privacy.fingerprint !== 'off') {
     const noise = script('fp-noise', 'MAIN', undefined, 'privacy');
     noise.js = [...fpSeed.map(fpSeedFile), CONTENT_SCRIPT_FILES['fp-noise']];
@@ -474,8 +530,14 @@ export function contentScripts(
     scripts.push(script('tw-ads', 'MAIN', TWITCH_SITES.flatMap(sitePatterns), 'video'));
   }
   if (s.video.sponsorSkip) scripts.push(script('yt-skip', 'ISOLATED', youtube, 'video'));
-  if (s.video.adMute) {
-    scripts.push(script('video-ads', 'ISOLATED', AD_MUTE_SITES.flatMap(sitePatterns), 'video'));
+  if (s.video.adMute || s.video.adSpeedUp) {
+    const ads = script('video-ads', 'ISOLATED', AD_MUTE_SITES.flatMap(sitePatterns), 'video');
+    ads.js = [
+      ...(s.video.adMute ? [adModeFile('mute')] : []),
+      ...(s.video.adSpeedUp ? [adModeFile('speed')] : []),
+      CONTENT_SCRIPT_FILES['video-ads'],
+    ];
+    scripts.push(ads);
   }
   if (s.video.markSponsored || s.video.hideSponsored) {
     scripts.push({

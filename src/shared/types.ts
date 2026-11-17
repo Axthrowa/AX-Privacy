@@ -53,6 +53,15 @@ export interface PrivacySettings {
   browserAdApis: boolean;
   /** Third parties may not ask for detailed device data (Client Hints); requests carry none. */
   limitClientHints: boolean;
+  /** Facebook and X posts and Disqus comments load only after a click on their placeholder. */
+  clickToLoad: boolean;
+  /**
+   * When a tab closes, cookies and site storage go for every site without an open tab, except
+   * `keepSiteData` and sites whose privacy protection is off. Chromium only (`excludeOrigins`).
+   */
+  clearSiteData: boolean;
+  /** Sites (eTLD+1) whose cookies and storage are never cleared. */
+  keepSiteData: string[];
   /**
    * Per-page host lists and daily counters. They need a listener on every request, which keeps the
    * service worker awake while any page loads, so they are off unless asked for.
@@ -77,6 +86,8 @@ export interface VideoSettings {
   nocookieEmbeds: boolean;
   /** Mute and darken the player while YouTube or Twitch shows an ad that cannot be removed. */
   adMute: boolean;
+  /** Play YouTube ads that cannot be removed at 16x, so they end in seconds. Detectable; opt-in. */
+  adSpeedUp: boolean;
   /** Use SponsorBlock data, looked up by a 4-character hash prefix. */
   sponsorSkip: boolean;
   /** What happens to each SponsorBlock category while sponsorSkip is on. */
