@@ -1,4 +1,5 @@
 import { parse } from 'tldts';
+import { L } from '../../shared/i18n.ts';
 
 export type Severity = 'high' | 'medium' | 'low';
 export type RiskLevel = Severity | 'none';
@@ -207,14 +208,20 @@ export function analyzeUrl(url: string): Finding[] {
     findings.push({
       id: 'userinfo',
       severity: 'medium',
-      text: `Adreste "@" öncesi kullanıcı bilgisi var; açılan site aslında ${host}.`,
+      text: L(
+        `Adreste "@" öncesi kullanıcı bilgisi var; açılan site aslında ${host}.`,
+        `The address has user info before "@"; the site that opens is really ${host}.`,
+      ),
     });
   }
   if (isPublicIp(host)) {
     findings.push({
       id: 'ip-host',
       severity: 'low',
-      text: 'Site alan adı yerine doğrudan IP adresiyle açılmış.',
+      text: L(
+        'Site alan adı yerine doğrudan IP adresiyle açılmış.',
+        'The site was opened by IP address instead of a domain name.',
+      ),
     });
     return findings;
   }
@@ -233,7 +240,10 @@ export function analyzeUrl(url: string): Finding[] {
       findings.push({
         id: 'homograph',
         severity: 'medium',
-        text: `"${decoded}" Latin harflerine benzeyen başka alfabe harfleri içeriyor (${ascii}).`,
+        text: L(
+          `"${decoded}" Latin harflerine benzeyen başka alfabe harfleri içeriyor (${ascii}).`,
+          `"${decoded}" contains letters from another alphabet that look Latin (${ascii}).`,
+        ),
       });
       break;
     }
@@ -259,13 +269,19 @@ export function analyzeUrl(url: string): Finding[] {
       findings.push({
         id: 'lookalike',
         severity: 'medium',
-        text: `Alan adı "${brand}" adına çok benziyor ama ${domain} resmi adresi değil.`,
+        text: L(
+          `Alan adı "${brand}" adına çok benziyor ama ${domain} resmi adresi değil.`,
+          `The domain looks very much like "${brand}", but ${domain} is not its official address.`,
+        ),
       });
     } else if (name !== brand && tokens.includes(brand)) {
       findings.push({
         id: 'brand-in-name',
         severity: 'low',
-        text: `Alan adı "${brand}" marka adını içeriyor; resmi adresi değil.`,
+        text: L(
+          `Alan adı "${brand}" marka adını içeriyor; resmi adresi değil.`,
+          `The domain contains the brand name "${brand}"; it is not the official address.`,
+        ),
       });
     }
   }
@@ -276,7 +292,10 @@ export function analyzeUrl(url: string): Finding[] {
     findings.push({
       id: 'brand-subdomain',
       severity: 'medium',
-      text: `"${inSub}" yalnızca alt alan adında geçiyor; asıl site ${domain}.`,
+      text: L(
+        `"${inSub}" yalnızca alt alan adında geçiyor; asıl site ${domain}.`,
+        `"${inSub}" appears only in a subdomain; the real site is ${domain}.`,
+      ),
     });
   }
   return findings;
@@ -293,14 +312,20 @@ export function assessRisk(
     findings.unshift({
       id: 'warning-bypassed',
       severity: 'high',
-      text: 'Bu site bir güvenlik listesinde; uyarıya rağmen açtınız.',
+      text: L(
+        'Bu site bir güvenlik listesinde; uyarıya rağmen açtınız.',
+        'This site is on a security list; you opened it despite the warning.',
+      ),
     });
   }
   if (page.insecurePassword) {
     findings.push({
       id: 'insecure-password',
       severity: 'medium',
-      text: 'Sayfada şifre alanı var ama bağlantı şifrelenmemiş (http).',
+      text: L(
+        'Sayfada şifre alanı var ama bağlantı şifrelenmemiş (http).',
+        'The page has a password field but the connection is not encrypted (http).',
+      ),
     });
   }
   const level = findings.reduce<RiskLevel>(

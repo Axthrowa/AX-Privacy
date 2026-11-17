@@ -1,3 +1,5 @@
+import { L } from '../shared/i18n.ts';
+
 /**
  * Lists whose bare host rules name ad servers, which nobody opens on purpose (see `strictHosts`).
  * Not hosts files: they also list link shorteners and shop redirects people do click through.
@@ -58,7 +60,7 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
   {
     // Exceptions that undo what the ad lists break; the reason uBO rarely breaks sites.
     id: 'ublock-unbreak',
-    name: 'uBlock Unbreak (site onarımı)',
+    name: L('uBlock Unbreak (site onarımı)', 'uBlock Unbreak (site fixes)'),
     category: 'ads',
     url: 'https://ublockorigin.github.io/uAssets/filters/unbreak.txt',
     homepage: 'https://github.com/uBlockOrigin/uAssets',
@@ -68,7 +70,7 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
   },
   {
     id: 'ublock-quick-fixes',
-    name: 'uBlock Quick fixes (güncel düzeltmeler)',
+    name: L('uBlock Quick fixes (güncel düzeltmeler)', 'uBlock Quick fixes (recent fixes)'),
     category: 'ads',
     url: 'https://ublockorigin.github.io/uAssets/filters/quick-fixes.txt',
     homepage: 'https://github.com/uBlockOrigin/uAssets',
@@ -78,7 +80,7 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
   },
   {
     id: 'brave-unbreak',
-    name: 'Brave Unbreak (site onarımı)',
+    name: L('Brave Unbreak (site onarımı)', 'Brave Unbreak (site fixes)'),
     category: 'ads',
     url: 'https://raw.githubusercontent.com/brave/adblock-lists/master/brave-unbreak.txt',
     homepage: 'https://github.com/brave/adblock-lists',
@@ -102,13 +104,13 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
     category: 'ads',
     url: 'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml&showintro=0&mimetype=plaintext',
     homepage: 'https://pgl.yoyo.org/adservers/',
-    license: 'Ticari olmayan kullanım için ücretsiz',
+    license: L('Ticari olmayan kullanım için ücretsiz', 'Free for non-commercial use'),
     defaultEnabled: true,
     format: 'hosts',
   },
   {
     id: 'adguard-tr',
-    name: 'AdGuard Türkçe filtresi',
+    name: L('AdGuard Türkçe filtresi', 'AdGuard Turkish filter'),
     category: 'regional',
     url: 'https://filters.adtidy.org/extension/ublock/filters/13.txt',
     buildOnly: true,
@@ -119,7 +121,10 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
   },
   {
     id: 'adguard-urltracking',
-    name: 'AdGuard URL Tracking (takip parametreleri)',
+    name: L(
+      'AdGuard URL Tracking (takip parametreleri)',
+      'AdGuard URL Tracking (tracking parameters)',
+    ),
     category: 'privacy',
     url: 'https://filters.adtidy.org/extension/ublock/filters/17.txt',
     buildOnly: true,
@@ -130,7 +135,7 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
   {
     // Hiding or blocking a consent tool can also hide the page; off until the user opts in.
     id: 'easylist-cookie',
-    name: 'EasyList Cookie List (çerez bildirimleri)',
+    name: L('EasyList Cookie List (çerez bildirimleri)', 'EasyList Cookie List (cookie notices)'),
     category: 'cookies',
     url: 'https://secure.fanboy.co.nz/fanboy-cookiemonster.txt',
     homepage: 'https://easylist.to/',
@@ -141,7 +146,10 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
   {
     // Newsletter and notification boxes: rules hide page parts, so it is off until asked for.
     id: 'adguard-popups',
-    name: 'AdGuard Açılır Pencereler (bülten, bildirim kutuları)',
+    name: L(
+      'AdGuard Açılır Pencereler (bülten, bildirim kutuları)',
+      'AdGuard Popups (newsletter and notification boxes)',
+    ),
     category: 'annoyances',
     url: 'https://filters.adtidy.org/extension/ublock/filters/19.txt',
     buildOnly: true,
@@ -152,7 +160,10 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
   },
   {
     id: 'ublock-badware',
-    name: 'uBlock Badware risks (kötü amaçlı yazılım, dolandırıcılık)',
+    name: L(
+      'uBlock Badware risks (kötü amaçlı yazılım, dolandırıcılık)',
+      'uBlock Badware risks (malware, scams)',
+    ),
     category: 'security',
     url: 'https://ublockorigin.github.io/uAssets/filters/badware.txt',
     homepage: 'https://github.com/uBlockOrigin/uAssets',
@@ -165,7 +176,10 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
     // ~107k single-URL entries exceed the static rule quota. The phishing-filter sibling is not
     // bundled: its OpenPhish data forbids redistribution and product use.
     id: 'urlhaus',
-    name: 'Online Malicious URL Blocklist (URLhaus, alan adları)',
+    name: L(
+      'Online Malicious URL Blocklist (URLhaus, alan adları)',
+      'Online Malicious URL Blocklist (URLhaus, domains)',
+    ),
     category: 'security',
     url: 'https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-domains-online.txt',
     homepage: 'https://gitlab.com/malware-filter/urlhaus-filter',

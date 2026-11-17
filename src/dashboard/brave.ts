@@ -1,3 +1,4 @@
+import { L } from '../shared/i18n.ts';
 import { send } from '../shared/messages.ts';
 
 type BraveNavigator = Navigator & { brave?: { isBrave(): Promise<boolean> } };
@@ -10,6 +11,8 @@ export async function detectBrave(known: boolean | null): Promise<boolean> {
 }
 
 export function browserLabel(isBrave: boolean | null): string {
-  if (isBrave === null) return 'Henüz algılanmadı';
-  return isBrave ? 'Brave' : 'Brave değil (Chromium tabanlı veya Firefox)';
+  if (isBrave === null) return L('Henüz algılanmadı', 'Not detected yet');
+  return isBrave
+    ? 'Brave'
+    : L('Brave değil (Chromium tabanlı veya Firefox)', 'Not Brave (Chromium-based or Firefox)');
 }

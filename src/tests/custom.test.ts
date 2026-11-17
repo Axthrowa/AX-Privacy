@@ -49,6 +49,16 @@ describe('cosmeticProblem', () => {
     expect(cosmeticProblem('a.com##+js(abort-on-property-read, x)')).toMatch(/\+js/);
     expect(cosmeticProblem('a.com##^script:has-text(ad)')).toMatch(/HTML/);
   });
+  it('rejects styles that load resources', () => {
+    expect(cosmeticProblem('a.com##.x:style(display: block !important)')).toBeNull();
+    for (const style of [
+      'background-image: url(https://collector.test/a) !important',
+      'background: image-set("https://collector.test/a" 1x)',
+      'background: \\75rl(https://collector.test/a)',
+    ]) {
+      expect(cosmeticProblem(`a.com##input[value^="a"]:style(${style})`)).not.toBeNull();
+    }
+  });
 });
 
 describe('safeCosmeticLines', () => {

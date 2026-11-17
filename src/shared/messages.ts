@@ -5,7 +5,7 @@ import type {
   ListsView,
   PopupState,
   PrivacySettings,
-  Segment,
+  SegmentPlan,
   Settings,
   SettingsExport,
   SiteProfile,
@@ -13,8 +13,10 @@ import type {
   TabReport,
   Theme,
   VideoSettings,
+  YoutubeWarnings,
 } from './types.ts';
 import { isValidSite } from './site.ts';
+import { channelList, isSkipMode, isSponsorCategory, SPONSOR_CATEGORIES } from './sponsor.ts';
 
 type NoPayload = Record<never, never>;
 
@@ -61,7 +63,10 @@ export interface Api {
   'video/set': { req: { video: Partial<VideoSettings> }; res: Settings };
   'theme/set': { req: { theme: Theme }; res: Settings };
   /** Sponsor segments of a YouTube video; empty unless the user turned SponsorBlock on. */
-  'video/segments': { req: { videoId: string }; res: Segment[] };
+  'video/segments': { req: { videoId: string }; res: SegmentPlan };
+  /** YouTube showed its ad blocker warning in this tab; the tab backs off. Only counted. */
+  'video/warned': { req: NoPayload; res: null };
+  'video/warnings': { req: NoPayload; res: YoutubeWarnings };
   'stats/get': { req: { days: 7 | 30 }; res: StatsView };
   'stats/clear': { req: NoPayload; res: StatsView };
   'settings/export': { req: NoPayload; res: SettingsExport };
@@ -98,6 +103,7 @@ export const CONTENT_TYPES: ReadonlySet<MessageType> = new Set<MessageType>([
   'consent/msg',
   'security/insecurePassword',
   'video/segments',
+  'video/warned',
 ]);
 
 const FINGERPRINT_LEVELS: readonly FingerprintLevel[] = ['off', 'standard', 'strict'];
@@ -144,6 +150,8 @@ function parsePrivacy(raw: unknown): Partial<PrivacySettings> | null {
       k === 'cdnCookies' ||
       k === 'hideLocalIps' ||
       k === 'hideLocale' ||
+      k === 'browserAdApis' ||
+      k === 'limitClientHints' ||
       k === 'detailedReports';
     if (flag && typeof v === 'boolean') {
       out[k] = v;
@@ -171,6 +179,9 @@ const VIDEO_KEYS: ReadonlySet<string> = new Set<keyof VideoSettings>([
   'youtubeAds',
   'twitchAds',
   'markSponsored',
+  'hideSponsored',
+  'autoSkipAds',
+  'genericPlayers',
   'nocookieEmbeds',
   'adMute',
   'sponsorSkip',
@@ -182,11 +193,23 @@ export const isVideoId = (v: unknown): v is string =>
 
 function parseVideo(raw: unknown): Partial<VideoSettings> | null {
   if (typeof raw !== 'object' || raw === null) return null;
-  const entries = Object.entries(raw);
-  return entries.every(([k, v]) => VIDEO_KEYS.has(k) && typeof v === 'boolean')
-    ? (Object.fromEntries(entries) as Partial<VideoSettings>)
-    : null;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (VIDEO_KEYS.has(k) && typeof v === 'boolean') out[k] = v;
+    else if (k === 'sponsorModes' && isFullModeMap(v)) out[k] = v;
+    else if (k === 'sponsorChannels' && Array.isArray(v) && v.every((c) => typeof c === 'string')) {
+      out[k] = channelList(v);
+    } else return null;
+  }
+  return out as Partial<VideoSettings>;
 }
+
+/** Every category with a valid mode: the dashboard always sends the whole map. */
+const isFullModeMap = (v: unknown): v is Record<string, string> =>
+  typeof v === 'object' &&
+  v !== null &&
+  Object.keys(v).length === SPONSOR_CATEGORIES.length &&
+  Object.entries(v).every(([c, m]) => isSponsorCategory(c) && isSkipMode(m));
 
 const MAX_CUSTOM_TEXT = 200_000;
 const MAX_FEATURES = 5_000;
@@ -217,6 +240,8 @@ export function parseMessage(raw: unknown): Message | null {
     case 'settings/export':
     case 'cosmetic/start':
     case 'security/insecurePassword':
+    case 'video/warned':
+    case 'video/warnings':
       return { type: m.type };
     case 'popup/state':
       return typeof m.url === 'string' ? { type: m.type, url: m.url } : null;

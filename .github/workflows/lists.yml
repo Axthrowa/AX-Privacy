@@ -17,7 +17,16 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run release
-      - uses: actions/upload-artifact@v4
+      # Release gate: the new build opens 200 real sites; zips ship only if none lost its content.
+      - id: gate
+        run: node e2e/site-check.ts --gate
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-report
+          path: dist/site-report.json
+      - if: steps.gate.outcome == 'success'
+        uses: actions/upload-artifact@v4
         with:
           name: ax-privacy
           path: dist/*.zip

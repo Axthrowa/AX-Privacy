@@ -1,36 +1,76 @@
 import { CosmeticFilter, parseFilter } from '@ghostery/adblocker';
 import { compileFilter } from '../engines/adblock/network.ts';
+import { L } from '../shared/i18n.ts';
 import type { RejectedLine } from '../shared/types.ts';
 
 const REASONS: Record<string, string> = {
-  syntax: 'Söz dizimi hatası',
-  'too-broad': 'Çok geniş: bir alan adı ya da adres kalıbı gerekli',
-  'document-block': 'Sayfayı tamamen engelleme ($document) Aşama 5’te',
-  'non-ascii': 'Adres kalıbında ASCII dışı karakter',
-  domain: 'Alan adı listesinde joker (*) veya regex desteklenmez',
-  to: '$to listesinde joker (*) veya regex desteklenmez',
-  denyallow: '$denyallow biçimi desteklenmez',
-  redirect: '$redirect istisnaları desteklenmez',
-  'redirect-rule': '$redirect-rule MV3 DNR ile ifade edilemez',
-  popup: '$popup başka türlerle birlikte kullanılamaz',
-  types: 'Hiç kaynak türü kalmadı',
-  method: 'Bilinmeyen HTTP yöntemi',
-  removeparam: '$removeparam yalnızca tam parametre adıyla desteklenir (regex ve "tümü" değil)',
-  'removeparam-exception':
+  syntax: L('Söz dizimi hatası', 'Syntax error'),
+  'too-broad': L(
+    'Çok geniş: bir alan adı ya da adres kalıbı gerekli',
+    'Too broad: a domain or address pattern is needed',
+  ),
+  'document-block': L(
+    'Sayfayı tamamen engelleme ($document) özel kurallarda desteklenmez',
+    'Blocking whole pages ($document) is not supported in custom rules',
+  ),
+  'non-ascii': L(
+    'Adres kalıbında ASCII dışı karakter',
+    'Non-ASCII character in the address pattern',
+  ),
+  domain: L(
+    'Alan adı listesinde joker (*) veya regex desteklenmez',
+    'Wildcards (*) or regex are not supported in the domain list',
+  ),
+  to: L(
+    '$to listesinde joker (*) veya regex desteklenmez',
+    'Wildcards (*) or regex are not supported in the $to list',
+  ),
+  denyallow: L('$denyallow biçimi desteklenmez', 'This $denyallow form is not supported'),
+  redirect: L('$redirect istisnaları desteklenmez', '$redirect exceptions are not supported'),
+  'redirect-rule': L(
+    '$redirect-rule MV3 DNR ile ifade edilemez',
+    '$redirect-rule cannot be expressed with MV3 DNR',
+  ),
+  popup: L(
+    '$popup başka türlerle birlikte kullanılamaz',
+    '$popup cannot be combined with other types',
+  ),
+  types: L('Hiç kaynak türü kalmadı', 'No resource type left'),
+  method: L('Bilinmeyen HTTP yöntemi', 'Unknown HTTP method'),
+  removeparam: L(
+    '$removeparam yalnızca tam parametre adıyla desteklenir (regex ve "tümü" değil)',
+    '$removeparam is supported only with an exact parameter name (not regex or "all")',
+  ),
+  'removeparam-exception': L(
     '$removeparam istisnası bir alan adı (||alan.adi^ veya domain=) gerektirir',
+    'A $removeparam exception needs a domain (||domain.example^ or domain=)',
+  ),
 };
 
 export function reasonText(reason: string): string {
-  return REASONS[reason] ?? `Desteklenmeyen seçenek: $${reason}`;
+  return REASONS[reason] ?? `${L('Desteklenmeyen seçenek', 'Unsupported option')}: $${reason}`;
 }
 
 /** Cosmetic lines that would make the engine emit arbitrary CSS or run scripts. */
 export function cosmeticProblem(line: string): string | null {
-  if (/[{}]/.test(line)) return 'Kural içinde { } kullanılamaz';
+  if (/[{}]/.test(line)) return L('Kural içinde { } kullanılamaz', '{ } cannot be used in a rule');
   const f = parseFilter(line);
-  if (!(f instanceof CosmeticFilter)) return f ? null : 'Geçersiz gizleme kuralı';
-  if (f.isHtmlFiltering()) return 'HTML filtreleme MV3’te desteklenmez';
-  if (f.isScriptInject()) return '+js kuralları yalnızca gömülü listelerden çalışır';
+  if (!(f instanceof CosmeticFilter))
+    return f ? null : L('Geçersiz gizleme kuralı', 'Invalid hiding rule');
+  if (f.isHtmlFiltering()) {
+    return L('HTML filtreleme MV3’te desteklenmez', 'HTML filtering is not supported in MV3');
+  }
+  if (f.isScriptInject()) {
+    return L(
+      '+js kuralları yalnızca gömülü listelerden çalışır',
+      '+js rules run only from the bundled lists',
+    );
+  }
+  // A loaded resource would tell the list's author which page matched (and attribute values).
+  // Backslash too: CSS escapes can spell `url(`.
+  if (f.hasCustomStyle() && /url\(|image-set\(|image\(|src\(|\\/i.test(f.getStyle())) {
+    return L('Kural dışarıdan kaynak yükleyemez', 'A rule cannot load outside resources');
+  }
   return null;
 }
 

@@ -22,6 +22,17 @@ const reason = (line: string, o = opts) => {
 };
 
 describe('$csp', () => {
+  it('refuses policies that report to an endpoint', () => {
+    for (const line of [
+      "|https://$csp=img-src 'none'; report-uri https://collector.test/r",
+      '||site.example^$csp=REPORT-TO grp',
+    ]) {
+      expect(compileFilter(line, { allowRegex: true })).toEqual({
+        kind: 'unsupported',
+        reason: 'csp',
+      });
+    }
+  });
   it('adds the policy to the pages it names', () => {
     const r = rule('*$csp=script-src *,domain=site.example');
     expect(r.action).toEqual({
