@@ -54,6 +54,7 @@ describe('normalizeSettings', () => {
       hideLocale: false,
       browserAdApis: true,
       limitClientHints: true,
+      clickToLoad: false,
       detailedReports: false,
     });
     expect(

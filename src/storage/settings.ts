@@ -42,6 +42,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
     hideLocale: false,
     browserAdApis: true,
     limitClientHints: true,
+    clickToLoad: false,
     detailedReports: false,
   },
   video: {
@@ -102,6 +103,7 @@ function normalizePrivacy(raw: unknown): PrivacySettings {
     cdnCookies: bool(r.cdnCookies, d.cdnCookies),
     browserAdApis: bool(r.browserAdApis, d.browserAdApis),
     limitClientHints: bool(r.limitClientHints, d.limitClientHints),
+    clickToLoad: bool(r.clickToLoad, d.clickToLoad),
     hideLocalIps: bool(r.hideLocalIps, d.hideLocalIps),
     hideLocale: bool(r.hideLocale, d.hideLocale),
     detailedReports: bool(r.detailedReports, d.detailedReports),

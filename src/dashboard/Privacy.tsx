@@ -180,6 +180,21 @@ export function Privacy({
 
       <Toggle
         label={L(
+          'Gömülü Facebook, X ve Disqus içeriğini tıklayınca yükle',
+          'Load embedded Facebook, X and Disqus content on click',
+        )}
+        checked={privacy.clickToLoad}
+        onChange={(on) => set({ clickToLoad: on })}
+      />
+      <p className="note">
+        {L(
+          'Haber sitelerindeki gömülü gönderiler ve yorum kutuları, yüklendikleri anda bu şirketlere hangi sayfayı okuduğunuzu bildirir. Açıkken yerlerinde bir düğme görünür; tıklarsanız o sekme kapanana kadar yüklenir. Sınır: bu şirketlerin SDK’sını kullanan “Facebook ile giriş” düğmeleri de tıklamadan çalışmaz.',
+          'Embedded posts and comment boxes on news sites tell these companies which page you read the moment they load. When on, a button takes their place; a click loads them until that tab closes. Limit: “Log in with Facebook” buttons that use the same SDK also wait for that click.',
+        )}
+      </p>
+
+      <Toggle
+        label={L(
           'Gerekli ama izleyen sunucularda yalnızca çerezi engelle',
           'Block only the cookie on needed servers that track',
         )}

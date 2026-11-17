@@ -53,6 +53,8 @@ export interface PrivacySettings {
   browserAdApis: boolean;
   /** Third parties may not ask for detailed device data (Client Hints); requests carry none. */
   limitClientHints: boolean;
+  /** Facebook and X posts and Disqus comments load only after a click on their placeholder. */
+  clickToLoad: boolean;
   /**
    * Per-page host lists and daily counters. They need a listener on every request, which keeps the
    * service worker awake while any page loads, so they are off unless asked for.
