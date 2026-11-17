@@ -1,3 +1,4 @@
+import { L } from './i18n.ts';
 /** Hiding rules in the custom box that apply to this site: what the element picker wrote. */
 export function hidingRulesFor(site: string, customRules: string): string[] {
   return customRules.split(/\r?\n/).filter((line) => {
@@ -18,6 +19,10 @@ export interface ReportFacts {
   customRules: number;
   userLists: number;
   matched: number | null;
+  /** Dengeli, Sıkı or Özel. */
+  privacyProfile: string;
+  /** What the breakage wizard found, when it ran. */
+  fixedBy?: string;
 }
 
 /**
@@ -27,12 +32,14 @@ export interface ReportFacts {
 export function problemReport(f: ReportFacts): string {
   return [
     `AX Privacy ${f.version}`,
-    `Tarayıcı: ${f.browser}`,
-    `Site: ${f.site ?? 'yok'}`,
-    `Koruma: ${f.enabled && !f.paused ? 'açık' : 'kapalı'}`,
-    `Listeler: ${f.lists.join(', ')}`,
-    `Özel kural: ${f.customRules}, kullanıcı listesi: ${f.userLists}`,
-    `Bu sayfadaki kural eşleşmesi: ${f.matched ?? 'bilinmiyor'}`,
-    'Sorun: ',
+    `${L('Tarayıcı', 'Browser')}: ${f.browser}`,
+    `Site: ${f.site ?? L('yok', 'none')}`,
+    `${L('Koruma', 'Protection')}: ${f.enabled && !f.paused ? L('açık', 'on') : L('kapalı', 'off')}`,
+    `${L('Gizlilik profili', 'Privacy profile')}: ${f.privacyProfile}`,
+    `${L('Listeler', 'Lists')}: ${f.lists.join(', ')}`,
+    `${L('Özel kural', 'Custom rules')}: ${f.customRules}, ${L('kullanıcı listesi', 'user lists')}: ${f.userLists}`,
+    `${L('Bu sayfadaki kural eşleşmesi', 'Rule matches on this page')}: ${f.matched ?? L('bilinmiyor', 'unknown')}`,
+    ...(f.fixedBy ? [`${L('Sihirbaz sonucu', 'Wizard result')}: ${f.fixedBy}`] : []),
+    `${L('Sorun', 'Problem')}: `,
   ].join('\n');
 }

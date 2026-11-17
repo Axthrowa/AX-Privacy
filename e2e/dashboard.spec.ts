@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { expect, startServer, test } from './fixtures.ts';
+import { browserLabel, expect, startServer, test } from './fixtures.ts';
 
 let port = 0;
 const host = (name: string) => `http://${name}:${port}`;
@@ -94,6 +94,7 @@ test('overview counts a blocked request, theme changes, and a site can be paused
 test('settings export and import restore a pause without taking the Brave flag', async ({
   context,
   extensionId,
+  browserKind,
 }) => {
   const dash = await context.newPage();
   await dash.goto(`chrome-extension://${extensionId}/dashboard.html#sites`);
@@ -125,5 +126,5 @@ test('settings export and import restore a pause without taking the Brave flag',
   }, bag);
   await expect(dash.getByText('paused.example', { exact: true })).toBeVisible();
   await dash.goto(`chrome-extension://${extensionId}/dashboard.html#about`);
-  await expect(dash.getByText('Tarayıcı: Brave', { exact: true })).toBeVisible();
+  await expect(dash.getByText(browserLabel(browserKind), { exact: true })).toBeVisible();
 });

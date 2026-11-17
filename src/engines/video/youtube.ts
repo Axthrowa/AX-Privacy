@@ -1,5 +1,17 @@
-/** Fields of a YouTube player response that schedule ads; the video itself never depends on them. */
-const AD_KEYS = ['adPlacements', 'adSlots', 'playerAds', 'adBreakHeartbeatParams'] as const;
+import YT from './youtube-ads.json' with { type: 'json' };
+
+/**
+ * What YouTube calls its ad fields and elements. Data only (names and CSS selectors, never code),
+ * kept in a JSON file so a renamed field is fixed by editing data and shipped with the next build.
+ * - playerKeys: player response fields that schedule ads; the video never depends on them.
+ * - xhrPaths: API paths whose XMLHttpRequest responses carry a player response.
+ * - skipButtons, blockerWarning: the player's "Skip" button and the ad blocker warning.
+ * - cardContainers / cardAdMarkers / cardNested: feed cards that hold an ad component.
+ */
+export const YT_DATA: Readonly<typeof YT> = YT;
+
+/** sessionStorage key set in a tab where YouTube warned about the ad blocker; that tab backs off. */
+export const YT_BACKOFF_KEY = 'ax-youtube-backoff';
 
 /** Sites (with their subdomains: www, m, music) the YouTube scripts run on. */
 export const YOUTUBE_SITES = ['youtube.com', 'youtube-nocookie.com', 'youtubekids.com'] as const;
@@ -20,7 +32,7 @@ function pruneOne(o: Obj): boolean {
   let changed = false;
   for (const target of [o, o.playerResponse]) {
     if (!isObj(target)) continue;
-    for (const k of AD_KEYS) {
+    for (const k of YT_DATA.playerKeys) {
       if (k in target) {
         Reflect.deleteProperty(target, k);
         changed = true;
@@ -51,4 +63,43 @@ export function pruneAds(value: unknown): boolean {
     return changed;
   }
   return isObj(value) && pruneOne(value);
+}
+
+/** Responses may start with a guard line YouTube adds against JSON hijacking. */
+const XSSI = ")]}'";
+
+/**
+ * The same pruning for a response read as text (XMLHttpRequest). Returns the text unchanged when it
+ * is not JSON or holds no ad fields, so anything unexpected passes through untouched.
+ */
+export function pruneAdsText(text: string, parse: (t: string) => unknown = JSON.parse): string {
+  const guarded = text.startsWith(XSSI);
+  const body = guarded ? text.slice(XSSI.length) : text;
+  let value: unknown;
+  try {
+    value = parse(body);
+  } catch {
+    return text;
+  }
+  if (!pruneAds(value)) return text;
+  return (guarded ? `${XSSI}\n` : '') + JSON.stringify(value);
+}
+
+/** Feed cards that carry one of YouTube's ad components (innermost card only). */
+export function sponsoredCardSelector(): string {
+  const any = (list: readonly string[]) => `:is(${list.join(', ')})`;
+  return `${any(YT_DATA.cardContainers)}:has(${YT_DATA.cardAdMarkers.join(', ')}):not(:has(${any(YT_DATA.cardNested)}))`;
+}
+
+/** The stylesheet for sponsored cards: outlined with a label, or hidden. Written by the build. */
+export function sponsoredCss(mode: 'mark' | 'hide'): string {
+  const sel = sponsoredCardSelector();
+  if (mode === 'hide')
+    return `/* AX Privacy: hides YouTube ad cards. */
+${sel} { display: none !important; }
+`;
+  return `/* AX Privacy: marks YouTube ad cards the lists leave visible. */
+${sel} { outline: 2px dashed #f5b041 !important; outline-offset: 2px !important; position: relative !important; }
+${sel}::before { content: 'Sponsorlu · AX'; position: absolute; top: 4px; left: 4px; z-index: 10; padding: 2px 6px; border-radius: 4px; background: #f5b041; color: #1a1200; font: 600 11px/1.4 system-ui, sans-serif; pointer-events: none; }
+`;
 }

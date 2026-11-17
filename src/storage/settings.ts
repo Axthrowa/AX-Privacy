@@ -9,6 +9,7 @@ import type {
   VideoSettings,
 } from '../shared/types.ts';
 import { isValidSite } from '../shared/site.ts';
+import { channelList, DEFAULT_SPONSOR_MODES, sponsorModes } from '../shared/sponsor.ts';
 
 const KEY = 'settings';
 /** Lists added in settings version 3; older profiles get them switched on once. */
@@ -32,22 +33,29 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   isBrave: null,
   privacy: {
     blockThirdPartyCookies: false,
-    cookieAutoReject: false,
-    fingerprint: 'off',
+    cookieAutoReject: true,
+    fingerprint: 'standard',
     gpc: true,
     cleanLinks: true,
     cdnCookies: true,
     hideLocalIps: true,
     hideLocale: false,
+    browserAdApis: true,
+    limitClientHints: true,
     detailedReports: false,
   },
   video: {
     youtubeAds: true,
     twitchAds: true,
     markSponsored: true,
+    hideSponsored: false,
+    autoSkipAds: true,
+    genericPlayers: false,
     nocookieEmbeds: false,
     adMute: false,
     sponsorSkip: false,
+    sponsorModes: { ...DEFAULT_SPONSOR_MODES },
+    sponsorChannels: [],
   },
   theme: 'dark',
   siteProfiles: {},
@@ -71,9 +79,14 @@ function normalizeVideo(raw: unknown): VideoSettings {
     youtubeAds: bool(r.youtubeAds, d.youtubeAds),
     twitchAds: bool(r.twitchAds, d.twitchAds),
     markSponsored: bool(r.markSponsored, d.markSponsored),
+    hideSponsored: bool(r.hideSponsored, d.hideSponsored),
+    autoSkipAds: bool(r.autoSkipAds, d.autoSkipAds),
+    genericPlayers: bool(r.genericPlayers, d.genericPlayers),
     nocookieEmbeds: bool(r.nocookieEmbeds, d.nocookieEmbeds),
     adMute: bool(r.adMute, d.adMute),
     sponsorSkip: bool(r.sponsorSkip, d.sponsorSkip),
+    sponsorModes: sponsorModes(r.sponsorModes),
+    sponsorChannels: channelList(r.sponsorChannels),
   };
 }
 
@@ -87,6 +100,8 @@ function normalizePrivacy(raw: unknown): PrivacySettings {
     gpc: bool(r.gpc, d.gpc),
     cleanLinks: bool(r.cleanLinks, d.cleanLinks),
     cdnCookies: bool(r.cdnCookies, d.cdnCookies),
+    browserAdApis: bool(r.browserAdApis, d.browserAdApis),
+    limitClientHints: bool(r.limitClientHints, d.limitClientHints),
     hideLocalIps: bool(r.hideLocalIps, d.hideLocalIps),
     hideLocale: bool(r.hideLocale, d.hideLocale),
     detailedReports: bool(r.detailedReports, d.detailedReports),

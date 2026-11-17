@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { L } from '../shared/i18n.ts';
 import { send } from '../shared/messages.ts';
 import { mount } from './mount.tsx';
 
@@ -32,26 +33,35 @@ function Blocked() {
     <main>
       <header>
         <img src="icons/icon-32.png" alt="" width={24} height={24} />
-        <h1>Bu sayfa engellendi</h1>
+        <h1>{L('Bu sayfa engellendi', 'This page was blocked')}</h1>
       </header>
       <p className="url">{url}</p>
       <p>
-        Adres <strong>{list}</strong> listesinde zararlı, kimlik avı veya istenmeyen bir site olarak
-        kayıtlı. AX Privacy sayfayı açmadan durdurdu.
+        {L(
+          <>
+            Adres <strong>{list}</strong> listesinde zararlı, kimlik avı veya istenmeyen bir site
+            olarak kayıtlı. AX Privacy sayfayı açmadan durdurdu.
+          </>,
+          <>
+            The address is listed in <strong>{list}</strong> as a malicious, phishing or unwanted
+            site. AX Privacy stopped it before it opened.
+          </>,
+        )}
       </p>
       <p className="note">
-        Listeler hatalı kayıt içerebilir ve listede olmayan bir site de zararlı olabilir. Siteyi
-        tanıyor ve güveniyorsanız devam edebilirsiniz; izin bu tarayıcı oturumu boyunca bu alan adı
-        için geçerli olur.
+        {L(
+          'Listeler hatalı kayıt içerebilir ve listede olmayan bir site de zararlı olabilir. Siteyi tanıyor ve güveniyorsanız devam edebilirsiniz; izin bu tarayıcı oturumu boyunca bu alan adı için geçerli olur.',
+          'Lists can contain mistakes, and a site not on any list can still be harmful. If you know and trust the site you can continue; the permission lasts for this domain until the browser closes.',
+        )}
       </p>
       {error && <p className="error">{error}</p>}
       <div className="row">
         <button type="button" onClick={leave}>
-          Güvenli tarafa dön
+          {L('Güvenli tarafa dön', 'Back to safety')}
         </button>
         {isWeb && (
           <button type="button" className="secondary" onClick={() => void proceed()}>
-            Riski anlıyorum, yine de devam et
+            {L('Riski anlıyorum, yine de devam et', 'I understand the risk, continue anyway')}
           </button>
         )}
       </div>
@@ -59,4 +69,4 @@ function Blocked() {
   );
 }
 
-mount(<Blocked />);
+mount(<Blocked />, L('Sayfa engellendi — AX Privacy', 'Page blocked — AX Privacy'));

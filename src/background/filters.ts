@@ -1,3 +1,4 @@
+import { L } from '../shared/i18n.ts';
 import { FiltersEngine } from '@ghostery/adblocker';
 import { COSMETIC_ENGINE_CONFIG } from '../engines/adblock/engine-config.ts';
 import { compileList, type CompiledRule } from '../engines/adblock/network.ts';
@@ -22,6 +23,8 @@ import {
   type NexusDB,
 } from '../storage/db.ts';
 import { DEFAULT_SETTINGS, isValidListUrl } from '../storage/settings.ts';
+
+const TOO_BIG = () => L('Liste 10 MB sınırını aşıyor', 'The list is over the 10 MB limit');
 
 export const USER_LIST_MAX_BYTES = 10 * 1024 * 1024;
 export const USER_LIST_TIMEOUT_MS = 30_000;
@@ -251,7 +254,7 @@ let documentCache: {
 async function buildDocumentSources(s: Settings) {
   const sources: { name: string; rules: CompiledRule[] }[] = [
     {
-      name: 'Özel kurallar',
+      name: L('Özel kurallar', 'Custom rules'),
       rules: compileList(splitRules(s.customRules).network, { allowRegex: true }).documentRules,
     },
   ];
@@ -291,9 +294,34 @@ export async function blockingList(s: Settings, url: string): Promise<string | n
   return lists.find((l) => l.blocks(url, url))?.name ?? null;
 }
 
-export async function readCapped(res: Response): Promise<string> {
+/** A filter list request: no cookies, no referrer, bounded time. */
+export const requestList = (url: string, headers: Record<string, string> = {}) =>
+  fetch(url, {
+    cache: 'no-cache',
+    credentials: 'omit',
+    referrerPolicy: 'no-referrer',
+    headers,
+    signal: AbortSignal.timeout(USER_LIST_TIMEOUT_MS),
+  });
+
+/** A list response's text; refuses errors, redirects to unsafe addresses, oversize bodies and HTML. */
+export async function listBody(res: Response): Promise<string> {
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!isValidListUrl(res.url)) {
+    throw new Error(
+      L('Güvenli olmayan bir adrese yönlendirildi', 'Redirected to an unsafe address'),
+    );
+  }
+  const text = await readCapped(res);
+  if (/^\s*</.test(text)) {
+    throw new Error(L('Filtre listesi değil (HTML döndü)', 'Not a filter list (HTML came back)'));
+  }
+  return text;
+}
+
+async function readCapped(res: Response): Promise<string> {
   const declared = Number(res.headers.get('content-length') ?? 0);
-  if (declared > USER_LIST_MAX_BYTES) throw new Error('Liste 10 MB sınırını aşıyor');
+  if (declared > USER_LIST_MAX_BYTES) throw new Error(TOO_BIG());
   const reader = res.body?.getReader();
   if (!reader) return res.text();
   const chunks: Uint8Array[] = [];
@@ -304,7 +332,7 @@ export async function readCapped(res: Response): Promise<string> {
     size += value.byteLength;
     if (size > USER_LIST_MAX_BYTES) {
       await reader.cancel();
-      throw new Error('Liste 10 MB sınırını aşıyor');
+      throw new Error(TOO_BIG());
     }
     chunks.push(value);
   }
@@ -316,15 +344,7 @@ export async function refreshUserList(url: string): Promise<void> {
   const d = await db();
   const prev = await getList(d, url);
   try {
-    const res = await fetch(url, {
-      cache: 'no-cache',
-      credentials: 'omit',
-      signal: AbortSignal.timeout(USER_LIST_TIMEOUT_MS),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    if (!isValidListUrl(res.url)) throw new Error('Güvenli olmayan bir adrese yönlendirildi');
-    const text = await readCapped(res);
-    if (/^\s*</.test(text)) throw new Error('Filtre listesi değil (HTML döndü)');
+    const text = await listBody(await requestList(url));
     const lines = preprocess(text);
     const { stats } = compileList(lines, { allowRegex: true });
     const engine = FiltersEngine.parse(safeCosmeticLines(lines).join('\n'), COSMETIC_ENGINE_CONFIG);
@@ -410,13 +430,21 @@ export async function customRulesReport(s: Settings): Promise<CustomRulesResult>
       ...(regexRejected
         ? [
             {
-              line: `${regexRejected} regex kuralı`,
-              reason: 'Tarayıcının regex motoru desteklemiyor',
+              line: L(`${regexRejected} regex kuralı`, `${regexRejected} regex rules`),
+              reason: L(
+                'Tarayıcının regex motoru desteklemiyor',
+                'The browser’s regex engine does not support them',
+              ),
             },
           ]
         : []),
       ...(report?.truncated
-        ? [{ line: `${report.truncated} kural`, reason: 'Dinamik kural kotası doldu' }]
+        ? [
+            {
+              line: L(`${report.truncated} kural`, `${report.truncated} rules`),
+              reason: L('Dinamik kural kotası doldu', 'The dynamic rule quota is full'),
+            },
+          ]
         : []),
     ],
   };

@@ -1,5 +1,7 @@
+import { L } from '../shared/i18n.ts';
 import { pickedRule } from '../filters/custom.ts';
 import { moduleOn } from '../engines/core/control.ts';
+import { planFor } from '../engines/video/sponsorblock.ts';
 import { mergedProfile } from '../storage/settings.ts';
 import { BUILTIN_IDS } from '../filters/catalog.ts';
 import {
@@ -19,6 +21,7 @@ import type {
   SettingsExport,
   StatsView,
   TabReport,
+  YoutubeWarnings,
 } from '../shared/types.ts';
 import { siteKey } from '../shared/url.ts';
 import { isValidListUrl } from '../storage/settings.ts';
@@ -69,6 +72,8 @@ export interface RouterDeps {
   pageList(url: string): Promise<string | null>;
   insecurePassword(tabId: number): Promise<void>;
   sponsorSegments(videoId: string): Promise<Segment[]>;
+  youtubeWarned(): Promise<void>;
+  youtubeWarnings(): Promise<YoutubeWarnings>;
   statsView(days: number): Promise<StatsView>;
   clearStats(): Promise<StatsView>;
   exportSettings(s: Settings): SettingsExport | Promise<SettingsExport>;
@@ -204,9 +209,13 @@ export function createRouter(deps: RouterDeps) {
       case 'picker/add': {
         // The check order matters: a bad selector must leave the session open for another try.
         const rule = pickedRule(ctx.tabUrl, msg.selector);
-        if (!rule) throw new Error('Bu öğe için kural oluşturulamadı');
+        if (!rule) {
+          throw new Error(
+            L('Bu öğe için kural oluşturulamadı', 'Could not build a rule for this element'),
+          );
+        }
         if (ctx.frameId !== 0 || ctx.tabId === undefined || !(await deps.takePicker(ctx.tabId))) {
-          throw new Error('Öğe seçici başlatılmamış');
+          throw new Error(L('Öğe seçici başlatılmamış', 'The element picker is not running'));
         }
         await update((s) => {
           const lines = s.customRules.split(/\r?\n/);
@@ -233,11 +242,20 @@ export function createRouter(deps: RouterDeps) {
         return view(next);
       }
       case 'userList/add': {
-        if (!isValidListUrl(msg.url)) throw new Error('Yalnızca https:// adresleri eklenebilir');
+        if (!isValidListUrl(msg.url)) {
+          throw new Error(
+            L('Yalnızca https:// adresleri eklenebilir', 'Only https:// addresses can be added'),
+          );
+        }
         const s = await deps.load();
         if (s.userLists.some((l) => l.url === msg.url)) return view(s);
         if (s.userLists.length >= MAX_USER_LISTS) {
-          throw new Error(`En fazla ${MAX_USER_LISTS} liste eklenebilir`);
+          throw new Error(
+            L(
+              `En fazla ${MAX_USER_LISTS} liste eklenebilir`,
+              `At most ${MAX_USER_LISTS} lists can be added`,
+            ),
+          );
         }
         await deps.refreshUserList(msg.url);
         const next = await update(
@@ -299,7 +317,7 @@ export function createRouter(deps: RouterDeps) {
       case 'settings/import': {
         const current = await deps.load();
         const next = deps.importSettings(msg.data, current);
-        if (!next) throw new Error('Geçersiz yedek dosyası');
+        if (!next) throw new Error(L('Geçersiz yedek dosyası', 'Invalid backup file'));
         const bag = msg.data as { stats?: unknown };
         if (bag.stats) await deps.restoreStats(bag.stats);
         await update(() => next, 'all');
@@ -311,8 +329,15 @@ export function createRouter(deps: RouterDeps) {
       case 'video/segments': {
         const s = await deps.load();
         const on = s.video.sponsorSkip && moduleOn(s, siteKey(ctx.tabUrl ?? ctx.url), 'video');
-        return on ? deps.sponsorSegments(msg.videoId) : [];
+        if (!on) return { segments: [], channels: [] };
+        const segments = planFor(await deps.sponsorSegments(msg.videoId), s.video.sponsorModes);
+        return { segments, channels: s.video.sponsorChannels };
       }
+      case 'video/warned':
+        await deps.youtubeWarned();
+        return null;
+      case 'video/warnings':
+        return deps.youtubeWarnings();
       case 'tab/report':
         return deps.tabReport(msg.tabId);
       case 'consent/msg': {
@@ -328,7 +353,9 @@ export function createRouter(deps: RouterDeps) {
       }
       case 'security/proceed':
         if (!(await deps.pageList(msg.url))) {
-          throw new Error('Bu adres bir güvenlik listesinde değil');
+          throw new Error(
+            L('Bu adres bir güvenlik listesinde değil', 'This address is not on a security list'),
+          );
         }
         await deps.proceed(msg.url);
         return null;

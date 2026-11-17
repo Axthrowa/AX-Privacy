@@ -32,6 +32,14 @@ export function matcher(pattern = ''): (s: string) => boolean {
 }
 
 /** Reaches `a.b.c`, waiting through setters for the parts the page has not created yet. */
+function inheritedGetter(owner: Owner, prop: string): (() => unknown) | undefined {
+  for (let p: unknown = Object.getPrototypeOf(owner); isObject(p); p = Object.getPrototypeOf(p)) {
+    const desc = Object.getOwnPropertyDescriptor(p, prop);
+    if (desc) return desc.get;
+  }
+  return undefined;
+}
+
 function onLeaf(owner: Owner, path: string, leaf: (owner: Owner, prop: string) => void): void {
   const dot = path.indexOf('.');
   if (dot < 0) {
@@ -47,6 +55,23 @@ function onLeaf(owner: Owner, path: string, leaf: (owner: Owner, prop: string) =
   }
   const desc = Object.getOwnPropertyDescriptor(owner, head);
   if (desc && !desc.configurable) return;
+  const live = desc ? undefined : inheritedGetter(owner, head);
+  if (live) {
+    // A browser getter such as document.head is null early and fills in later; freezing it breaks pages.
+    let trapped = false;
+    Object.defineProperty(owner, head, {
+      configurable: true,
+      get() {
+        const next: unknown = live.call(owner);
+        if (!trapped && isObject(next)) {
+          trapped = true;
+          onLeaf(next as Owner, rest, leaf);
+        }
+        return next;
+      },
+    });
+    return;
+  }
   Object.defineProperty(owner, head, {
     configurable: true,
     get: () => value,

@@ -14,3 +14,26 @@ export async function applyWebRtcPolicy(s: Settings): Promise<void> {
     await policy.clear({});
   }
 }
+
+/**
+ * The browser's own ad features (Chromium): interest topics, on-device ad auctions and ad
+ * measurement, plus `<a ping>` click reports. Off while AX asks for it; given back otherwise.
+ * Firefox has none of these, so nothing happens there.
+ */
+export async function applyBrowserPrivacy(s: Settings): Promise<void> {
+  const w = chrome.privacy?.websites as Partial<typeof chrome.privacy.websites> | undefined;
+  const choices: [chrome.types.ChromeSetting<boolean> | undefined, boolean][] = [
+    [w?.topicsEnabled, s.privacy.browserAdApis],
+    [w?.fledgeEnabled, s.privacy.browserAdApis],
+    [w?.adMeasurementEnabled, s.privacy.browserAdApis],
+    [w?.hyperlinkAuditingEnabled, s.privacy.cleanLinks],
+  ];
+  await Promise.all(
+    choices.map(async ([setting, off]) => {
+      if (!setting) return;
+      await (s.enabled && off ? setting.set({ value: false }) : setting.clear({})).catch(
+        () => undefined,
+      );
+    }),
+  );
+}

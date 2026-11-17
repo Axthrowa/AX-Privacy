@@ -1,10 +1,19 @@
-import { pruneAds } from '../engines/video/youtube.ts';
+import { pruneAds, pruneAdsText, YT_BACKOFF_KEY, YT_DATA } from '../engines/video/youtube.ts';
 
 // MAIN world on YouTube pages, before the page's own scripts. The player reads its ad schedule
 // from the initial player response and from later JSON responses; both lose their ad fields here.
 // Nothing is fetched or sent: the page's own data is filtered as it arrives.
 
+// After YouTube showed its ad blocker warning, this tab leaves YouTube alone until it is closed.
+let backedOff = false;
+try {
+  backedOff = sessionStorage.getItem(YT_BACKOFF_KEY) !== null;
+} catch {
+  // Storage blocked: carry on.
+}
+
 const prune = (v: unknown) => {
+  if (backedOff) return;
   try {
     pruneAds(v);
   } catch {
@@ -65,3 +74,63 @@ Response.prototype.json = disguise(
   }),
   json,
 );
+
+// XMLHttpRequest: the player API can also be read as text. Only its paths are touched, once each.
+const urls = new WeakMap<XMLHttpRequest, string>();
+const pruned = new WeakMap<XMLHttpRequest, string>();
+const XHR = XMLHttpRequest.prototype;
+const open = XHR.open;
+XHR.open = disguise(
+  new Proxy(open, {
+    apply(target, thisArg: XMLHttpRequest, args: Parameters<typeof open>) {
+      urls.set(thisArg, String(args[1]));
+      pruned.delete(thisArg);
+      return Reflect.apply(target, thisArg, args) as undefined;
+    },
+  }),
+  open,
+);
+const isPlayerApi = (url: string | undefined) => {
+  if (!url) return false;
+  try {
+    const { pathname } = new URL(url, location.href);
+    return YT_DATA.xhrPaths.some((p) => pathname === p);
+  } catch {
+    return false;
+  }
+};
+const textOf = (xhr: XMLHttpRequest, raw: string) => {
+  if (backedOff || xhr.readyState !== 4 || !isPlayerApi(urls.get(xhr))) return raw;
+  let text = pruned.get(xhr);
+  if (text === undefined) {
+    text = pruneAdsText(raw, parse);
+    pruned.set(xhr, text);
+  }
+  return text;
+};
+for (const prop of ['responseText', 'response'] as const) {
+  const desc = Object.getOwnPropertyDescriptor(XHR, prop);
+  const get = desc?.get;
+  if (!desc || !get) continue;
+  Object.defineProperty(XHR, prop, {
+    ...desc,
+    get: disguise(
+      new Proxy(get, {
+        apply(target, thisArg: XMLHttpRequest, args: []) {
+          const raw: unknown = Reflect.apply(target, thisArg, args);
+          if (typeof raw === 'string') return textOf(thisArg, raw);
+          // responseType "json": the object is parsed already; prune it in place.
+          if (
+            prop === 'response' &&
+            thisArg.responseType === 'json' &&
+            isPlayerApi(urls.get(thisArg))
+          ) {
+            prune(raw);
+          }
+          return raw;
+        },
+      }),
+      get,
+    ),
+  });
+}

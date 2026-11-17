@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { L } from '../shared/i18n.ts';
 import { send } from '../shared/messages.ts';
 import type {
   CustomRulesResult,
@@ -17,23 +18,29 @@ import { Overview } from './Overview.tsx';
 import { Privacy } from './Privacy.tsx';
 import { Toggle } from './Toggle.tsx';
 import { Video } from './Video.tsx';
+import { Welcome } from './Welcome.tsx';
 
 const NAV = [
-  ['overview', 'Özet'],
-  ['ads', 'Reklam'],
-  ['privacy', 'Gizlilik'],
-  ['tracking', 'İzleme'],
-  ['fingerprint', 'Parmak izi'],
-  ['security', 'Güvenlik'],
-  ['scam', 'Dolandırıcılık'],
+  ['overview', L('Özet', 'Overview')],
+  ['ads', L('Reklam', 'Ads')],
+  ['privacy', L('Gizlilik', 'Privacy')],
+  ['tracking', L('İzleme', 'Tracking')],
+  ['fingerprint', L('Parmak izi', 'Fingerprint')],
+  ['security', L('Güvenlik', 'Security')],
+  ['scam', L('Dolandırıcılık', 'Scams')],
   ['video', 'Video'],
-  ['cookies', 'Çerez'],
-  ['lists', 'Listeler'],
-  ['sites', 'Siteler'],
-  ['advanced', 'Gelişmiş'],
-  ['statistics', 'İstatistik'],
-  ['about', 'Hakkında'],
+  ['cookies', L('Çerez', 'Cookies')],
+  ['lists', L('Listeler', 'Lists')],
+  ['sites', L('Siteler', 'Sites')],
+  ['advanced', L('Gelişmiş', 'Advanced')],
+  ['statistics', L('İstatistik', 'Statistics')],
+  ['about', L('Hakkında', 'About')],
 ] as const;
+
+const INVALID_SITE = L(
+  'Geçerli bir alan adı veya IP girin (ör. example.com)',
+  'Enter a valid domain or IP (e.g. example.com)',
+);
 
 function applyTheme(theme: Settings['theme']) {
   document.documentElement.dataset.theme = theme;
@@ -126,10 +133,10 @@ function Dashboard() {
             )
           }
         >
-          {settings.theme === 'dark' ? 'Açık tema' : 'Koyu tema'}
+          {settings.theme === 'dark' ? L('Açık tema', 'Light theme') : L('Koyu tema', 'Dark theme')}
         </button>
       </header>
-      <nav aria-label="Sayfalar">
+      <nav aria-label={L('Sayfalar', 'Pages')}>
         {NAV.map(([id, label]) => (
           <a key={id} href={`#${id}`} aria-current={page === id ? 'page' : undefined}>
             {label}
@@ -143,9 +150,9 @@ function Dashboard() {
           <>
             {overview}
             <section>
-              <h2>Genel koruma</h2>
+              <h2>{L('Genel koruma', 'Protection')}</h2>
               <Toggle
-                label="Tüm koruma"
+                label={L('Tüm koruma', 'All protection')}
                 checked={settings.enabled}
                 onChange={(on) => void guard(() => send('global/set', { enabled: on }))}
               />
@@ -156,7 +163,10 @@ function Dashboard() {
         {show('ads') && lists && (
           <>
             <p className="muted">
-              Reklam sayacı EasyList, uBlock filters ve AdGuard Türkçe eşleşmelerinden gelir.
+              {L(
+                'Reklam sayacı EasyList, uBlock filters ve AdGuard Türkçe eşleşmelerinden gelir.',
+                'The ad counter comes from EasyList, uBlock filters and AdGuard Turkish matches.',
+              )}
             </p>
             <Lists
               view={lists}
@@ -167,11 +177,15 @@ function Dashboard() {
             />
           </>
         )}
+        {show('welcome') && <Welcome settings={settings} guard={guard} />}
         {show('privacy') && <Privacy settings={settings} guard={guard} />}
         {show('tracking') && lists && (
           <>
             <p className="muted">
-              İzleyici sayacı EasyPrivacy ve AdGuard URL Tracking eşleşmelerinden gelir.
+              {L(
+                'İzleyici sayacı EasyPrivacy ve AdGuard URL Tracking eşleşmelerinden gelir.',
+                'The tracker counter comes from EasyPrivacy and AdGuard URL Tracking matches.',
+              )}
             </p>
             <Lists view={lists} onView={setLists} guard={guard} categories={['privacy']} hideUser />
           </>
@@ -180,8 +194,10 @@ function Dashboard() {
         {show('security') && lists && (
           <>
             <p className="muted">
-              Sayfa engeli Badware ve URLhaus listelerinden gelir. Kimlik avı listesi paketle gelmez
-              (OpenPhish yeniden dağıtılamaz).
+              {L(
+                'Sayfa engeli Badware ve URLhaus listelerinden gelir. Kimlik avı listesi paketle gelmez (OpenPhish yeniden dağıtılamaz).',
+                'Page blocks come from the Badware and URLhaus lists. No phishing list ships with the package (OpenPhish may not be redistributed).',
+              )}
             </p>
             <Lists
               view={lists}
@@ -195,10 +211,12 @@ function Dashboard() {
         )}
         {show('scam') && (
           <section>
-            <h2>Dolandırıcılık işaretleri</h2>
+            <h2>{L('Dolandırıcılık işaretleri', 'Scam signs')}</h2>
             <p className="muted">
-              Popup’taki risk metni yerel adres kontrolleridir (homograf, marka benzerliği, http
-              şifre). Dış itibar puanı yoktur. Aşağıda yalnızca gerçekten engellenen sayfalar var.
+              {L(
+                'Popup’taki risk metni yerel adres kontrolleridir (homograf, marka benzerliği, http şifre). Dış itibar puanı yoktur. Aşağıda yalnızca gerçekten engellenen sayfalar var.',
+                'The risk text in the popup comes from local address checks (homographs, brand look-alikes, passwords over http). There is no outside reputation score. Below are only pages that were really blocked.',
+              )}
             </p>
             {overview}
           </section>
@@ -254,16 +272,27 @@ function Rules({
 }) {
   return (
     <section id="rules">
-      <h2>Özel kurallar</h2>
+      <h2>{L('Özel kurallar', 'Custom rules')}</h2>
       <p className="muted">
-        Satır başına bir kural. Ağ: <code>||reklam.example^</code>,{' '}
-        <code>||pop.example^$popup</code>, istisna <code>@@||cdn.example^</code>, regex{' '}
-        <code>/reklam[0-9]+/</code>. Gizleme: <code>example.com##.reklam</code>, tüm siteler{' '}
-        <code>##.reklam</code>, istisna <code>example.com#@#.reklam</code>, gelişmiş{' '}
-        <code>##div:has-text(Sponsorlu)</code>. <code>!</code> ile başlayan satırlar yorumdur.
+        {L(
+          <>
+            Satır başına bir kural. Ağ: <code>||reklam.example^</code>,{' '}
+            <code>||pop.example^$popup</code>, istisna <code>@@||cdn.example^</code>, regex{' '}
+            <code>/reklam[0-9]+/</code>. Gizleme: <code>example.com##.reklam</code>, tüm siteler{' '}
+            <code>##.reklam</code>, istisna <code>example.com#@#.reklam</code>, gelişmiş{' '}
+            <code>##div:has-text(Sponsorlu)</code>. <code>!</code> ile başlayan satırlar yorumdur.
+          </>,
+          <>
+            One rule per line. Network: <code>||ads.example^</code>,{' '}
+            <code>||pop.example^$popup</code>, exception <code>@@||cdn.example^</code>, regex{' '}
+            <code>/ads[0-9]+/</code>. Hiding: <code>example.com##.ad</code>, all sites{' '}
+            <code>##.ad</code>, exception <code>example.com#@#.ad</code>, advanced{' '}
+            <code>##div:has-text(Sponsored)</code>. Lines starting with <code>!</code> are comments.
+          </>,
+        )}
       </p>
       <textarea
-        aria-label="Özel kurallar"
+        aria-label={L('Özel kurallar', 'Custom rules')}
         value={draft}
         spellCheck={false}
         rows={10}
@@ -278,13 +307,15 @@ function Rules({
           })
         }
       >
-        Kaydet
+        {L('Kaydet', 'Save')}
       </button>
       {report && (
         <div className="result">
           <p>
-            {report.network} ağ kuralı, {report.cosmetic} gizleme kuralı etkin. Gizleme kuralları
-            açık sayfalar yenilenince uygulanır.
+            {L(
+              `${report.network} ağ kuralı, ${report.cosmetic} gizleme kuralı etkin. Gizleme kuralları açık sayfalar yenilenince uygulanır.`,
+              `${report.network} network rules and ${report.cosmetic} hiding rules active. Hiding rules apply to open pages after a reload.`,
+            )}
           </p>
           {report.rejected.length > 0 && (
             <ul className="rejected">
@@ -319,11 +350,12 @@ function Sites({
   ].sort();
   return (
     <section id="sites">
-      <h2>Duraklatılan siteler</h2>
+      <h2>{L('Duraklatılan siteler', 'Paused sites')}</h2>
       <p className="muted">
-        Duraklatma her şeyi kapatır (sayfa engeli dahil). Aşağıdaki anahtarlar daha dardır: ağ
-        kapatılınca alt kaynaklar serbest kalır, belge (zararlı site) engeli durur. Güvenliği
-        kapatmak o adresi kara listeden muaf tutar.
+        {L(
+          'Duraklatma her şeyi kapatır (sayfa engeli dahil). Aşağıdaki anahtarlar daha dardır: ağ kapatılınca alt kaynaklar serbest kalır, belge (zararlı site) engeli durur. Güvenliği kapatmak o adresi kara listeden muaf tutar.',
+          'Pausing turns everything off (page blocks included). The switches below are narrower: with network off, subresources are let through and the document (harmful site) block stays. Turning security off exempts that address from the blocklists.',
+        )}
       </p>
       <form
         className="row"
@@ -331,7 +363,7 @@ function Sites({
           e.preventDefault();
           const site = siteDraft.trim().toLowerCase();
           if (!isValidSite(site)) {
-            setError('Geçerli bir alan adı veya IP girin (ör. example.com)');
+            setError(INVALID_SITE);
             return;
           }
           void guard(async () => {
@@ -342,19 +374,19 @@ function Sites({
       >
         <input
           type="text"
-          aria-label="Duraklatılacak site"
+          aria-label={L('Duraklatılacak site', 'Site to pause')}
           placeholder="example.com"
           value={siteDraft}
           onChange={(e) => setSiteDraft(e.target.value)}
         />
-        <button type="submit">Duraklat</button>
+        <button type="submit">{L('Duraklat', 'Pause')}</button>
         <button
           type="button"
           className="secondary"
           onClick={() => {
             const site = siteDraft.trim().toLowerCase();
             if (!isValidSite(site)) {
-              setError('Geçerli bir alan adı veya IP girin (ör. example.com)');
+              setError(INVALID_SITE);
               return;
             }
             void guard(async () => {
@@ -363,11 +395,11 @@ function Sites({
             });
           }}
         >
-          Yalnız ağı kapat
+          {L('Yalnız ağı kapat', 'Turn off network only')}
         </button>
       </form>
       {known.length === 0 ? (
-        <p className="muted">Duraklatılan site yok.</p>
+        <p className="muted">{L('Duraklatılan site yok.', 'No paused sites.')}</p>
       ) : (
         <ul className="sites profiles">
           {known.map((site) => {
@@ -384,7 +416,7 @@ function Sites({
                         void guard(() => send('site/setPaused', { site, paused: false }))
                       }
                     >
-                      Korumayı aç
+                      {L('Korumayı aç', 'Turn protection on')}
                     </button>
                   ) : (
                     <ModuleToggles site={site} profile={p} guard={guard} />
@@ -413,14 +445,18 @@ function ModuleToggles({
   return (
     <div className="modules">
       <Toggle
-        label="Ağ ve gizleme"
+        label={L('Ağ ve gizleme', 'Network and hiding')}
         checked={profile.network}
         onChange={(on) => set({ network: on })}
       />
-      <Toggle label="Gizlilik" checked={profile.privacy} onChange={(on) => set({ privacy: on })} />
+      <Toggle
+        label={L('Gizlilik', 'Privacy')}
+        checked={profile.privacy}
+        onChange={(on) => set({ privacy: on })}
+      />
       <Toggle label="Video" checked={profile.video} onChange={(on) => set({ video: on })} />
       <Toggle
-        label="Güvenlik (sayfa engeli)"
+        label={L('Güvenlik (sayfa engeli)', 'Security (page block)')}
         checked={profile.security}
         onChange={(on) => set({ security: on })}
       />
@@ -428,4 +464,4 @@ function ModuleToggles({
   );
 }
 
-mount(<Dashboard />);
+mount(<Dashboard />, L('AX Privacy — Kontrol paneli', 'AX Privacy — Dashboard'));

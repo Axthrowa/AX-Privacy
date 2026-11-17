@@ -110,7 +110,8 @@ test('third-party cookie stripping is opt-in and spares first-party requests', a
             initiator: 'http://site.nexus-test.example',
           })
         ).matchedRules
-          .filter((r) => r.rulesetId === '_dynamic' && r.ruleId !== 7 && r.ruleId !== 8)
+          // GPC, CDN cookies and Client Hints match any third-party request; only rule 3 matters here.
+          .filter((r) => r.rulesetId === '_dynamic' && ![7, 8, 15].includes(r.ruleId))
           .map((r) => r.ruleId),
       url,
     );
@@ -134,6 +135,10 @@ test('cookie auto-reject clicks "reject" on a recognised banner and reports it',
 }) => {
   const dash = await dashboard(context, extensionId);
   const toggle = dash.getByRole('switch', { name: 'Çerez bildirimlerini otomatik reddet' });
+  // On by default: switched off first to see the banner untouched.
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS.filter((id) => id !== 'consent'));
 
   const before = await context.newPage();
   await before.goto(`${host(SITE)}/consent`);
@@ -142,7 +147,7 @@ test('cookie auto-reject clicks "reject" on a recognised banner and reports it',
   await before.close();
 
   await toggle.click();
-  await expect.poll(() => scriptIds(worker)).toEqual(['consent', ...BASE_SCRIPTS]);
+  await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS);
   const page = await context.newPage();
   await page.goto(`${host(SITE)}/consent`);
   await expect
@@ -247,52 +252,99 @@ const audioSum = (page: Page) =>
     return buf.getChannelData(0).reduce((a, b) => a + Math.abs(b), 0);
   });
 
-test('fingerprint noise is stable per site, differs across sites, and is off by default', async ({
+/** Runs `body` in a Worker made from a blob, the way fingerprinting scripts do. */
+const inWorker = (page: Page, body: string) =>
+  page.evaluate(
+    (src) =>
+      new Promise<unknown>((done, fail) => {
+        const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+        w.onmessage = (e) => {
+          done(e.data);
+          w.terminate();
+        };
+        w.onerror = (e) => fail(new Error(e.message));
+      }),
+    body,
+  );
+
+const WORKER_CANVAS = `
+  const c = new OffscreenCanvas(220, 40);
+  const x = c.getContext('2d');
+  x.fillStyle = '#f60';
+  x.fillRect(0, 0, 220, 40);
+  x.fillStyle = '#069';
+  x.font = '16px Arial';
+  x.fillText('AX parmak izi', 4, 26);
+  const pixels = x.getImageData(0, 0, 220, 40).data.reduce((a, b) => (a * 31 + b) >>> 0, 7);
+  c.convertToBlob().then(async (blob) => {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    postMessage(pixels + ':' + bytes.reduce((a, b) => (a * 31 + b) >>> 0, 7));
+  });`;
+
+test('fingerprint noise is stable per site, differs across sites, and is on by default', async ({
   context,
   extensionId,
   worker,
 }) => {
+  const dash = await dashboard(context, extensionId);
+  const noFp = BASE_SCRIPTS.filter((id) => id !== 'fp-noise');
+  await dash.getByLabel('Parmak izi koruması').selectOption('off');
+  await expect.poll(() => scriptIds(worker)).toEqual(noFp);
   const page = await context.newPage();
   const visit = async (h: string) => {
     await page.goto(`${host(h)}/`);
-    return { canvas: await canvasHash(page), audio: await audioSum(page) };
+    return {
+      canvas: await canvasHash(page),
+      audio: await audioSum(page),
+      worker: await inWorker(page, WORKER_CANVAS),
+    };
   };
   const plainA = await visit(SITE);
   const plainB = await visit(OTHER);
   expect(plainA).toEqual(plainB);
 
-  const dash = await dashboard(context, extensionId);
   await dash.getByLabel('Parmak izi koruması').selectOption('standard');
-  await expect.poll(() => scriptIds(worker)).toEqual([...BASE_SCRIPTS, 'fp-noise'].sort());
+  await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS);
 
   const a1 = await visit(SITE);
   const a2 = await visit(SITE);
   const b = await visit(OTHER);
   expect(a1.canvas).not.toBe(plainA.canvas);
   expect(a1.audio).not.toBe(plainA.audio);
+  // Inline workers get the same noise: content scripts never run there.
+  expect(a1.worker).not.toBe(plainA.worker);
   expect(Math.abs(a1.audio - plainA.audio) / plainA.audio).toBeLessThan(1e-5);
   expect(a2).toEqual(a1);
   expect(b.canvas).not.toBe(a1.canvas);
   expect(b.audio).not.toBe(a1.audio);
+  expect(await page.evaluate(() => '__axSeed' in self)).toBe(false);
+
+  // A browser restart empties session storage; the next session draws a new seed.
+  await worker.evaluate(() => chrome.storage.session.clear());
+  await dash.getByLabel('Parmak izi koruması').selectOption('off');
+  await expect.poll(() => scriptIds(worker)).toEqual(noFp);
+  await dash.getByLabel('Parmak izi koruması').selectOption('standard');
+  await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS);
+  const nextSession = await visit(SITE);
+  expect(nextSession.canvas).not.toBe(a1.canvas);
+  expect(nextSession.audio).not.toBe(a1.audio);
   // A fresh about:blank frame inherits the protection instead of offering clean prototypes.
   await page.goto(`${host(SITE)}/`);
   const framed = await blankFrameHash(page);
   await dash.getByLabel('Parmak izi koruması').selectOption('off');
-  await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS);
+  await expect.poll(() => scriptIds(worker)).toEqual(noFp);
   await page.goto(`${host(SITE)}/`);
   expect(await blankFrameHash(page)).not.toBe(framed);
 });
 
-test('strict fingerprint level caps CPU cores and hides the GPU model', async ({
+test('strict fingerprint level caps CPU cores, hides the GPU model and probe fonts, in workers too', async ({
   context,
   extensionId,
   worker,
 }) => {
   const dash = await dashboard(context, extensionId);
   await dash.getByLabel('Parmak izi koruması').selectOption('strict');
-  await expect
-    .poll(() => scriptIds(worker))
-    .toEqual([...BASE_SCRIPTS, 'fp-noise', 'fp-strict'].sort());
+  await expect.poll(() => scriptIds(worker)).toEqual([...BASE_SCRIPTS, 'fp-strict'].sort());
   const page = await context.newPage();
   await page.goto(`${host(SITE)}/`);
   const probe = await page.evaluate(() => {
@@ -306,6 +358,32 @@ test('strict fingerprint level caps CPU cores and hides the GPU model', async ({
   });
   expect(probe.cores).toBeLessThanOrEqual(4);
   expect(probe.gpu).toBe(probe.generic);
+  const [workerCores, workerMemory] = (await inWorker(
+    page,
+    'postMessage([navigator.hardwareConcurrency, navigator.deviceMemory ?? 8])',
+  )) as [number, number];
+  expect(workerCores).toBeLessThanOrEqual(4);
+  expect(workerMemory).toBe(8);
+  // An installed probe font (Marlett ships with Windows) and a missing one measure alike.
+  const fonts = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const width = (family: string) => {
+      const s = document.createElement('span');
+      s.style.cssText = `font: 72px ${family}; position: absolute`;
+      s.textContent = 'mmmmmmmmmmlli';
+      document.body.append(s);
+      const w = s.offsetWidth;
+      s.remove();
+      return w;
+    };
+    return {
+      installed: width("'Marlett', monospace"),
+      missing: width("'ZWAdobeF', monospace"),
+      localFonts: 'queryLocalFonts' in window,
+    };
+  });
+  expect(fonts.installed).toBe(fonts.missing);
+  expect(fonts.localFonts).toBe(false);
 });
 
 test('WebRTC keeps local addresses private by default; language and time zone hide on request', async ({
@@ -341,4 +419,60 @@ test('WebRTC keeps local addresses private by default; language and time zone hi
 
   await toggle.click();
   await expect.poll(() => scriptIds(worker)).toEqual(BASE_SCRIPTS);
+});
+
+test('Client Hints and the browser ad APIs are limited by default, profiles switch them', async ({
+  context,
+  extensionId,
+  worker,
+}) => {
+  const hintRule = (initiator: string) =>
+    worker.evaluate(
+      async (i) =>
+        (
+          await chrome.declarativeNetRequest.testMatchOutcome({
+            url: 'http://cdn.nexus-other.example/a.js',
+            type: 'script' as chrome.declarativeNetRequest.ResourceType,
+            initiator: i,
+          })
+        ).matchedRules.some((r) => r.ruleId === 15),
+      initiator,
+    );
+  // Third parties lose the high-entropy hints; the site's own requests keep them.
+  await expect.poll(() => hintRule(host(SITE))).toBe(true);
+  expect(await hintRule('http://www.nexus-other.example')).toBe(false);
+
+  const adApis = () =>
+    worker.evaluate(async () => {
+      const w = chrome.privacy.websites as unknown as Record<
+        string,
+        chrome.types.ChromeSetting<boolean> | undefined
+      >;
+      const read = async (k: string) => (await w[k]?.get({}))?.value;
+      return {
+        topics: await read('topicsEnabled'),
+        fledge: await read('fledgeEnabled'),
+        measurement: await read('adMeasurementEnabled'),
+        pings: await read('hyperlinkAuditingEnabled'),
+      };
+    });
+  const off = await adApis();
+  // A browser without one of the APIs reports undefined; whatever exists is switched off.
+  for (const v of Object.values(off)) expect(v === false || v === undefined).toBe(true);
+  expect(off.pings).toBe(false);
+
+  const dash = await dashboard(context, extensionId);
+  await expect(dash.getByText('Şu an: Dengeli')).toBeVisible();
+  await dash.getByRole('switch', { name: /Client Hints/ }).click();
+  await expect(dash.getByText('Şu an: Özel')).toBeVisible();
+  await expect.poll(() => hintRule(host(SITE))).toBe(false);
+  // Switching it off hands the APIs back to the browser (its own default); link pings stay off.
+  await dash.getByRole('switch', { name: /reklam API/ }).click();
+  await expect(dash.getByRole('switch', { name: /reklam API/ })).not.toBeChecked();
+  expect((await adApis()).pings).toBe(false);
+
+  await dash.getByRole('button', { name: 'Dengeli' }).click();
+  await expect(dash.getByText('Şu an: Dengeli')).toBeVisible();
+  await expect.poll(() => hintRule(host(SITE))).toBe(true);
+  await expect.poll(async () => (await adApis()).topics !== true).toBe(true);
 });

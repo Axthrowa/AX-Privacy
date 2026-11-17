@@ -1,6 +1,7 @@
 import type { ListStats } from '../engines/adblock/network.ts';
 import type { StatsView } from '../engines/core/stats.ts';
 import type { RiskReport } from '../engines/security/heuristics.ts';
+import type { SkipMode, SponsorCategory } from './sponsor.ts';
 
 export type { StatsView };
 
@@ -48,6 +49,10 @@ export interface PrivacySettings {
   hideLocalIps: boolean;
   /** Report US English and UTC instead of the real language and time zone. */
   hideLocale: boolean;
+  /** Turn off the browser's own ad APIs: Topics, Protected Audience and ad measurement. */
+  browserAdApis: boolean;
+  /** Third parties may not ask for detailed device data (Client Hints); requests carry none. */
+  limitClientHints: boolean;
   /**
    * Per-page host lists and daily counters. They need a listener on every request, which keeps the
    * service worker awake while any page loads, so they are off unless asked for.
@@ -62,16 +67,53 @@ export interface VideoSettings {
   twitchAds: boolean;
   /** Outline ad cards YouTube still shows, with a "Sponsorlu" label (CSS only). */
   markSponsored: boolean;
+  /** Hide those ad cards entirely instead (takes precedence over marking). */
+  hideSponsored: boolean;
+  /** Press the player's own "Skip" button as soon as it shows. */
+  autoSkipAds: boolean;
+  /** Beta: ad handling for other sites' players (JW Player, HLS ad breaks, pre-roll videos). */
+  genericPlayers: boolean;
   /** Load embedded YouTube players from youtube-nocookie.com (DNR host transform). */
   nocookieEmbeds: boolean;
   /** Mute and darken the player while YouTube or Twitch shows an ad that cannot be removed. */
   adMute: boolean;
-  /** Skip sponsor segments using SponsorBlock data, looked up by a 4-character hash prefix. */
+  /** Use SponsorBlock data, looked up by a 4-character hash prefix. */
   sponsorSkip: boolean;
+  /** What happens to each SponsorBlock category while sponsorSkip is on. */
+  sponsorModes: Record<SponsorCategory, SkipMode>;
+  /** Channels ("@handle" or channel ID) where nothing is skipped or muted on its own; buttons stay. */
+  sponsorChannels: string[];
 }
 
-/** A segment of a video to skip, in seconds: [start, end). */
-export type Segment = [number, number];
+/** What SponsorBlock asks for a segment: skip it, mute it, a whole-video label, or one moment. */
+export type SegmentAction = 'skip' | 'mute' | 'full' | 'poi' | 'chapter';
+
+/** How often YouTube showed its ad blocker warning, and when last (ms since epoch). */
+export interface YoutubeWarnings {
+  count: number;
+  last: number | null;
+}
+
+/** A SponsorBlock segment of a video, in seconds: [start, end). */
+export interface Segment {
+  start: number;
+  end: number;
+  category: SponsorCategory;
+  action: SegmentAction;
+  /** Video length the segment was submitted for; 0 if unknown. */
+  duration: number;
+}
+
+/** A segment with the user's mode for its category. */
+export interface PlanSegment extends Segment {
+  mode: SkipMode;
+}
+
+/** What the YouTube page gets: segments of categories not switched off, and the channel exceptions. */
+export interface SegmentPlan {
+  segments: PlanSegment[];
+  channels: string[];
+}
 
 export interface Settings {
   version: 3;

@@ -1,0 +1,30 @@
+{
+  "playerKeys": ["adPlacements", "adSlots", "playerAds", "adBreakHeartbeatParams"],
+  "xhrPaths": ["/youtubei/v1/player", "/youtubei/v1/get_watch"],
+  "skipButtons": [
+    ".ytp-skip-ad-button",
+    ".ytp-ad-skip-button",
+    ".ytp-ad-skip-button-modern",
+    ".ytp-ad-skip-button-slot button"
+  ],
+  "blockerWarning": ["ytd-enforcement-message-view-model"],
+  "cardContainers": [
+    "ytd-rich-item-renderer",
+    "ytd-video-renderer",
+    "ytd-compact-video-renderer",
+    "ytd-reel-item-renderer",
+    "ytd-item-section-renderer",
+    "ytm-rich-item-renderer",
+    "yt-lockup-view-model"
+  ],
+  "cardAdMarkers": [
+    "ytd-ad-slot-renderer",
+    "ytd-in-feed-ad-layout-renderer",
+    "ytd-promoted-sparkles-web-renderer",
+    "ytd-promoted-video-renderer",
+    "ad-badge-view-model",
+    "feed-ad-metadata-view-model",
+    "ad-slot-renderer"
+  ],
+  "cardNested": ["ytd-rich-item-renderer", "ytd-item-section-renderer", "yt-lockup-view-model"]
+}
