@@ -5,7 +5,12 @@ import {
   COOKIE_RULE_PRIORITY,
   RULE_CAMPAIGN_PARAMS,
   RULE_CLIENT_HINTS,
+  RULE_CLICK_TO_LOAD,
   RULE_EMPTY_VAST,
+  EMBED_ALLOW_PRIORITY,
+  EMBED_BLOCK_PRIORITY,
+  EMBED_REGEXES,
+  CONTROL_RULE_IDS,
   RULE_CDN_COOKIES,
   RULE_GPC,
   RULE_LOCALE,
@@ -27,6 +32,7 @@ import {
 } from '../engines/core/control.ts';
 import { PRIORITY } from '../engines/adblock/network.ts';
 import { DEFAULT_SETTINGS } from '../storage/settings.ts';
+import { PROCEED_PRIORITY } from '../background/security.ts';
 
 /** Everything but the always-on loader rule, which has its own test. */
 const otherRules = (s: Parameters<typeof controlRules>[0]) =>
@@ -309,6 +315,50 @@ describe('contentScripts', () => {
     });
     expect(controlRules(on).some((r) => r.id === RULE_CLIENT_HINTS)).toBe(false);
   });
+  it('holds back embed scripts and frames for click-to-load, never on their own sites', () => {
+    expect(controlRules(on).some((r) => r.id === RULE_CLICK_TO_LOAD)).toBe(false);
+    const s = { ...on, privacy: { ...on.privacy, clickToLoad: true }, pausedSites: ['a.com'] };
+    const rules = controlRules(s).filter(
+      (r) => r.id >= RULE_CLICK_TO_LOAD && r.id < RULE_CLICK_TO_LOAD + EMBED_REGEXES.length,
+    );
+    expect(rules).toHaveLength(EMBED_REGEXES.length);
+    for (const rule of rules) {
+      expect(CONTROL_RULE_IDS).toContain(rule.id);
+      expect(rule.action.type).toBe('block');
+      expect(rule.condition.resourceTypes).toEqual(['script', 'sub_frame']);
+      expect(rule.condition.excludedInitiatorDomains).toEqual(
+        expect.arrayContaining(['facebook.com', 'x.com', 'disqus.com', 'a.com']),
+      );
+    }
+    // Above list exceptions, below a warning-page proceed; a click outranks the block.
+    expect(EMBED_BLOCK_PRIORITY).toBeGreaterThan(PRIORITY.allow + PRIORITY.important);
+    expect(EMBED_ALLOW_PRIORITY).toBeGreaterThan(EMBED_BLOCK_PRIORITY);
+    expect(EMBED_ALLOW_PRIORITY).toBeLessThan(PROCEED_PRIORITY);
+    const re = { test: (url: string) => EMBED_REGEXES.some((r) => new RegExp(r).test(url)) };
+    for (const url of [
+      'https://connect.facebook.net/en_US/sdk.js',
+      'https://www.facebook.com/plugins/post.php?href=x',
+      'https://www.facebook.com/v18.0/plugins/video.php',
+      'https://platform.twitter.com/widgets.js',
+      'https://platform.twitter.com/embed/Tweet.html?id=1',
+      'https://platform.x.com/widgets.js',
+      'https://example.disqus.com/embed.js',
+    ]) {
+      expect(re.test(url), url).toBe(true);
+    }
+    for (const url of [
+      'https://www.facebook.com/login',
+      'https://example.disqus.com/count.js',
+      'https://evilconnect.facebook.net/en_US/sdk.js',
+      'https://connect.facebookXnet/en_US/sdk.js',
+    ]) {
+      expect(re.test(url), url).toBe(false);
+    }
+    const script = contentScripts(s).find((c) => c.id === 'click-to-load');
+    expect(script?.allFrames).toBe(false);
+    expect(contentScripts(on).some((c) => c.id === 'click-to-load')).toBe(false);
+  });
+
   it('sends Global Privacy Control as a header and a page signal when on', () => {
     const s = { ...on, privacy: { ...on.privacy, gpc: true }, pausedSites: ['a.com'] };
     const rule = controlRules(s).find((r) => r.id === RULE_GPC);

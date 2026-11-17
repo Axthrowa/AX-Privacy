@@ -476,3 +476,77 @@ test('Client Hints and the browser ad APIs are limited by default, profiles swit
   await expect.poll(() => hintRule(host(SITE))).toBe(true);
   await expect.poll(async () => (await adApis()).topics !== true).toBe(true);
 });
+
+test('click-to-load holds embeds back until a click, for that tab only', async ({
+  context,
+  extensionId,
+  worker,
+}) => {
+  const dash = await dashboard(context, extensionId);
+  const toggle = dash.getByRole('switch', {
+    name: 'Gömülü Facebook, X ve Disqus içeriğini tıklayınca yükle',
+  });
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect
+    .poll(() =>
+      worker.evaluate(async () =>
+        (await chrome.scripting.getRegisteredContentScripts()).map((s) => s.id),
+      ),
+    )
+    .toContain('click-to-load');
+  // A regex Chromium refuses would take every control rule down with it.
+  expect(
+    await worker.evaluate(async () =>
+      (await chrome.declarativeNetRequest.getDynamicRules()).filter(
+        (r) => r.id >= 16 && r.id <= 19,
+      ),
+    ),
+  ).toHaveLength(4);
+  const { origin, server } = await startServer(`<!doctype html><title>haber</title>
+<blockquote class="twitter-tweet"><a href="https://x.com/a/status/1">tweet</a></blockquote>
+<div class="fb-post" data-href="https://www.facebook.com/a/posts/1"></div>`);
+  const outcome = (tabId: number) =>
+    worker.evaluate(
+      async ([id, initiator]) =>
+        (
+          await chrome.declarativeNetRequest.testMatchOutcome({
+            url: 'https://platform.twitter.com/widgets.js',
+            type: 'script' as chrome.declarativeNetRequest.ResourceType,
+            initiator,
+            tabId: id,
+          })
+        ).matchedRules.map((r) => `${r.rulesetId}#${r.ruleId}`),
+      [tabId, origin] as const,
+    );
+  try {
+    const page = await context.newPage();
+    await page.goto(`${origin}/`);
+    const load = page.getByRole('button', { name: 'X (Twitter) içeriğini yükle' });
+    await expect(load).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Facebook içeriğini yükle' })).toBeVisible();
+    const tabId = await worker.evaluate(
+      async (url) => (await chrome.tabs.query({ url }))[0]?.id ?? -1,
+      `${origin}/`,
+    );
+    // X's widget script is the third embed rule (16 + 2).
+    expect(await outcome(tabId)).toEqual(['_dynamic#18']);
+
+    await Promise.all([page.waitForEvent('load'), load.click()]);
+    await expect(page.getByRole('button', { name: /içeriğini yükle/ })).toHaveCount(0);
+    expect(await outcome(tabId)).not.toContain('_dynamic#18');
+    // Another tab still gets the placeholder.
+    const other = await context.newPage();
+    await other.goto(`${origin}/`);
+    await expect(other.getByRole('button', { name: 'Facebook içeriğini yükle' })).toBeVisible();
+
+    await page.close();
+    await expect
+      .poll(() =>
+        worker.evaluate(async () => (await chrome.declarativeNetRequest.getSessionRules()).length),
+      )
+      .toBe(0);
+  } finally {
+    server.close();
+  }
+});

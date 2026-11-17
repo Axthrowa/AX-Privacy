@@ -6,7 +6,7 @@ type ProfileKeys = Exclude<keyof PrivacySettings, 'detailedReports' | 'hideLocal
 
 /**
  * Balanced: everything with a low chance of breaking a site. Strict: also the medium-risk ones
- * (third-party cookies, stronger fingerprint protection). Balanced is the default for new installs.
+ * (third-party cookies, stronger fingerprint protection, click-to-load embeds). Balanced is the default for new installs.
  */
 export function profileSettings(profile: PrivacyProfile): Pick<PrivacySettings, ProfileKeys> {
   const strict = profile === 'strict';
@@ -19,6 +19,7 @@ export function profileSettings(profile: PrivacyProfile): Pick<PrivacySettings, 
     browserAdApis: true,
     limitClientHints: true,
     blockThirdPartyCookies: strict,
+    clickToLoad: strict,
     fingerprint: strict ? 'strict' : 'standard',
   };
 }

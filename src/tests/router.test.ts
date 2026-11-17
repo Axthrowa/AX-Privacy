@@ -41,6 +41,8 @@ function setup(initial: Partial<Settings> = {}) {
     proceed: vi.fn(async () => undefined),
     pageList: vi.fn(async (): Promise<string | null> => 'Özel kurallar'),
     insecurePassword: vi.fn(async () => undefined),
+    embedsLoaded: vi.fn(async (tabId: number) => tabId === 9),
+    loadEmbeds: vi.fn(async () => undefined),
     youtubeWarned: vi.fn(async () => undefined),
     youtubeWarnings: vi.fn(async () => ({ count: 2, last: 5 })),
     sponsorSegments: vi.fn(async (): Promise<Segment[]> => [
@@ -402,6 +404,28 @@ describe('router', () => {
     await route(msg, { ...page('https://login.example/'), tabId: 4, frameId: 0 });
     await route(msg, { ...page('http://frame.example/'), tabId: 4, frameId: 2 });
     expect(deps.insecurePassword).toHaveBeenCalledExactlyOnceWith(4);
+  });
+
+  it('lets embeds through per tab only while click-to-load is on for the site', async () => {
+    const off = setup();
+    const ctx = { ...page('https://news.example/'), tabId: 4, frameId: 0 };
+    expect(await off.route({ type: 'embed/status' }, ctx)).toEqual({ blocked: false });
+    await off.route({ type: 'embed/load' }, ctx);
+    expect(off.deps.loadEmbeds).not.toHaveBeenCalled();
+
+    const { route, deps } = setup({
+      privacy: { ...defaultSettings().privacy, clickToLoad: true },
+      pausedSites: ['paused.example'],
+    });
+    expect(await route({ type: 'embed/status' }, ctx)).toEqual({ blocked: true });
+    expect(await route({ type: 'embed/status' }, { ...ctx, tabId: 9 })).toEqual({
+      blocked: false,
+    });
+    const paused = { ...page('https://paused.example/'), tabId: 5, frameId: 0 };
+    expect(await route({ type: 'embed/status' }, paused)).toEqual({ blocked: false });
+    await route({ type: 'embed/load' }, paused);
+    await route({ type: 'embed/load' }, ctx);
+    expect(deps.loadEmbeds).toHaveBeenCalledExactlyOnceWith(4);
   });
 
   it('serves stats and imports only a valid backup', async () => {
