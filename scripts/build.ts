@@ -1,8 +1,16 @@
 import react from '@vitejs/plugin-react';
-import { cp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { build } from 'vite';
-import { CONSENT_RULES_PATH, CONTENT_SCRIPT_FILES } from '../src/engines/core/control.ts';
+import {
+  CONSENT_RULES_PATH,
+  CONTENT_SCRIPT_FILES,
+  FP_SEED_DIGITS,
+  fpSeedFile,
+  YT_SPONSORED_CSS,
+  YT_SPONSORED_HIDE_CSS,
+} from '../src/engines/core/control.ts';
+import { sponsoredCss } from '../src/engines/video/youtube.ts';
 import { toFirefoxManifest } from './manifest.ts';
 
 const root = resolve(import.meta.dirname, '..');
@@ -65,6 +73,16 @@ await cp(
   resolve(root, 'node_modules/@duckduckgo/autoconsent/rules/compact-rules.json'),
   resolve(chromeOut, CONSENT_RULES_PATH),
 );
+
+// Sponsored-card stylesheets come from the YouTube data file, so a renamed element is a data edit.
+await writeFile(resolve(chromeOut, YT_SPONSORED_CSS), sponsoredCss('mark'));
+await writeFile(resolve(chromeOut, YT_SPONSORED_HIDE_CSS), sponsoredCss('hide'));
+
+// One digit each; the worker registers a random ordered pick per browser session (see control.ts).
+await mkdir(resolve(chromeOut, 'content/fp-seed'), { recursive: true });
+for (let d = 0; d < FP_SEED_DIGITS; d++) {
+  await writeFile(resolve(chromeOut, fpSeedFile(d)), `(self.__axSeed ??= []).push(${d});\n`);
+}
 
 await cp(chromeOut, firefoxOut, { recursive: true });
 const manifest = JSON.parse(await readFile(resolve(chromeOut, 'manifest.json'), 'utf8'));

@@ -1,11 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   callsFor,
   canonScriptlet,
   compileScriptlets,
   parseArgs,
 } from '../engines/adblock/scriptlets.ts';
-import { constant, matcher, pruneJson, requestMatcher } from '../engines/adblock/scriptlet-impl.ts';
+import {
+  constant,
+  matcher,
+  pruneJson,
+  requestMatcher,
+  SCRIPTLETS,
+} from '../engines/adblock/scriptlet-impl.ts';
 
 const tableOf = (...lines: string[]) => compileScriptlets(lines).table;
 
@@ -122,5 +128,31 @@ describe('scriptlet helpers', () => {
     const w = { a: 1 };
     pruneJson(w, ['a'], ['missing']);
     expect(w).toEqual({ a: 1 });
+  });
+});
+
+describe('property traps', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps a browser getter like document.head live until it fills in', () => {
+    class Doc {
+      head: object | null = null;
+    }
+    // Like Document.prototype.head: an inherited getter that is null before parsing reaches <head>.
+    class LiveDoc {
+      inner = new Doc();
+      get head() {
+        return this.inner.head;
+      }
+    }
+    const doc = new LiveDoc();
+    vi.stubGlobal('window', { doc });
+    SCRIPTLETS.aopr?.('doc.head.appendChild');
+    expect(doc.head).toBeNull();
+    const head = { appendChild: () => 1, title: 't' };
+    doc.inner.head = head;
+    expect(doc.head).toBe(head);
+    expect(() => (doc.head as typeof head).appendChild).toThrow(ReferenceError);
+    expect((doc.head as typeof head).title).toBe('t');
   });
 });

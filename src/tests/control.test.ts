@@ -4,6 +4,8 @@ import {
   CONTROL_PRIORITY,
   COOKIE_RULE_PRIORITY,
   RULE_CAMPAIGN_PARAMS,
+  RULE_CLIENT_HINTS,
+  RULE_EMPTY_VAST,
   RULE_CDN_COOKIES,
   RULE_GPC,
   RULE_LOCALE,
@@ -16,9 +18,12 @@ import {
   RULE_SITE_NETWORK,
   RULE_SITE_SECURITY,
   RULE_THIRD_PARTY_COOKIES,
+  FP_SEED_DIGITS,
+  FP_SEED_LENGTH,
   contentScripts,
   controlRules,
   isProtected,
+  newFpSeed,
 } from '../engines/core/control.ts';
 import { PRIORITY } from '../engines/adblock/network.ts';
 import { DEFAULT_SETTINGS } from '../storage/settings.ts';
@@ -31,9 +36,14 @@ const noVideo = {
   youtubeAds: false,
   twitchAds: false,
   markSponsored: false,
+  hideSponsored: false,
+  autoSkipAds: false,
+  genericPlayers: false,
   nocookieEmbeds: false,
   adMute: false,
   sponsorSkip: false,
+  sponsorModes: DEFAULT_SETTINGS.video.sponsorModes,
+  sponsorChannels: [],
 };
 const on = {
   ...DEFAULT_SETTINGS,
@@ -43,6 +53,8 @@ const on = {
     gpc: false,
     cleanLinks: false,
     cdnCookies: false,
+    cookieAutoReject: false,
+    limitClientHints: false,
     fingerprint: 'off' as const,
   },
 };
@@ -134,6 +146,21 @@ describe('contentScripts', () => {
   it('registers nothing when globally off', () => {
     expect(contentScripts({ ...on, enabled: false })).toEqual([]);
   });
+  it('keeps every script off payment, bank, captcha and sign-in pages', () => {
+    for (const p of [
+      '*://challenges.cloudflare.com/*',
+      '*://*.stripe.com/*',
+      '*://*.turkiye.gov.tr/*',
+      '*://accounts.google.com/*',
+      '*://www.google.com/recaptcha/*',
+    ]) {
+      expect(ALWAYS_EXCLUDED).toContain(p);
+    }
+    const video = { ...noVideo, youtubeAds: true, twitchAds: true };
+    for (const script of contentScripts({ ...DEFAULT_SETTINGS, video })) {
+      expect(script.excludeMatches).toEqual(expect.arrayContaining(ALWAYS_EXCLUDED));
+    }
+  });
   it('always excludes Cloudflare challenges and paused sites', () => {
     const [script] = contentScripts({ ...on, pausedSites: ['a.com', '10.0.0.1'] });
     expect(script?.excludeMatches).toEqual([
@@ -172,14 +199,29 @@ describe('contentScripts', () => {
       'fp-noise',
     ]);
   });
+  it('spells the session fingerprint seed with files that run before the noise script', () => {
+    const privacy = { ...on.privacy, fingerprint: 'standard' as const };
+    const noise = contentScripts({ ...on, privacy }, [3, 10]).find((s) => s.id === 'fp-noise');
+    expect(noise?.js).toEqual([
+      'content/fp-seed/3.js',
+      'content/fp-seed/a.js',
+      'content/fp-noise.js',
+    ]);
+    const seed = newFpSeed();
+    expect(seed).toHaveLength(FP_SEED_LENGTH);
+    expect(new Set(seed).size).toBe(FP_SEED_LENGTH);
+    for (const d of seed) expect(d >= 0 && d < FP_SEED_DIGITS).toBe(true);
+  });
   it('runs the YouTube scripts on YouTube sites only', () => {
-    const video = { ...noVideo, youtubeAds: true, markSponsored: true };
+    const video = { ...noVideo, youtubeAds: true, markSponsored: true, autoSkipAds: true };
     const scripts = contentScripts({ ...on, pausedSites: ['a.com'], video });
     expect(scripts.map((s) => s.id)).toEqual([
       'cosmetic',
       'popups',
       'scriptlets',
       'yt-ads',
+      'yt-guard',
+      'yt-autoskip',
       'yt-sponsored',
     ]);
     const yt = scripts.filter((s) => s.id.startsWith('yt'));
@@ -195,8 +237,15 @@ describe('contentScripts', () => {
       expect(s.excludeMatches).toContain('*://a.com/*');
     }
     expect(yt[0]).toMatchObject({ world: 'MAIN', js: ['content/yt-ads.js'], allFrames: true });
-    expect(yt[1]).toMatchObject({ css: ['content/yt-sponsored.css'] });
-    expect(yt[1]?.js).toBeUndefined();
+    expect(yt[1]).toMatchObject({ js: ['content/yt-guard.js'] });
+    expect(yt[2]).toMatchObject({ js: ['content/yt-autoskip.js'] });
+    expect(yt[3]).toMatchObject({ css: ['content/yt-sponsored.css'] });
+    expect(yt[3]?.js).toBeUndefined();
+    // Hiding replaces marking: one stylesheet, never both.
+    const hidden = contentScripts({ ...on, video: { ...video, hideSponsored: true } });
+    expect(hidden.filter((s) => s.id === 'yt-sponsored').map((s) => s.css)).toEqual([
+      ['content/yt-sponsored-hide.css'],
+    ]);
   });
   it('adds the opt-in SponsorBlock and ad-muting scripts in the isolated world', () => {
     const video = { ...noVideo, sponsorSkip: true, adMute: true };
@@ -244,6 +293,21 @@ describe('contentScripts', () => {
     expect(js({ userLists: [{ url: 'https://a.example/l.txt', enabled: false }] })).toContain(
       'content/generic-tokens.js',
     );
+  });
+  it('strips high-entropy Client Hints from third-party requests when on', () => {
+    const s = { ...on, privacy: { ...on.privacy, limitClientHints: true }, pausedSites: ['a.com'] };
+    const rule = controlRules(s).find((r) => r.id === RULE_CLIENT_HINTS);
+    expect(rule?.condition.domainType).toBe('thirdParty');
+    expect(rule?.condition.excludedInitiatorDomains).toEqual(['a.com']);
+    expect(rule?.action.requestHeaders).toContainEqual({
+      header: 'sec-ch-ua-full-version-list',
+      operation: 'remove',
+    });
+    expect(rule?.action.responseHeaders).toContainEqual({
+      header: 'accept-ch',
+      operation: 'remove',
+    });
+    expect(controlRules(on).some((r) => r.id === RULE_CLIENT_HINTS)).toBe(false);
   });
   it('sends Global Privacy Control as a header and a page signal when on', () => {
     const s = { ...on, privacy: { ...on.privacy, gpc: true }, pausedSites: ['a.com'] };
@@ -300,6 +364,25 @@ describe('contentScripts', () => {
     expect(rule?.condition.resourceTypes).toEqual(['main_frame']);
     expect(rule?.condition.excludedRequestDomains).toEqual(['a.com']);
     expect(controlRules(on).some((r) => r.id === RULE_CAMPAIGN_PARAMS)).toBe(false);
+  });
+  it('answers FreeWheel and SpotX ad requests with an empty VAST only in the beta layer', () => {
+    expect(controlRules(on).some((r) => r.id === RULE_EMPTY_VAST)).toBe(false);
+    const s = { ...on, video: { ...on.video, genericPlayers: true }, pausedSites: ['a.com'] };
+    const rule = controlRules(s).find((r) => r.id === RULE_EMPTY_VAST);
+    expect(rule?.action.redirect?.extensionPath).toBe('/surrogates/noop-vast3.xml');
+    // Beats a list's block, loses to its exceptions.
+    expect(rule?.priority).toBe(PRIORITY.redirect);
+    expect(rule?.condition.excludedInitiatorDomains).toEqual(['a.com']);
+    const re = new RegExp(rule?.condition.regexFilter ?? '$^');
+    expect(re.test('https://abc.v.fwmrm.net/ad/g/1?prof=x')).toBe(true);
+    expect(re.test('https://search.spotxchange.com/vast/2.0/85394')).toBe(true);
+    expect(re.test('https://fwmrm.net.example/ad/g/1')).toBe(false);
+    const generic = contentScripts(s).find((c) => c.id === 'video-generic');
+    expect(generic).toMatchObject({ world: 'MAIN', js: ['content/video-generic.js'] });
+    expect(generic?.excludeMatches).toEqual(
+      expect.arrayContaining(['*://a.com/*', '*://*.youtube.com/*', '*://*.twitch.tv/*']),
+    );
+    expect(contentScripts(on).some((c) => c.id === 'video-generic')).toBe(false);
   });
   it('cleans links in top frames only, and honors the site profile', () => {
     const s = { ...on, privacy: { ...on.privacy, cleanLinks: true }, pausedSites: ['a.com'] };

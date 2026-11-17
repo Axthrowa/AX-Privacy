@@ -1,4 +1,5 @@
 import { similarSelector, uniqueSelector } from '../engines/adblock/picker-selector.ts';
+import { L } from '../shared/i18n.ts';
 import { send } from '../shared/messages.ts';
 
 // Injected into the top frame only when the user asks, from the popup. Nothing here runs otherwise.
@@ -54,8 +55,14 @@ box.id = 'box';
 const panel = el('div');
 panel.id = 'panel';
 panel.setAttribute('role', 'dialog');
-panel.setAttribute('aria-label', 'Öğe gizleme');
-const hint = el('p', 'Öğeye tıklayın ya da ok tuşlarıyla seçin. Enter gizler, Esc çıkar.');
+panel.setAttribute('aria-label', L('Öğe gizleme', 'Hide an element'));
+const hint = el(
+  'p',
+  L(
+    'Öğeye tıklayın ya da ok tuşlarıyla seçin. Enter gizler, Esc çıkar.',
+    'Click an element or pick one with the arrow keys. Enter hides, Esc exits.',
+  ),
+);
 hint.setAttribute('aria-live', 'polite');
 const code = el('code');
 code.hidden = true;
@@ -64,10 +71,10 @@ const similarBox = el('input');
 similarBox.type = 'checkbox';
 similarLabel.append(similarBox, ' Benzerlerini de gizle');
 similarLabel.hidden = true;
-const parentButton = el('button', 'Üst öğe');
-const saveButton = el('button', 'Bu sitede gizle');
+const parentButton = el('button', L('Üst öğe', 'Parent'));
+const saveButton = el('button', L('Bu sitede gizle', 'Hide on this site'));
 saveButton.className = 'primary';
-const cancelButton = el('button', 'İptal');
+const cancelButton = el('button', L('İptal', 'Cancel'));
 for (const b of [parentButton, saveButton]) b.disabled = true;
 panel.append(hint, code, similarLabel, saveButton, parentButton, cancelButton);
 root.append(box, panel);
@@ -100,7 +107,10 @@ function show(): void {
   code.hidden = false;
   similarLabel.hidden = false;
   hint.className = '';
-  hint.textContent = `${count} öğe gizlenecek. Sayfa bozulursa kural Kontrol panelinden silinebilir.`;
+  hint.textContent = L(
+    `${count} öğe gizlenecek. Sayfa bozulursa kural Kontrol panelinden silinebilir.`,
+    `${count} elements will be hidden. If the page breaks, the rule can be removed in the Dashboard.`,
+  );
   saveButton.disabled = false;
   parentButton.disabled = selectable(picked.parentElement) === null;
   outline(picked);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_SPONSOR_MODES } from '../shared/sponsor.ts';
 import {
   DEFAULT_SETTINGS,
   exportSettings,
@@ -44,20 +45,22 @@ describe('normalizeSettings', () => {
   it('keeps every privacy feature that can break sites off by default', () => {
     expect(DEFAULT_SETTINGS.privacy).toEqual({
       blockThirdPartyCookies: false,
-      cookieAutoReject: false,
-      fingerprint: 'off',
+      cookieAutoReject: true,
+      fingerprint: 'standard',
       gpc: true,
       cleanLinks: true,
       cdnCookies: true,
       hideLocalIps: true,
       hideLocale: false,
+      browserAdApis: true,
+      limitClientHints: true,
       detailedReports: false,
     });
     expect(
       normalizeSettings({
-        privacy: { blockThirdPartyCookies: 'yes', cookieAutoReject: true, fingerprint: 'max' },
+        privacy: { blockThirdPartyCookies: 'yes', cookieAutoReject: false, fingerprint: 'max' },
       }).privacy,
-    ).toEqual({ ...DEFAULT_SETTINGS.privacy, cookieAutoReject: true });
+    ).toEqual({ ...DEFAULT_SETTINGS.privacy, cookieAutoReject: false });
   });
 
   it('keeps valid fields, dedupes and sorts sites, drops invalid ones', () => {
@@ -102,21 +105,38 @@ describe('normalizeSettings', () => {
       youtubeAds: true,
       twitchAds: true,
       markSponsored: true,
+      hideSponsored: false,
+      autoSkipAds: true,
+      genericPlayers: false,
       nocookieEmbeds: false,
       adMute: false,
       sponsorSkip: false,
+      sponsorModes: DEFAULT_SPONSOR_MODES,
+      sponsorChannels: [],
     });
     expect(
       normalizeSettings({
-        video: { youtubeAds: false, nocookieEmbeds: 'yes', sponsorSkip: true, x: 1 },
+        video: {
+          youtubeAds: false,
+          nocookieEmbeds: 'yes',
+          sponsorSkip: true,
+          sponsorModes: { intro: 'auto', hook: 'loud', bogus: 'auto' },
+          sponsorChannels: ['https://www.youtube.com/@SomeChannel/videos', 'nope', 7],
+          x: 1,
+        },
       }).video,
     ).toEqual({
       youtubeAds: false,
       twitchAds: true,
       markSponsored: true,
+      hideSponsored: false,
+      autoSkipAds: true,
+      genericPlayers: false,
       nocookieEmbeds: false,
       adMute: false,
       sponsorSkip: true,
+      sponsorModes: { ...DEFAULT_SPONSOR_MODES, intro: 'auto' },
+      sponsorChannels: ['@somechannel'],
     });
   });
 

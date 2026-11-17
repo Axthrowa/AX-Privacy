@@ -2,15 +2,25 @@ import { chromium, type Page, type Worker } from '@playwright/test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BASE_SCRIPTS, BRAVE_PATH, EXTENSION_DIR, expect, test } from './fixtures.ts';
+import { BASE_SCRIPTS, BRAVE_PATH, EXTENSION_DIR, browserLabel, expect, test } from './fixtures.ts';
+import type { BrowserKind } from './fixtures.ts';
 
 const RULE_CDN_COOKIES = 8;
 // Rotating ad loaders and their fallback host, blocked whenever protection is on.
 const RULE_ROTATING_ADS = [11, 12];
 // The five standard campaign tags, removed from page addresses while link cleaning is on.
 const RULE_CAMPAIGN_PARAMS = 13;
-// Brave sends the GPC header itself, so the rule for it is not installed there.
-const DEFAULT_RULES = [RULE_CDN_COOKIES, ...RULE_ROTATING_ADS, RULE_CAMPAIGN_PARAMS];
+// High-entropy Client Hints, stripped from third-party requests by default.
+const RULE_CLIENT_HINTS = 15;
+// Brave sends the GPC header itself, so the rule for it is installed only elsewhere.
+const RULE_GPC = 7;
+const defaultRules = (kind: BrowserKind) => [
+  ...(kind === 'brave' ? [] : [RULE_GPC]),
+  RULE_CDN_COOKIES,
+  ...RULE_ROTATING_ADS,
+  RULE_CAMPAIGN_PARAMS,
+  RULE_CLIENT_HINTS,
+];
 
 const send = (page: Page, msg: object) => page.evaluate((m) => chrome.runtime.sendMessage(m), msg);
 
@@ -21,15 +31,15 @@ function browserState(worker: Worker) {
   }));
 }
 
-test('service worker starts and registers the content script', async ({ worker }) => {
+test('service worker starts and registers the content script', async ({ worker, browserKind }) => {
   const manifest = await worker.evaluate(() => chrome.runtime.getManifest());
   expect(manifest.name).toBe('AX Privacy');
   await expect
     .poll(async () => (await browserState(worker)).scripts.map((s) => s.id).sort())
     .toEqual(BASE_SCRIPTS);
   await expect
-    .poll(async () => (await browserState(worker)).rules.map((r) => r.id))
-    .toEqual(DEFAULT_RULES);
+    .poll(async () => (await browserState(worker)).rules.map((r) => r.id).sort((a, b) => a - b))
+    .toEqual(defaultRules(browserKind));
 });
 
 test('custom hiding rule from the dashboard hides the element, pausing restores it', async ({
@@ -37,6 +47,7 @@ test('custom hiding rule from the dashboard hides the element, pausing restores 
   extensionId,
   worker,
   origin,
+  browserKind,
 }) => {
   const dash = await context.newPage();
   await dash.goto(`chrome-extension://${extensionId}/dashboard.html#advanced`);
@@ -52,7 +63,7 @@ test('custom hiding rule from the dashboard hides the element, pausing restores 
 
   await send(dash, { type: 'site/setPaused', site: '127.0.0.1', paused: true });
   const { rules, scripts } = await browserState(worker);
-  expect(rules.filter((r) => !DEFAULT_RULES.includes(r.id))).toEqual([
+  expect(rules.filter((r) => !defaultRules(browserKind).includes(r.id))).toEqual([
     expect.objectContaining({
       id: 2,
       action: { type: 'allowAllRequests' },
@@ -94,6 +105,7 @@ test('global switch in the popup turns everything off and back on', async ({
   context,
   extensionId,
   worker,
+  browserKind,
 }) => {
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
@@ -110,17 +122,21 @@ test('global switch in the popup turns everything off and back on', async ({
 
   await global.click();
   await expect
-    .poll(async () => (await browserState(worker)).rules.map((r) => r.id))
-    .toEqual(DEFAULT_RULES);
+    .poll(async () => (await browserState(worker)).rules.map((r) => r.id).sort((a, b) => a - b))
+    .toEqual(defaultRules(browserKind));
   await expect
     .poll(async () => (await browserState(worker)).scripts.map((s) => s.id).sort())
     .toEqual(BASE_SCRIPTS);
 });
 
-test('records Brave detection from an extension page', async ({ context, extensionId }) => {
+test('records Brave detection from an extension page', async ({
+  context,
+  extensionId,
+  browserKind,
+}) => {
   const dash = await context.newPage();
   await dash.goto(`chrome-extension://${extensionId}/dashboard.html#about`);
-  await expect(dash.getByText('Tarayıcı: Brave', { exact: true })).toBeVisible();
+  await expect(dash.getByText(browserLabel(browserKind), { exact: true })).toBeVisible();
 });
 
 test('web pages cannot message the extension', async ({ context, origin }) => {

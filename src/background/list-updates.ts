@@ -1,3 +1,4 @@
+import { L } from '../shared/i18n.ts';
 import { FiltersEngine } from '@ghostery/adblocker';
 import { COSMETIC_ENGINE_CONFIG } from '../engines/adblock/engine-config.ts';
 import {
@@ -14,13 +15,7 @@ import { diffRules, fitRegexRules, listText, MIN_SIZE_RATIO } from '../filters/u
 import type { ListUpdateStatus } from '../shared/types.ts';
 import { getEngine, getUpdate, putEngine, putUpdate, type EngineBlob } from '../storage/db.ts';
 import { DEFAULT_SETTINGS, loadSettings } from '../storage/settings.ts';
-import {
-  db,
-  fetchPackaged,
-  readCapped,
-  updateEngineName,
-  USER_LIST_TIMEOUT_MS,
-} from './filters.ts';
+import { db, fetchPackaged, listBody, requestList, updateEngineName } from './filters.ts';
 
 export const STATUS_KEY = 'listUpdateStatus';
 export const EXTRA_TOKENS_KEY = 'genericTokensExtra';
@@ -43,29 +38,20 @@ function validatorHeaders(validator: string | undefined): Record<string, string>
   return {};
 }
 
-const request = (url: string, headers: Record<string, string> = {}) =>
-  fetch(url, {
-    cache: 'no-cache',
-    credentials: 'omit',
-    referrerPolicy: 'no-referrer',
-    headers,
-    signal: AbortSignal.timeout(USER_LIST_TIMEOUT_MS),
-  });
-
 /** True if the server says nothing changed for any file of this list since the last download. */
 async function unchanged(validators: Record<string, string>): Promise<boolean> {
   const urls = Object.keys(validators);
   if (urls.length === 0 || urls.some((u) => !validators[u])) return false;
-  const answers = await Promise.all(urls.map((u) => request(u, validatorHeaders(validators[u]))));
+  const answers = await Promise.all(
+    urls.map((u) => requestList(u, validatorHeaders(validators[u]))),
+  );
   for (const res of answers) await res.body?.cancel();
   return answers.every((res) => res.status === 304);
 }
 
 async function download(url: string, validators: Record<string, string>): Promise<string> {
-  const res = await request(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const text = await readCapped(res);
-  if (/^\s*</.test(text)) throw new Error('Filtre listesi değil (HTML döndü)');
+  const res = await requestList(url);
+  const text = await listBody(res);
   validators[url] = validatorOf(res);
   return text;
 }
@@ -108,7 +94,12 @@ async function updateList(list: BuiltinList): Promise<{ added: number; removed: 
   const bundled = await fetchPackaged<DnrRule[]>(`rulesets/${list.id}.json`, 'json');
   const fitted = await fitRegexRules(rules, regexCheck);
   if (fitted.length < bundled.length * MIN_SIZE_RATIO) {
-    throw new Error(`Liste beklenenden çok küçük (${fitted.length}/${bundled.length} kural)`);
+    throw new Error(
+      L(
+        `Liste beklenenden çok küçük (${fitted.length}/${bundled.length} kural)`,
+        `The list is much smaller than expected (${fitted.length}/${bundled.length} rules)`,
+      ),
+    );
   }
   const { add, disableIds } = diffRules(bundled, fitted);
 

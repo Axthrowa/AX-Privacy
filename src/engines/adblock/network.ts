@@ -192,8 +192,6 @@ const unsupported = (reason: string): Outcome => ({ kind: 'unsupported', reason 
  * `x{5,}` to 5. Each level keeps the pattern's shape and lowers more counts, which can only make it
  * match more, so the build uses the first level the browser accepts.
  */
-export const SHRINK_LEVELS = 3;
-
 export function shrinkCounts(regex: string, level: 1 | 2 | 3 = 1): string {
   const cap = level === 3 ? 4 : 16;
   return regex.replace(/\{(\d+)(?:,(\d*))?\}/g, (whole, low: string, high?: string) => {
@@ -280,7 +278,8 @@ export function compileFilter(line: string, opts: CompileOptions): Outcome {
         surrogate = surrogatePath(name === 'mp4' ? 'noopmp4-1s' : 'empty');
         break;
       case 'csp':
-        if (neg || exception || !value) return unsupported('csp');
+        // A reporting endpoint would send the address of every matching page to the list's author.
+        if (neg || exception || !value || /report-(uri|to)/i.test(value)) return unsupported('csp');
         csp = value;
         break;
       case 'popunder':

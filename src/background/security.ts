@@ -1,3 +1,4 @@
+import { L } from '../shared/i18n.ts';
 import { ALL_TYPES } from '../engines/adblock/network.ts';
 import { moduleOn } from '../engines/core/control.ts';
 import type { Settings } from '../shared/types.ts';
@@ -37,7 +38,7 @@ export async function wasProceeded(url: string | null): Promise<boolean> {
 /** Lets one host load for the rest of the browser session, after an explicit click on the warning. */
 export async function proceed(url: string): Promise<void> {
   const host = httpHost(url);
-  if (!host) throw new Error('Geçersiz adres');
+  if (!host) throw new Error(L('Geçersiz adres', 'Invalid address'));
   if ((await proceededHosts()).includes(host)) return;
   const rules = await chrome.declarativeNetRequest.getSessionRules();
   const id = rules.reduce((max, r) => Math.max(max, r.id), 0) + 1;

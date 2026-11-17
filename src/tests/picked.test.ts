@@ -32,9 +32,12 @@ describe('problem report', () => {
       customRules: 2,
       userLists: 0,
       matched: null,
+      privacyProfile: 'Dengeli',
+      fixedBy: 'reklam engelleme',
     });
     expect(text).toContain('Site: site.example');
     expect(text).toContain('Koruma: açık');
+    expect(text).toContain('Sihirbaz sonucu: reklam engelleme');
     expect(text).not.toContain('http');
   });
 });

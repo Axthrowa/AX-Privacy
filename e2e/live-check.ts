@@ -4,6 +4,8 @@
  * without and once with AX, and records only what the pages expose to any script: player state,
  * ad markers in the DOM and whether video time advances. No account, no cookies kept.
  * Usage: node e2e/live-check.ts [youtubeVideoId]   (writes docs/live-check.json)
+ *        TWITCH_MINUTES=15 LIVE_ONLY=twitch node e2e/live-check.ts [channel]   long Twitch watch:
+ *        how long an ad marker showed and how long the picture stood still.
  */
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,6 +16,8 @@ import { TWITCH_AD_SELECTOR, YOUTUBE_AD_SELECTOR } from '../src/engines/video/ad
 
 const VIDEO_ID = process.argv[2] ?? 'dQw4w9WgXcQ';
 const SAMPLE_MS = 20_000;
+/** A long Twitch watch, so an ad break is likely to come; the YouTube sample stays short. */
+const TWITCH_MS = Number(process.env.TWITCH_MINUTES ?? 0) * 60_000 || SAMPLE_MS;
 
 async function launch(withNexus: boolean) {
   const profile = await mkdtemp(join(tmpdir(), 'nexus-live-'));
@@ -65,15 +69,30 @@ async function passConsent(page: Page) {
   await page.waitForURL((u) => !u.hostname.startsWith('consent.'), { timeout: 15_000 });
 }
 
-async function sample(page: Page, adSelector: string) {
+async function sample(page: Page, adSelector: string, ms = SAMPLE_MS) {
   const start = Date.now();
   let adSeen = false;
+  let adSeconds = 0;
+  let stalledSeconds = 0;
   const t0 = await videoTime(page);
-  while (Date.now() - start < SAMPLE_MS) {
-    adSeen ||= await page.evaluate((s) => document.querySelector(s) !== null, adSelector);
-    await page.waitForTimeout(250);
+  let last = t0;
+  while (Date.now() - start < ms) {
+    const ad = await page.evaluate((s) => document.querySelector(s) !== null, adSelector);
+    adSeen ||= ad;
+    await page.waitForTimeout(1_000);
+    const now = await videoTime(page);
+    if (ad) adSeconds++;
+    // A live picture that does not move for a whole second is a freeze the viewer sees.
+    if (now - last < 0.1) stalledSeconds++;
+    last = now;
   }
-  return { adMarkerSeen: adSeen, videoAdvancedSeconds: (await videoTime(page)) - t0 };
+  return {
+    adMarkerSeen: adSeen,
+    adMarkerSeconds: adSeconds,
+    stalledSeconds,
+    watchedSeconds: Math.round((Date.now() - start) / 1000),
+    videoAdvancedSeconds: (await videoTime(page)) - t0,
+  };
 }
 
 const videoTime = (page: Page) =>
@@ -148,7 +167,7 @@ async function twitch(withNexus: boolean, channel?: string) {
     return {
       channel: name,
       markersInPlayerCode: [...referenced],
-      ...(await sample(page, TWITCH_AD_SELECTOR)),
+      ...(await sample(page, TWITCH_AD_SELECTOR, TWITCH_MS)),
     };
   } catch (e) {
     return { channel, error: e instanceof Error ? e.message : String(e) };
@@ -163,7 +182,8 @@ if (only !== 'twitch') {
   result.youtubeWithout = await youtube(false);
   result.youtubeWithNexus = await youtube(true);
 }
-const twitchWithout = (await twitch(false)) as { channel?: string };
+const channelArg = only === 'twitch' ? process.argv[2] : undefined;
+const twitchWithout = (await twitch(false, channelArg)) as { channel?: string };
 result.twitchWithout = twitchWithout;
 result.twitchWithNexus = await twitch(true, twitchWithout.channel);
 console.log(JSON.stringify(result, null, 2));

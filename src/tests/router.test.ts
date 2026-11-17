@@ -5,7 +5,7 @@ import {
   MAX_USER_LISTS,
   type SenderContext,
 } from '../background/router.ts';
-import type { ListsView, Settings } from '../shared/types.ts';
+import type { ListsView, Segment, Settings } from '../shared/types.ts';
 import { defaultSettings } from '../storage/settings.ts';
 
 function setup(initial: Partial<Settings> = {}) {
@@ -41,7 +41,12 @@ function setup(initial: Partial<Settings> = {}) {
     proceed: vi.fn(async () => undefined),
     pageList: vi.fn(async (): Promise<string | null> => 'Özel kurallar'),
     insecurePassword: vi.fn(async () => undefined),
-    sponsorSegments: vi.fn(async (): Promise<[number, number][]> => [[1, 5]]),
+    youtubeWarned: vi.fn(async () => undefined),
+    youtubeWarnings: vi.fn(async () => ({ count: 2, last: 5 })),
+    sponsorSegments: vi.fn(async (): Promise<Segment[]> => [
+      { start: 1, end: 5, category: 'sponsor', action: 'skip', duration: 0 },
+      { start: 8, end: 9, category: 'hook', action: 'skip', duration: 0 },
+    ]),
     statsView: vi.fn(async () => ({
       days: [],
       totals: {
@@ -318,7 +323,7 @@ describe('router', () => {
     await route({ type: 'privacy/set', privacy: { blockThirdPartyCookies: true } }, ui);
     expect(get().privacy).toMatchObject({
       blockThirdPartyCookies: true,
-      cookieAutoReject: false,
+      cookieAutoReject: true,
       fingerprint: 'strict',
     });
     expect(deps.apply).toHaveBeenCalledTimes(2);
@@ -339,16 +344,23 @@ describe('router', () => {
     const msg = { type: 'video/segments', videoId: 'dQw4w9WgXcQ' } as const;
     const yt = page('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     const off = setup();
-    await expect(off.route(msg, yt)).resolves.toEqual([]);
+    const none = { segments: [], channels: [] };
+    await expect(off.route(msg, yt)).resolves.toEqual(none);
     expect(off.deps.sponsorSegments).not.toHaveBeenCalled();
 
-    const video = { ...defaultSettings().video, sponsorSkip: true };
+    const video = { ...defaultSettings().video, sponsorSkip: true, sponsorChannels: ['@x'] };
     const on = setup({ video });
-    await expect(on.route(msg, yt)).resolves.toEqual([[1, 5]]);
+    // hook is off by default, so only the sponsor segment comes back, with its mode.
+    await expect(on.route(msg, yt)).resolves.toEqual({
+      segments: [
+        { start: 1, end: 5, category: 'sponsor', action: 'skip', duration: 0, mode: 'auto' },
+      ],
+      channels: ['@x'],
+    });
     expect(on.deps.sponsorSegments).toHaveBeenCalledWith('dQw4w9WgXcQ');
 
     const paused = setup({ video, pausedSites: ['youtube.com'] });
-    await expect(paused.route(msg, yt)).resolves.toEqual([]);
+    await expect(paused.route(msg, yt)).resolves.toEqual(none);
     expect(paused.deps.sponsorSegments).not.toHaveBeenCalled();
   });
 
@@ -358,7 +370,7 @@ describe('router', () => {
       msg: { type: 'init', url: 'https://spoof.example/' },
     } as const;
     const ctx = { ...page('https://ok.com/'), tabId: 3, frameId: 0 };
-    const off = setup();
+    const off = setup({ privacy: { ...defaultSettings().privacy, cookieAutoReject: false } });
     await expect(off.route(msg, ctx)).resolves.toBeNull();
     expect(off.deps.consent).not.toHaveBeenCalled();
 
