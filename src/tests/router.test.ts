@@ -37,7 +37,7 @@ function setup(initial: Partial<Settings> = {}) {
       consent: null,
       risk: { level: 'none' as const, findings: [] },
     })),
-    consent: vi.fn(async () => ({ type: 'initResp' })),
+    consent: vi.fn(async () => null),
     proceed: vi.fn(async () => undefined),
     pageList: vi.fn(async (): Promise<string | null> => 'Özel kurallar'),
     insecurePassword: vi.fn(async () => undefined),
@@ -366,10 +366,10 @@ describe('router', () => {
     expect(paused.deps.sponsorSegments).not.toHaveBeenCalled();
   });
 
-  it('runs autoconsent only when enabled, on protected sites, with the sender frame', async () => {
+  it('records consent reports only when enabled, on protected sites, for the sender tab', async () => {
     const msg = {
       type: 'consent/msg',
-      msg: { type: 'init', url: 'https://spoof.example/' },
+      msg: { type: 'popupFound', cmp: 'Onetrust' },
     } as const;
     const ctx = { ...page('https://ok.com/'), tabId: 3, frameId: 0 };
     const off = setup({ privacy: { ...defaultSettings().privacy, cookieAutoReject: false } });
@@ -381,12 +381,8 @@ describe('router', () => {
       privacy: { ...defaultSettings().privacy, cookieAutoReject: true },
     });
     await expect(on.route(msg, { ...ctx, ...page('https://paused.com/') })).resolves.toBeNull();
-    await expect(on.route(msg, ctx)).resolves.toEqual({ type: 'initResp' });
-    expect(on.deps.consent).toHaveBeenCalledExactlyOnceWith(msg.msg, {
-      tabId: 3,
-      frameId: 0,
-      url: 'https://ok.com/',
-    });
+    await expect(on.route(msg, ctx)).resolves.toBeNull();
+    expect(on.deps.consent).toHaveBeenCalledExactlyOnceWith(msg.msg, { tabId: 3 });
   });
 
   it('lets the warning page proceed, and records http password fields from top frames', async () => {

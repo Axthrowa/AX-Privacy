@@ -96,6 +96,7 @@ const EMBED_OWNERS = ['facebook.com', 'twitter.com', 'x.com', 'disqus.com'];
 export const CONTENT_SCRIPT_FILES = {
   cosmetic: 'content/cosmetic.js',
   consent: 'content/consent.js',
+  'consent-eval': 'content/consent-eval.js',
   'fp-noise': 'content/fp-noise.js',
   'fp-strict': 'content/fp-strict.js',
   popups: 'content/popups.js',
@@ -140,8 +141,8 @@ export const GENERIC_TOKENS_JS = 'content/generic-tokens.js';
 /** Stylesheets written by `scripts/build.ts` from the YouTube data file; CSS-only content scripts. */
 export const YT_SPONSORED_CSS = 'content/yt-sponsored.css';
 export const YT_SPONSORED_HIDE_CSS = 'content/yt-sponsored-hide.css';
-/** autoconsent's compact CMP rules, copied from the package by `scripts/build.ts`. */
-export const CONSENT_RULES_PATH = 'consent-rules.json';
+/** autoconsent's compact CMP rules as a string in `self.__axConsentRules`; `scripts/build.ts`. */
+export const CONSENT_RULES_JS = 'content/consent-rules.js';
 /** Payment, bank, captcha and sign-in pages break when touched; never inject there. */
 export const ALWAYS_EXCLUDED = [
   ...PROTECTED_HOSTS.flatMap((h) => [`*://${h}/*`, `*://*.${h}/*`]),
@@ -497,7 +498,11 @@ export function contentScripts(
   if (s.privacy.cleanLinks) {
     scripts.push({ ...script('link-clean', 'ISOLATED', undefined, 'privacy'), allFrames: false });
   }
-  if (s.privacy.cookieAutoReject) scripts.push(script('consent', 'ISOLATED', undefined, 'privacy'));
+  if (s.privacy.cookieAutoReject) {
+    const consent = script('consent', 'ISOLATED', undefined, 'privacy');
+    consent.js = [CONSENT_RULES_JS, CONTENT_SCRIPT_FILES.consent];
+    scripts.push(consent, script('consent-eval', 'MAIN', undefined, 'privacy'));
+  }
   if (s.privacy.clickToLoad) {
     scripts.push({
       ...script('click-to-load', 'ISOLATED', undefined, 'privacy'),
