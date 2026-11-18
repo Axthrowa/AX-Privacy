@@ -63,10 +63,7 @@ export interface RouterDeps {
   cosmeticDom(s: Settings, ctx: SenderContext, features: DomFeatures): Promise<ExtendedRule[]>;
   noteUserOpen(tabId: number, url: string): void;
   tabReport(tabId: number): Promise<TabReport>;
-  consent(
-    msg: ConsentMessage,
-    ctx: { tabId: number; frameId: number; url: string },
-  ): Promise<unknown>;
+  consent(msg: ConsentMessage, ctx: { tabId: number }): Promise<unknown>;
   proceed(url: string): Promise<void>;
   /** List that would block this page, or null. Proceed refuses anything else. */
   pageList(url: string): Promise<string | null>;
@@ -344,7 +341,7 @@ export function createRouter(deps: RouterDeps) {
       case 'tab/report':
         return deps.tabReport(msg.tabId);
       case 'consent/msg': {
-        if (ctx.tabId === undefined || ctx.frameId === undefined) return null;
+        if (ctx.tabId === undefined) return null;
         const s = await deps.load();
         if (
           !s.privacy.cookieAutoReject ||
@@ -352,7 +349,7 @@ export function createRouter(deps: RouterDeps) {
         ) {
           return null;
         }
-        return deps.consent(msg.msg, { tabId: ctx.tabId, frameId: ctx.frameId, url: ctx.url });
+        return deps.consent(msg.msg, { tabId: ctx.tabId });
       }
       case 'security/proceed':
         if (!(await deps.pageList(msg.url))) {

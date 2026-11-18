@@ -86,6 +86,12 @@ async function measure(label: string, extension: string, setup?: string) {
     await sleep(5000);
     const worker = (await targets()).find((t) => t.type === 'service_worker');
     if (!worker) throw new Error('no service worker');
+    // The welcome tab opened on install; someone browsing has closed it.
+    for (const t of await targets()) {
+      if (t.type === 'page' && t.url.includes('dashboard.html')) {
+        await fetch(`${api}/close/${t.id}`);
+      }
+    }
     if (setup) {
       const host = new URL(worker.url).host;
       const opened = (await (

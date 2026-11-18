@@ -18,6 +18,7 @@ export const EXTENSION_DIR = resolve(import.meta.dirname, '../dist/chrome');
 /** Content scripts registered with default settings, sorted by id. */
 export const BASE_SCRIPTS = [
   'consent',
+  'consent-eval',
   'cosmetic',
   'fp-noise',
   'gpc',

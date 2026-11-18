@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { build } from 'vite';
 import {
-  CONSENT_RULES_PATH,
+  CONSENT_RULES_JS,
   CONTENT_SCRIPT_FILES,
   AD_MODES,
   adModeFile,
@@ -71,9 +71,15 @@ for (const [name, file] of Object.entries(CONTENT_SCRIPT_FILES)) {
   });
 }
 
-await cp(
+// A string, parsed only by a frame that asks for rules; JSON.parse beats a literal this size.
+const consentRules = await readFile(
   resolve(root, 'node_modules/@duckduckgo/autoconsent/rules/compact-rules.json'),
-  resolve(chromeOut, CONSENT_RULES_PATH),
+  'utf8',
+);
+await writeFile(
+  resolve(chromeOut, CONSENT_RULES_JS),
+  `self.__axConsentRules = ${JSON.stringify(JSON.stringify(JSON.parse(consentRules)))};
+`,
 );
 
 // Sponsored-card stylesheets come from the YouTube data file, so a renamed element is a data edit.

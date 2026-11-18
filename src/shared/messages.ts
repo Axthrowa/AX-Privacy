@@ -84,13 +84,9 @@ export interface Api {
   'embed/load': { req: NoPayload; res: null };
 }
 
-/** The autoconsent content-script messages the background acts on; the rest are dropped. */
+/** The autoconsent reports the background records; the content script handles the rest itself. */
 export type ConsentMessage =
-  | { type: 'init'; url: string }
-  | { type: 'eval'; id: string; snippetId: string }
-  | { type: 'popupFound'; cmp: string }
-  | { type: 'optOutResult'; cmp: string; result: boolean }
-  | { type: 'autoconsentDone'; cmp: string };
+  { type: 'popupFound'; cmp: string } | { type: 'optOutResult'; cmp: string; result: boolean };
 
 export type MessageType = keyof Api;
 export type Message = { [K in MessageType]: { type: K } & Api[K]['req'] }[MessageType];
@@ -125,14 +121,7 @@ function parseConsent(raw: unknown): ConsentMessage | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const m = raw as Record<string, unknown>;
   switch (m.type) {
-    case 'init':
-      return isUrl(m.url) ? { type: m.type, url: m.url } : null;
-    case 'eval':
-      return shortString(m.id) && shortString(m.snippetId)
-        ? { type: m.type, id: m.id, snippetId: m.snippetId }
-        : null;
     case 'popupFound':
-    case 'autoconsentDone':
       return shortString(m.cmp) ? { type: m.type, cmp: m.cmp } : null;
     case 'optOutResult':
       return shortString(m.cmp) && typeof m.result === 'boolean'
