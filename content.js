@@ -13,7 +13,10 @@
   const currentHost = window.location.hostname.toLowerCase();
 
   /**
-   * Safe cosmetic filter: hides definite ad containers without breaking surrounding layout
+   * Safe 3-layer cosmetic filter:
+   *   Layer 1: Site-specific CSS selectors from AdGuard Turkish & curated database
+   *   Layer 2: General low-false-positive Turkish & global banner CSS selectors
+   *   Layer 3: Smart DOM Scanner (debounced MutationObserver) for fixed GIF/WebP banners & invisible click overlays
    */
   async function applyCosmeticFilter() {
     try {
@@ -30,43 +33,242 @@
         return;
       }
 
+      // --- Layer 1: Site-Specific Cosmetic CSS ---
+      chrome.runtime
+        .sendMessage({
+          type: 'GET_COSMETIC_SELECTORS',
+          hostname: currentHost
+        })
+        .then((response) => {
+          if (response && response.success && Array.isArray(response.selectors) && response.selectors.length > 0) {
+            const siteStyleId = 'ax-privacy-site-cosmetic';
+            let siteStyle = document.getElementById(siteStyleId);
+            if (!siteStyle) {
+              siteStyle = document.createElement('style');
+              siteStyle.id = siteStyleId;
+              const target = document.head || document.documentElement;
+              if (target) {
+                target.appendChild(siteStyle);
+              } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                  (document.head || document.documentElement).appendChild(siteStyle);
+                });
+              }
+            }
+            siteStyle.textContent = `
+              ${response.selectors.join(',\n')} {
+                display: none !important;
+                visibility: hidden !important;
+                height: 0 !important;
+                min-height: 0 !important;
+                pointer-events: none !important;
+              }
+            `;
+          }
+        })
+        .catch(() => {});
+
+      // --- Layer 2: General Safe Turkish & Global Banner CSS ---
       const styleId = 'ax-cosmetic-filter-shield';
-      if (document.getElementById(styleId)) return;
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = `
+          ins.adsbygoogle,
+          [data-ad-slot],
+          [data-ad-client],
+          [data-adunit],
+          [data-ad-unit],
+          [data-google-query-id],
+          div[id^="google_ads_iframe"],
+          div[id^="div-gpt-ad"],
+          iframe[src*="doubleclick.net"],
+          iframe[src*="googlesyndication.com"],
+          iframe[src*="adservice.google."],
+          .ad-placement,
+          .ad-container,
+          .ad-banner,
+          .advertisement-container,
+          .adsbygoogle,
+          [id*="reklam"]:not(main):not(body),
+          [class*="reklam-"]:not(main),
+          .pageskin,
+          .sticky-ad,
+          #sticky-ad,
+          .floating-ad,
+          .video-ad-overlay,
+          .click-overlay,
+          #pop-overlay,
+          a[target="_blank"] > img[src*=".gif"],
+          a[target="_blank"] > img[src*=".webp"][src*="banner"] {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            pointer-events: none !important;
+          }
+        `;
 
-      const style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = `
-        ins.adsbygoogle,
-        [data-ad-slot],
-        [data-ad-client],
-        [data-adunit],
-        [data-ad-unit],
-        [data-google-query-id],
-        div[id^="google_ads_iframe"],
-        div[id^="div-gpt-ad"],
-        iframe[src*="doubleclick.net"],
-        iframe[src*="googlesyndication.com"],
-        iframe[src*="adservice.google."],
-        .ad-placement,
-        .ad-container,
-        .ad-banner,
-        .advertisement-container,
-        .adsbygoogle {
-          display: none !important;
-          visibility: hidden !important;
-          height: 0 !important;
-          min-height: 0 !important;
-          pointer-events: none !important;
+        const target = document.head || document.documentElement;
+        if (target) {
+          target.appendChild(style);
+        } else {
+          document.addEventListener('DOMContentLoaded', () => {
+            (document.head || document.documentElement).appendChild(style);
+          });
         }
-      `;
+      }
 
-      const target = document.head || document.documentElement;
-      if (target) {
-        target.appendChild(style);
+      // --- Layer 3: Smart DOM Scanner for dynamically injected GIF/WebP banners and invisible traps ---
+      function scanForMaliciousOverlaysAndBanners() {
+        try {
+          const candidates = document.querySelectorAll(
+            'div, section, aside, span, a, [id*="overlay"], [class*="overlay"], [id*="banner"], [class*="banner"]'
+          );
+
+          let blockedCount = 0;
+
+          for (let i = 0; i < candidates.length; i++) {
+            const el = candidates[i];
+            if (!el || el.__ax_scanned_hidden) continue;
+
+            const tagName = el.tagName.toLowerCase();
+            // Critical safeguard: Never touch video players, semantic layout, or form containers
+            if (
+              tagName === 'video' ||
+              tagName === 'header' ||
+              tagName === 'nav' ||
+              tagName === 'main' ||
+              tagName === 'article' ||
+              tagName === 'iframe' ||
+              tagName === 'form' ||
+              tagName === 'body' ||
+              tagName === 'html'
+            ) {
+              continue;
+            }
+
+            // Never touch elements containing player media or interactive inputs
+            if (el.querySelector('video, input, select, textarea, button[type="submit"]')) {
+              continue;
+            }
+
+            // Never touch site navigation or breadcrumbs
+            if (el.closest('nav, header')) {
+              continue;
+            }
+
+            let style;
+            try {
+              style = window.getComputedStyle(el);
+            } catch {
+              continue;
+            }
+
+            if (!style || style.display === 'none' || style.visibility === 'hidden') {
+              continue;
+            }
+
+            const position = style.position;
+            const isFixedOrSticky = position === 'fixed' || position === 'sticky';
+            const isAbsoluteOrFixed = position === 'fixed' || position === 'absolute';
+
+            // Pattern A: Fixed / Sticky Floating GIF & Betting Banners
+            if (isFixedOrSticky) {
+              const hasExternalLink = Boolean(
+                el.querySelector('a[href^="http://"], a[href^="https://"], a[target="_blank"]')
+              );
+              const hasGifOrWebp = Boolean(
+                el.querySelector('img[src*=".gif"], img[src*=".webp"], [style*=".gif"], [style*=".webp"]')
+              );
+              const adMeta = (el.id + ' ' + el.className).toLowerCase();
+              const hasAdKeywords =
+                adMeta.includes('reklam') ||
+                adMeta.includes('banner') ||
+                adMeta.includes('bahis') ||
+                adMeta.includes('bet') ||
+                adMeta.includes('casino') ||
+                adMeta.includes('sponsor');
+
+              if (hasExternalLink && (hasGifOrWebp || hasAdKeywords)) {
+                el.style.setProperty('display', 'none', 'important');
+                el.style.setProperty('pointer-events', 'none', 'important');
+                el.__ax_scanned_hidden = true;
+                blockedCount++;
+                continue;
+              }
+            }
+
+            // Pattern B: Invisible Click Overlay Trap (covers large area, z-index >= 999, transparent)
+            if (isAbsoluteOrFixed) {
+              const zIndex = parseInt(style.zIndex, 10);
+              if (zIndex >= 999) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width >= 300 && rect.height >= 200) {
+                  const opacity = parseFloat(style.opacity);
+                  const isTransparentBg =
+                    style.backgroundColor === 'transparent' ||
+                    style.backgroundColor.includes('rgba(0, 0, 0, 0)') ||
+                    style.backgroundColor === 'rgba(0,0,0,0)';
+
+                  const isTransparent = opacity < 0.1 || isTransparentBg;
+
+                  if (isTransparent) {
+                    const textLen = (el.innerText || '').trim().length;
+                    // Trap layer is empty or holds only a single invisible link without text
+                    if (textLen < 5) {
+                      const childCount = el.children.length;
+                      if (childCount <= 1) {
+                        el.style.setProperty('display', 'none', 'important');
+                        el.style.setProperty('pointer-events', 'none', 'important');
+                        el.__ax_scanned_hidden = true;
+                        blockedCount++;
+                        continue;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          if (blockedCount > 0) {
+            chrome.runtime
+              .sendMessage({
+                type: 'INCREMENT_BLOCKED',
+                count: blockedCount
+              })
+              .catch(() => {});
+          }
+        } catch {
+          // Suppress scan errors
+        }
+      }
+
+      // Debounced mutation observer to efficiently react to dynamic ad injections
+      let scanTimer = null;
+      const debouncedScan = () => {
+        if (scanTimer) clearTimeout(scanTimer);
+        scanTimer = setTimeout(scanForMaliciousOverlaysAndBanners, 200);
+      };
+
+      const observer = new MutationObserver(debouncedScan);
+      const rootTarget = document.documentElement || document.body;
+      if (rootTarget) {
+        observer.observe(rootTarget, { childList: true, subtree: true });
       } else {
         document.addEventListener('DOMContentLoaded', () => {
-          (document.head || document.documentElement).appendChild(style);
+          if (document.documentElement) {
+            observer.observe(document.documentElement, { childList: true, subtree: true });
+          }
         });
+      }
+
+      // Initial scanning runs
+      if (document.readyState === 'complete') {
+        setTimeout(scanForMaliciousOverlaysAndBanners, 400);
+      } else {
+        window.addEventListener('load', () => setTimeout(scanForMaliciousOverlaysAndBanners, 400));
       }
 
       // Count hidden items once DOM is populated
@@ -78,7 +280,10 @@
             'div[id^="google_ads_iframe"]',
             'div[id^="div-gpt-ad"]',
             'iframe[src*="doubleclick.net"]',
-            'iframe[src*="googlesyndication.com"]'
+            'iframe[src*="googlesyndication.com"]',
+            '[id*="reklam"]',
+            '.sticky-ad',
+            '.floating-ad'
           ];
           let foundCount = 0;
           for (const sel of adSelectors) {
@@ -404,7 +609,48 @@
   // Sync YouTube shield bridge immediately on youtube.com
   syncYouTubeShieldBridge();
 
-  // Listen for storage changes to sync Twitch & YouTube shields in real time
+  /**
+   * Pop-up & Redirect Shield bridge: synchronizes extension settings with page-level sessionStorage
+   * for the MAIN world popup-shield.js script
+   */
+  async function syncPopupShieldBridge() {
+    try {
+      const data = await chrome.storage.local.get(['popupShield', 'whitelist']);
+      const isEnabled = data.popupShield !== undefined ? data.popupShield : true;
+      const whitelist = data.whitelist || [];
+      const isWhitelisted = whitelist.some(
+        (w) => currentHost === w || currentHost.endsWith('.' + w)
+      );
+
+      const targetValue = !isEnabled || isWhitelisted ? 'disabled' : 'enabled';
+      const prevValue = window.sessionStorage.getItem('ax_privacy_popup_shield');
+
+      if (prevValue !== targetValue) {
+        window.sessionStorage.setItem('ax_privacy_popup_shield', targetValue);
+      }
+    } catch {
+      // Suppress
+    }
+  }
+
+  // Sync popup shield bridge across all origins
+  syncPopupShieldBridge();
+
+  // Listen to pop-up shield blocked events dispatched from MAIN world popup-shield.js
+  window.addEventListener('message', (event) => {
+    try {
+      if (event.data && event.data.type === 'AX_POPUP_BLOCKED') {
+        chrome.runtime
+          .sendMessage({
+            type: 'INCREMENT_BLOCKED',
+            count: 1
+          })
+          .catch(() => {});
+      }
+    } catch {}
+  });
+
+  // Listen for storage changes to sync Twitch, YouTube & Pop-up shields in real time
   if (chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local') {
@@ -413,6 +659,9 @@
         }
         if (changes.youtubeShield || changes.whitelist) {
           syncYouTubeShieldBridge();
+        }
+        if (changes.popupShield || changes.whitelist) {
+          syncPopupShieldBridge();
         }
       }
     });

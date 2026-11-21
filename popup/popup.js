@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleThreat = document.getElementById('toggleThreat');
   const toggleTwitch = document.getElementById('toggleTwitch');
   const toggleYouTube = document.getElementById('toggleYouTube');
+  const togglePopupShield = document.getElementById('togglePopupShield');
   const twitchProxyInput = document.getElementById('twitchProxyInput');
   const btnSaveProxy = document.getElementById('btnSaveProxy');
   const proxyFeedback = document.getElementById('proxyFeedback');
@@ -284,6 +285,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       toggleThreat.checked = settings.threatShield !== undefined ? settings.threatShield : true;
       toggleTwitch.checked = settings.twitchShield !== undefined ? settings.twitchShield : true;
       toggleYouTube.checked = settings.youtubeShield !== undefined ? settings.youtubeShield : true;
+      if (togglePopupShield) {
+        togglePopupShield.checked = settings.popupShield !== undefined ? settings.popupShield : true;
+      }
       if (twitchProxyInput && settings.twitchProxyUrl !== undefined) {
         twitchProxyInput.value = settings.twitchProxyUrl;
       }
@@ -422,6 +426,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.tabs.reload(currentTab.id);
     }
   });
+
+  if (togglePopupShield) {
+    togglePopupShield.addEventListener('change', async () => {
+      const isEnabled = togglePopupShield.checked;
+      await updateSetting('popupShield', isEnabled);
+      if (currentTab?.id) {
+        chrome.tabs.reload(currentTab.id);
+      }
+    });
+  }
 
   if (btnSaveProxy && twitchProxyInput) {
     btnSaveProxy.addEventListener('click', async () => {
