@@ -1,6 +1,6 @@
 {
   "name": "ax-privacy",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "Gelişmiş reklam engelleme, URL izleyici temizleyici ve yerel tehdit kalkanı tarayıcı eklentisi.",
   "private": true,
   "license": "GPL-3.0-or-later",
