@@ -91,9 +91,18 @@
     if (text.includes('CLASS="twitch-stitched-ad"')) return true;
     if (text.includes('stitched-ad')) return true;
     if (text.includes('amazon-adsystem')) return true;
+    if (text.includes('X-TV-TWITCH-AD')) return true;
+    if (text.includes('#EXT-X-TWITCH-PREVIEWS:AD')) return true;
     const lines = text.split(/\r?\n/);
     for (const line of lines) {
-      if (line.startsWith('#EXTINF:') && /amazon/i.test(line)) {
+      if (line.startsWith('#EXT-X-DATERANGE:') && (
+        line.includes('stitched') ||
+        line.includes('amazon') ||
+        /cue="(PRE|MID|POST)"/i.test(line)
+      )) {
+        return true;
+      }
+      if (line.startsWith('#EXTINF:') && (/amazon/i.test(line) || /stitched/i.test(line))) {
         return true;
       }
     }
@@ -111,9 +120,9 @@
         const trimmed = line.trim();
         if (
           trimmed.startsWith('#EXT-X-DATERANGE:') &&
-          (trimmed.includes('stitched-ad') ||
-            trimmed.includes('amazon-adsystem') ||
-            trimmed.includes('twitch-stitched-ad'))
+          (trimmed.includes('stitched') ||
+            trimmed.includes('amazon') ||
+            /cue="(PRE|MID|POST)"/i.test(trimmed))
         ) {
           return false;
         }
@@ -335,7 +344,6 @@
           if (line.startsWith('#EXT-X-DATERANGE:') && (
             line.includes('stitched') ||
             line.includes('amazon') ||
-            line.includes('twitch') ||
             /cue="(PRE|MID|POST)"/i.test(line)
           )) {
             return 'EXT-X-DATERANGE:AdCue';
@@ -356,9 +364,9 @@
         return text.split(/\\r?\\n/).filter(line => {
           const trimmed = line.trim();
           if (trimmed.startsWith('#EXT-X-DATERANGE:') && (
-            trimmed.includes('stitched-ad') ||
-            trimmed.includes('amazon-adsystem') ||
-            trimmed.includes('twitch-stitched-ad')
+            trimmed.includes('stitched') ||
+            trimmed.includes('amazon') ||
+            /cue="(PRE|MID|POST)"/i.test(trimmed)
           )) return false;
           if (trimmed.startsWith('#EXT-X-TWITCH-PREVIEWS:AD')) return false;
           if (trimmed.includes('X-TV-TWITCH-AD')) return false;
@@ -704,19 +712,22 @@
                 const state = getOrCreateChannelState(ch);
                 const cleanUrl = url.split('?')[0];
 
-                // Detect and extract ad segments into adSegmentCache
-                let hasAds = isAd(text);
+                // Detect whether this media playlist contains ads
+                const hasAds = isAd(text);
                 const lines = text.split(/\\r?\\n/);
-                for (let i = 0; i < lines.length; i++) {
-                  const line = lines[i];
-                  if (line.startsWith('#EXTINF:') && i < lines.length - 1) {
-                    const isAdSeg = !line.includes(',live') || /amazon/i.test(line) || /stitched/i.test(line);
-                    if (isAdSeg) {
-                      const segUrl = lines[i + 1].trim();
-                      if (segUrl && !segUrl.startsWith('#')) {
-                        adSegmentCache.set(segUrl, Date.now());
-                        adSegmentCache.set(segUrl.split('?')[0], Date.now());
-                        hasAds = true;
+
+                // ONLY extract ad segments if the playlist is confirmed to contain ads
+                if (hasAds) {
+                  for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line.startsWith('#EXTINF:') && i < lines.length - 1) {
+                      const isAdSeg = !line.includes(',live') || /amazon/i.test(line) || /stitched/i.test(line);
+                      if (isAdSeg) {
+                        const segUrl = lines[i + 1].trim();
+                        if (segUrl && !segUrl.startsWith('#')) {
+                          adSegmentCache.set(segUrl, Date.now());
+                          adSegmentCache.set(segUrl.split('?')[0], Date.now());
+                        }
                       }
                     }
                   }
@@ -825,6 +836,7 @@
                       state.activePlatform = null;
                       state.targetMediaUrl = null;
                       state.retryAfter = 0;
+                      adSegmentCache.clear();
                       console.info('[AX-Twitch][Worker] Reklam sona erdi, orijinal akışa dönüldü (kanal: ' + ch + ')');
                       self.postMessage({ type: 'AX_AD_MUTE_STATE', active: false });
                       return response;
@@ -845,6 +857,9 @@
                         }
                       } catch (e) {}
                     }
+                  } else {
+                    // Guarantee that mute state is inactive on clean normal broadcasts
+                    self.postMessage({ type: 'AX_AD_MUTE_STATE', active: false });
                   }
                 }
               }
@@ -1155,28 +1170,53 @@
       [data-a-target*="video-ad-"],
       .stream-display-ad__wrapper,
       .video-player__overlay [data-a-target*="video-ad-"],
-      .video-player__overlay [data-a-target="player-overlay-ad"],
-      .video-player__overlay [data-test-selector*="ad-"],
-      .video-player__overlay [data-test-selector*="sad-"] {
+      .video-player__overlay [data-a-target="player-overlay-ad"] {
         display: none !important;
         opacity: 0 !important;
         pointer-events: none !important;
         visibility: hidden !important;
       }
 
-      /* Guarantee that Twitch player controls, seekbars, and buttons are ALWAYS interactive */
+      /* Guarantee that Twitch player controls, seekbars, settings, and buttons are ALWAYS interactive */
       .video-player__default-player,
       .video-player__default-player *,
-      [data-a-target="player-overlay-click-handler"],
+      .player-controls,
+      .player-controls *,
+      [data-a-target="player-controls"],
+      [data-a-target="player-controls"] *,
       [data-a-target="player-play-pause-button"],
       [data-a-target="player-fullscreen-button"],
       [data-a-target="player-settings-button"],
       [data-a-target="player-theatre-mode-button"],
       [data-a-target="player-volume-slider"],
+      [data-a-target="player-settings-menu"],
+      [data-a-target="player-settings-menu"] *,
+      .player-settings-menu,
+      .player-settings-menu *,
       .video-player button,
       .video-player [role="button"],
-      .video-player [role="slider"] {
+      .video-player [role="slider"],
+      .video-player [role="menu"],
+      .video-player [role="menuitem"],
+      .video-player [role="menuitemradio"],
+      .video-player [role="menuitemcheckbox"] {
         pointer-events: auto !important;
+        cursor: pointer;
+      }
+
+      .video-player__default-player,
+      .player-controls,
+      [data-a-target="player-controls"] {
+        z-index: 50 !important;
+        position: relative !important;
+      }
+
+      [data-a-target="player-settings-menu"],
+      .player-settings-menu,
+      .video-player [role="menu"] {
+        z-index: 99999 !important;
+        pointer-events: auto !important;
+        display: block !important;
       }
     `;
     const target = document.head || document.documentElement;
