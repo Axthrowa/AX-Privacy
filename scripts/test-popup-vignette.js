@@ -60,7 +60,10 @@ const {
   getRootDomain,
   isVignetteCandidate,
   shouldBlockNewTab,
-  recordTrustedIntent
+  recordTrustedIntent,
+  hasValidTrustedIntent,
+  evaluateUrlThreat,
+  lastUserNewTabClicks
 } = await import('../background.js');
 
 const __filename = fileURLToPath(import.meta.url);
@@ -595,13 +598,68 @@ runTest('isAllowedNavigation permits navigation when popupShield is disabled in 
   mockSessionStorage.delete('ax_privacy_popup_shield');
 });
 
-runTest('recordTrustedIntent provides 2500ms validity in background.js', () => {
+runTest('recordTrustedIntent provides 3500ms validity in background.js', () => {
   const testStore = new Map();
   recordTrustedIntent(101, 'target-service.com', 'https://target-service.com/api', testStore);
   const entries = testStore.get(101);
   assert.ok(entries && entries.length === 1);
   const now = Date.now();
-  assert.ok(entries[0].expiresAt >= now + 2400 && entries[0].expiresAt <= now + 2600);
+  assert.ok(entries[0].expiresAt >= now + 3400 && entries[0].expiresAt <= now + 3600);
+});
+
+// ---------------------------------------------------------------------------
+// 8. Middle-Click & Comprehensive Threat Shield Parity (v3.1.0)
+// ---------------------------------------------------------------------------
+console.log('\n[Group 8: Middle-Click & Threat Shield Parity (v3.1.0)]');
+
+runTest('recordTrustedIntent tracks middle-click intent in lastUserNewTabClicks and validates via fallback', () => {
+  const testStore = new Map();
+  recordTrustedIntent(201, 'external-blog.com', 'https://external-blog.com/article/1', testStore, {
+    isMiddleClick: true,
+    button: 1
+  });
+
+  // Verify direct intent matching
+  assert.strictEqual(hasValidTrustedIntent(201, 'external-blog.com', 'https://external-blog.com/article/1', testStore), true);
+
+  // Verify recent click fallback for redirected URL
+  assert.ok(lastUserNewTabClicks.has(201));
+  const clickData = lastUserNewTabClicks.get(201);
+  assert.strictEqual(clickData.isMiddleClick, true);
+  assert.strictEqual(clickData.targetHost, 'external-blog.com');
+
+  // shouldBlockNewTab allows redirected URL when recent user new tab action exists
+  const redirectResult = shouldBlockNewTab({
+    openerTabId: 201,
+    openerUrl: 'https://news-site.org/feed',
+    tabUrl: 'https://shortener-target.com/page',
+    intentsStore: testStore,
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(redirectResult.block, false);
+  assert.strictEqual(redirectResult.reason, 'trusted_user_intent');
+});
+
+runTest('isPopunderAdUrl detects newly added ad/redirect networks and affiliate traps', () => {
+  assert.strictEqual(isPopunderAdUrl('https://admaven.com/pop/show'), true);
+  assert.strictEqual(isPopunderAdUrl('https://sub.vignetteads.com/zone'), true);
+  assert.strictEqual(isPopunderAdUrl('https://zeroredirect.com/redirect?to=ad'), true);
+  assert.strictEqual(isPopunderAdUrl('https://trafee.com/link'), true);
+  assert.strictEqual(isPopunderAdUrl('https://randomsite.org/landing?affid=9921&campaignid=332'), true);
+});
+
+runTest('evaluateUrlThreat flags high-risk scam TLDs combined with financial or auth keywords', () => {
+  const scam1 = evaluateUrlThreat('https://secure-bank-login.xyz/auth');
+  assert.strictEqual(scam1.level, 'danger');
+  assert.strictEqual(scam1.type, 'scam_domain_pattern');
+
+  const scam2 = evaluateUrlThreat('https://metamask-crypto-wallet.top/claim');
+  assert.strictEqual(scam2.level, 'danger');
+  assert.strictEqual(scam2.type, 'scam_domain_pattern');
+
+  const normalSite = evaluateUrlThreat('https://developer.mozilla.org/en-US/docs');
+  assert.strictEqual(normalSite.level, 'safe');
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
