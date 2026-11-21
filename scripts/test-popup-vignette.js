@@ -667,7 +667,7 @@ runTest('evaluateUrlThreat flags high-risk scam TLDs combined with financial or 
 
 console.log('\n[Group 9: Safe Infrastructure & Feed Platforms (v3.1.1)]');
 
-runTest('PROTECTED_INFRASTRUCTURE preserves Twitter/X, Instagram, CDNs, WordPress and Cloudflare', () => {
+runTest('PROTECTED_INFRASTRUCTURE preserves Twitter/X, Instagram, CDNs, WordPress, Cloudflare and E-Commerce Platforms', () => {
   const critical = [
     'video.twimg.com',
     'twimg.com',
@@ -682,7 +682,16 @@ runTest('PROTECTED_INFRASTRUCTURE preserves Twitter/X, Instagram, CDNs, WordPres
     'wp.com',
     'i0.wp.com',
     'discord.com',
-    'cdn.discordapp.com'
+    'cdn.discordapp.com',
+    'akakce.com',
+    'st.akakce.com',
+    'api6.akakce.com',
+    'cimri.com',
+    'hepsiburada.com',
+    'trendyol.com',
+    'amazon.com.tr',
+    'donanimhaber.com',
+    'turkiye.gov.tr'
   ];
   for (const domain of critical) {
     const isProtected = PROTECTED_INFRASTRUCTURE.some((p) => domain === p || domain.endsWith('.' + p));
@@ -700,6 +709,9 @@ runTest('isTrustedFeedOpener permits Instagram, X/Twitter, Facebook, Reddit and 
   assert.strictEqual(isTrustedFeedOpener('tiktok.com'), true);
   assert.strictEqual(isTrustedFeedOpener('reddit.com'), true);
   assert.strictEqual(isTrustedFeedOpener('google.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('akakce.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('www.akakce.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('cimri.com'), true);
   assert.strictEqual(isTrustedFeedOpener('randompiratesite.com'), false);
 });
 
@@ -732,6 +744,10 @@ runTest('LEGITIMATE_HOST_WHITELIST protects major platform destinations', () => 
   assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('x.com'), true);
   assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('reddit.com'), true);
   assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('discord.com'), true);
+  assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('akakce.com'), true);
+  assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('hepsiburada.com'), true);
+  assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('trendyol.com'), true);
+  assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('amazon.com.tr'), true);
 });
 
 console.log('\n[Group 10: Anti-Adblock Defusers & Surrogates (v3.2.0)]');

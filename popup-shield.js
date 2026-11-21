@@ -245,7 +245,9 @@ const TRUSTED_FEED_OPENERS = new Set([
   'spotify.com',
   'twitch.tv',
   'whatsapp.com',
-  'telegram.org'
+  'telegram.org',
+  'akakce.com',
+  'cimri.com'
 ]);
 
 function isTrustedFeedOpener(host) {
@@ -268,13 +270,20 @@ const MAJOR_SAFE_PLATFORMS = [
   'google.com',
   'netflix.com',
   'amazon.com',
+  'amazon.com.tr',
   'discord.com',
   'spotify.com',
   'whatsapp.com',
   'telegram.org',
   'threads.net',
   'tiktok.com',
-  'pinterest.com'
+  'pinterest.com',
+  'akakce.com',
+  'cimri.com',
+  'hepsiburada.com',
+  'trendyol.com',
+  'n11.com',
+  'sahibinden.com'
 ];
 
 const TRUSTED_AUTH_HOSTS = [

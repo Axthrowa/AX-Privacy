@@ -185,6 +185,14 @@ async function initActionOptions() {
     if (chrome.action?.setBadgeBackgroundColor) {
       await chrome.action.setBadgeBackgroundColor({ color: '#0284c7' });
     }
+    if (chrome.tabs?.query) {
+      const tabs = await chrome.tabs.query({});
+      for (const tab of tabs) {
+        if (tab.id) {
+          await resetTabBadgeToDefault(tab.id);
+        }
+      }
+    }
   } catch (err) {
     console.warn('[AX-Privacy background] initActionOptions error:', err);
   }
@@ -433,7 +441,79 @@ const PROTECTED_INFRASTRUCTURE = [
   'apple.com',
   'icloud.com',
   'microsoft.com',
-  'azureedge.net'
+  'azureedge.net',
+  // Major Turkish & Global E-Commerce & Comparison Platforms
+  'akakce.com',
+  'cimri.com',
+  'hepsiburada.com',
+  'trendyol.com',
+  'n11.com',
+  'pazarama.com',
+  'sahibinden.com',
+  'gittigidiyor.com',
+  'amazon.com.tr',
+  'amazon.com',
+  'ebay.com',
+  'aliexpress.com',
+  'yemeksepeti.com',
+  'getir.com',
+  'migros.com.tr',
+  'carrefoursa.com',
+  'sokmarket.com.tr',
+  'a101.com.tr',
+  'bim.com.tr',
+  // Turkish News, Media, Forum & Community Platforms
+  'donanimhaber.com',
+  'eksisozluk.com',
+  'technopat.net',
+  'webtekno.com',
+  'shiftdelete.net',
+  'onedio.com',
+  'kizlarsoruyor.com',
+  'memurlar.net',
+  'hurriyet.com.tr',
+  'milliyet.com.tr',
+  'sozcu.com.tr',
+  'haberturk.com',
+  'cumhuriyet.com.tr',
+  'sabah.com.tr',
+  'ensonhaber.com',
+  'ntv.com.tr',
+  'cnnturk.com',
+  'trthaber.com',
+  'aa.com.tr',
+  // Video & Streaming Publishers
+  'dizibox.live',
+  'dizibox.tv',
+  'dizigom.tv',
+  // Turkish Government & E-Services
+  'turkiye.gov.tr',
+  'enabiz.gov.tr',
+  'meb.gov.tr',
+  'gib.gov.tr',
+  'osym.gov.tr',
+  'yok.gov.tr',
+  // Turkish Banks & Payment Systems
+  'bkm.com.tr',
+  'bkmexpress.com.tr',
+  'iyzico.com',
+  'paytr.com',
+  'garantibbva.com.tr',
+  'isbank.com.tr',
+  'akbank.com',
+  'yapikredi.com.tr',
+  'ziraatbank.com.tr',
+  'halkbank.com.tr',
+  'vakifbank.com.tr',
+  'qnbfinansbank.com',
+  'enpara.com',
+  'papara.com',
+  'param.com.tr',
+  'teb.com.tr',
+  'denizbank.com',
+  'kuveytturk.com.tr',
+  'albaraka.com.tr',
+  'turkiyefinans.com.tr'
 ];
 
 function parseFilterLine(line) {
@@ -1397,11 +1477,34 @@ const LEGITIMATE_HOST_WHITELIST = new Set([
   'spotify.com',
   'netflix.com',
   'amazon.com',
+  'amazon.com.tr',
   'twitch.tv',
   'apple.com',
   'microsoft.com',
   'whatsapp.com',
-  'telegram.org'
+  'telegram.org',
+  // E-Commerce & Comparison Platforms
+  'akakce.com',
+  'cimri.com',
+  'hepsiburada.com',
+  'trendyol.com',
+  'n11.com',
+  'pazarama.com',
+  'sahibinden.com',
+  'gittigidiyor.com',
+  'ebay.com',
+  'aliexpress.com',
+  'yemeksepeti.com',
+  'getir.com',
+  'migros.com.tr',
+  // Community & Portals
+  'donanimhaber.com',
+  'eksisozluk.com',
+  'technopat.net',
+  'webtekno.com',
+  // E-Devlet & Public
+  'turkiye.gov.tr',
+  'enabiz.gov.tr'
 ]);
 
 const TRUSTED_AUTH_PAYMENT_DOMAINS = [
@@ -1473,7 +1576,9 @@ const TRUSTED_OPENER_FEEDS = new Set([
   'spotify.com',
   'twitch.tv',
   'whatsapp.com',
-  'telegram.org'
+  'telegram.org',
+  'akakce.com',
+  'cimri.com'
 ]);
 
 function isTrustedFeedOpener(openerHost) {

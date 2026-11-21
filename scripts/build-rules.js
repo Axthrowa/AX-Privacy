@@ -254,7 +254,7 @@ function cleanDomain(raw) {
   if (!DOMAIN_REGEX.test(d)) return null;
 
   // Critical Web Infrastructure & Essential Platform Exemptions:
-  // Never block essential CDNs, media endpoints, fonts, or social infrastructure
+  // Never block essential CDNs, media endpoints, fonts, e-commerce, banking, or social infrastructure
   const PROTECTED_INFRASTRUCTURE = [
     'twimg.com',
     'twitter.com',
@@ -288,7 +288,79 @@ function cleanDomain(raw) {
     'apple.com',
     'icloud.com',
     'microsoft.com',
-    'azureedge.net'
+    'azureedge.net',
+    // Major Turkish & Global E-Commerce & Comparison Platforms
+    'akakce.com',
+    'cimri.com',
+    'hepsiburada.com',
+    'trendyol.com',
+    'n11.com',
+    'pazarama.com',
+    'sahibinden.com',
+    'gittigidiyor.com',
+    'amazon.com.tr',
+    'amazon.com',
+    'ebay.com',
+    'aliexpress.com',
+    'yemeksepeti.com',
+    'getir.com',
+    'migros.com.tr',
+    'carrefoursa.com',
+    'sokmarket.com.tr',
+    'a101.com.tr',
+    'bim.com.tr',
+    // Turkish News, Media, Forum & Community Platforms
+    'donanimhaber.com',
+    'eksisozluk.com',
+    'technopat.net',
+    'webtekno.com',
+    'shiftdelete.net',
+    'onedio.com',
+    'kizlarsoruyor.com',
+    'memurlar.net',
+    'hurriyet.com.tr',
+    'milliyet.com.tr',
+    'sozcu.com.tr',
+    'haberturk.com',
+    'cumhuriyet.com.tr',
+    'sabah.com.tr',
+    'ensonhaber.com',
+    'ntv.com.tr',
+    'cnnturk.com',
+    'trthaber.com',
+    'aa.com.tr',
+    // Video & Streaming Publishers
+    'dizibox.live',
+    'dizibox.tv',
+    'dizigom.tv',
+    // Turkish Government & E-Services
+    'turkiye.gov.tr',
+    'enabiz.gov.tr',
+    'meb.gov.tr',
+    'gib.gov.tr',
+    'osym.gov.tr',
+    'yok.gov.tr',
+    // Turkish Banks & Payment Systems
+    'bkm.com.tr',
+    'bkmexpress.com.tr',
+    'iyzico.com',
+    'paytr.com',
+    'garantibbva.com.tr',
+    'isbank.com.tr',
+    'akbank.com',
+    'yapikredi.com.tr',
+    'ziraatbank.com.tr',
+    'halkbank.com.tr',
+    'vakifbank.com.tr',
+    'qnbfinansbank.com',
+    'enpara.com',
+    'papara.com',
+    'param.com.tr',
+    'teb.com.tr',
+    'denizbank.com',
+    'kuveytturk.com.tr',
+    'albaraka.com.tr',
+    'turkiyefinans.com.tr'
   ];
 
   if (PROTECTED_INFRASTRUCTURE.some((p) => d === p || d.endsWith('.' + p))) {
