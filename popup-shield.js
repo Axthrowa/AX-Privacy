@@ -155,6 +155,29 @@ function isAllowedDestination(targetUrl) {
   }
 }
 
+function isDevToolsKey(e) {
+  if (!e) return false;
+  const key = (e.key || '').toLowerCase();
+  const code = e.keyCode || e.which || 0;
+  const ctrlOrMeta = Boolean(e.ctrlKey || e.metaKey);
+  const shift = Boolean(e.shiftKey);
+
+  // F12
+  if (key === 'f12' || code === 123) return true;
+
+  // Ctrl+Shift+I (73), Ctrl+Shift+J (74), Ctrl+Shift+C (67)
+  if (ctrlOrMeta && shift && (key === 'i' || key === 'j' || key === 'c' || code === 73 || code === 74 || code === 67)) {
+    return true;
+  }
+
+  // Ctrl+U (85) - View Page Source
+  if (ctrlOrMeta && !shift && (key === 'u' || code === 85)) {
+    return true;
+  }
+
+  return false;
+}
+
 (function initPopupShield() {
   'use strict';
 
@@ -701,9 +724,32 @@ function isAllowedDestination(targetUrl) {
     window.addEventListener('DOMContentLoaded', debouncedVignetteScan);
     window.addEventListener('load', debouncedVignetteScan);
   } catch {}
+
+  // Anti-DevTools & Right-Click Protector (Defeats site-level inspection & contextmenu blocks)
+  try {
+    window.addEventListener(
+      'keydown',
+      (e) => {
+        if (isDevToolsKey(e)) {
+          // Stop malicious or streaming site scripts from blocking DevTools / view source
+          e.stopImmediatePropagation();
+        }
+      },
+      true // Capture phase to run before site event handlers
+    );
+
+    window.addEventListener(
+      'contextmenu',
+      (e) => {
+        // Stop site scripts from disabling native right-click
+        e.stopImmediatePropagation();
+      },
+      true // Capture phase to run before site event handlers
+    );
+  } catch {}
 })();
 
 // Export for Node.js unit tests
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { isVignetteCandidate, isAllowedDestination, getRootDomain, isCrossSite };
+  module.exports = { isVignetteCandidate, isAllowedDestination, getRootDomain, isCrossSite, isDevToolsKey };
 }

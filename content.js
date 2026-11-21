@@ -707,6 +707,94 @@
     }
   }
 
+  // Track newly added anchors to detect traps injected in the last 600ms
+  const recentContentAnchors = new WeakMap();
+  try {
+    const anchorObserver = new MutationObserver((mutations) => {
+      const now = Date.now();
+      for (let i = 0; i < mutations.length; i++) {
+        const added = mutations[i].addedNodes;
+        for (let j = 0; j < added.length; j++) {
+          const node = added[j];
+          if (node && node.nodeType === 1) {
+            if (node.tagName === 'A') recentContentAnchors.set(node, now);
+            const subAnchors = node.querySelectorAll ? node.querySelectorAll('a') : [];
+            for (let k = 0; k < subAnchors.length; k++) {
+              recentContentAnchors.set(subAnchors[k], now);
+            }
+          }
+        }
+      }
+    });
+    if (document.documentElement) {
+      anchorObserver.observe(document.documentElement, { childList: true, subtree: true });
+    }
+  } catch {}
+
+  function handleTrustedNewTabIntent(e) {
+    if (!e || e.isTrusted !== true) return;
+    try {
+      const target = e.target;
+      if (!target || !(target instanceof Element)) return;
+
+      const anchor = target.closest('a[href]');
+      if (!anchor || !anchor.href) return;
+
+      const href = anchor.href.trim();
+      if (!href.startsWith('http://') && !href.startsWith('https://')) return;
+
+      // Check intent to open a new tab
+      const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
+      const isMiddleClick = e.button === 1;
+      const hasModifier = Boolean(e.ctrlKey || e.metaKey);
+      const isNewTabIntent = targetAttr === '_blank' || isMiddleClick || hasModifier;
+
+      if (!isNewTabIntent) return;
+
+      // Ensure element was not injected in the last 600ms (trap protection)
+      if (recentContentAnchors.has(anchor)) {
+        const addedAt = recentContentAnchors.get(anchor);
+        if (Date.now() - addedAt < 600) return;
+      }
+
+      // Check visibility and physical presence
+      let style;
+      try {
+        style = window.getComputedStyle(anchor);
+      } catch {
+        return;
+      }
+
+      if (style.display === 'none' || style.visibility === 'hidden') return;
+      const opacity = parseFloat(style.opacity);
+      if (opacity < 0.2) return;
+
+      const rect = anchor.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      // Must not cover the entire screen (transparent curtain traps)
+      const wRatio = rect.width / (window.innerWidth || 1);
+      const hRatio = rect.height / (window.innerHeight || 1);
+      if (wRatio >= 0.7 && hRatio >= 0.7) return;
+
+      let targetHost = '';
+      try {
+        targetHost = new URL(href).hostname.toLowerCase();
+      } catch {
+        return;
+      }
+
+      chrome.runtime.sendMessage({
+        type: 'AX_TRUSTED_NEW_TAB',
+        targetHost,
+        href
+      }).catch(() => {});
+    } catch {}
+  }
+
+  window.addEventListener('click', handleTrustedNewTabIntent, true);
+  window.addEventListener('auxclick', handleTrustedNewTabIntent, true);
+
   // Sync popup shield bridge across all origins
   syncPopupShieldBridge();
 

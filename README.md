@@ -1,7 +1,7 @@
 # AX-Privacy 🛡️
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-2.7.0-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-2.8.0-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
@@ -45,7 +45,10 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 - **Kısmi Hata Toleransı:** Bir liste hata verse bile diğer sağlam listeler ve EasyList kesintisiz uygulanmaya devam eder.
 - **Öncelikli Delta Motoru:** Statik 25.000 kuralla çakışan alan adları çıkarılır; kullanıcı listeleri dinamik DNR kotasında en yüksek önceliği alır (ID izolasyonu: 10000+).
 
-### 7. Kırılmaz Pop-up, Anti-Vignette & Pop-under Kalkanı (v2.7.0)
+### 7. Kırılmaz Pop-up, Anti-Vignette & Niyet Doğrulamalı Sekme Kalkanı (v2.8.0)
+- **Niyet Doğrulamalı Sekme Kalkanı (Intent-Verified Tab Shield):** Rastgele/dinamik alan adı (DGA) kullanan pop-up/pop-under ağlarını alan adı listesine bağımlı kalmadan %100 durdurur. Sayfalar tarafından arka planda izinsiz açılan yeni sekmeler anında kapatılır. Yalnızca kullanıcının şeffaf olmayan, görünür bir bağlantıya (`target="_blank"`, orta tık veya `Ctrl+Tık`) son 2000ms içinde kasten basması durumunda yeni sekme açılmasına izin verilir.
+  - **Kapsamlı İstisnalar:** Aynı site içi gezintiler, manuel açılan sekmeler (`Ctrl+T`, yer imleri), arama motorları/sosyal akışlar (Google, Bing, Reddit, YouTube) ve kimlik/ödeme ağ geçitleri (Google OAuth, Apple ID, Microsoft, GitHub, Stripe, PayPal, İyzico, PayTR) asla engellenmez.
+- **Anti-DevTools & Sağ Tık Engelleme Savunması:** Sitelerin `F12`, `Ctrl+Shift+I/J/C`, `Ctrl+U` kısayollarına ve sağ tık (`contextmenu`) menüsüne koyduğu `preventDefault()` engellerini yakalama (`capture`) fazında durdurarak tarayıcının yerel geliştirici araçlarının ve sağ tık menüsünün özgürce çalışmasını sağlar.
 - **`about:blank` ve `srcdoc` Frame Koruması:** `all_frames: true`, `match_about_blank: true` ve `match_origin_as_fallback: true` ile dinamik oluşturulan tüm iframe'ler anında kalkan altına alınır.
 - **Temiz `<iframe>` Kaçışını Engelleme:** `HTMLIFrameElement.prototype.contentWindow` ve `contentDocument` sarılarak iframe içine kaçıp `window.open` tetikleyen betikler etkisiz kılınır.
 - **Sentetik Olay Engelleme:** `EventTarget.prototype.dispatchEvent(new MouseEvent('click'))` ile programatik tetiklenen izinsiz harici tıklamalar yakalanıp iptal edilir.
@@ -76,7 +79,7 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.7.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.8.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
 2. Tarayıcınızda eklentiler sayfasına gidin:
    - Google Chrome: `chrome://extensions`
    - Microsoft Edge: `edge://extensions`

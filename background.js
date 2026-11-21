@@ -1055,6 +1055,78 @@ function cleanStaleMonitoredTabs() {
   }
 }
 
+// User-intent tracking: openerTabId -> Array<{ targetHost: string, targetRoot: string, href: string, expiresAt: number }>
+const trustedIntents = new Map();
+
+function cleanStaleTrustedIntents(store = trustedIntents) {
+  const now = Date.now();
+  for (const [id, list] of store.entries()) {
+    const valid = list.filter((item) => item.expiresAt > now);
+    if (valid.length > 0) {
+      store.set(id, valid);
+    } else {
+      store.delete(id);
+    }
+  }
+}
+
+function recordTrustedIntent(openerTabId, targetHost, href = '', store = trustedIntents) {
+  if (!openerTabId || !targetHost) return;
+  const now = Date.now();
+  const cleanHost = targetHost.toLowerCase().trim();
+  const entry = {
+    targetHost: cleanHost,
+    targetRoot: getRootDomain(cleanHost),
+    href: href ? href.trim() : '',
+    expiresAt: now + 2000 // Valid for 2000ms
+  };
+
+  const existing = store.get(openerTabId) || [];
+  const valid = existing.filter((item) => item.expiresAt > now);
+  valid.push(entry);
+  store.set(openerTabId, valid);
+}
+
+function hasValidTrustedIntent(openerTabId, targetHost, tabUrl = '', store = trustedIntents) {
+  if (!openerTabId || !store.has(openerTabId)) return false;
+  const now = Date.now();
+  const intents = store.get(openerTabId);
+  const cleanTarget = targetHost ? targetHost.toLowerCase().trim() : '';
+  const targetRoot = getRootDomain(cleanTarget);
+
+  let matched = false;
+  const valid = [];
+
+  for (const item of intents) {
+    if (item.expiresAt > now) {
+      if (!matched) {
+        if (
+          cleanTarget &&
+          (cleanTarget === item.targetHost ||
+            cleanTarget.endsWith('.' + item.targetHost) ||
+            (targetRoot && item.targetRoot && targetRoot === item.targetRoot))
+        ) {
+          matched = true;
+          continue; // Consume the intent
+        }
+        if (tabUrl && item.href && (tabUrl === item.href || tabUrl.startsWith(item.href))) {
+          matched = true;
+          continue; // Consume the intent
+        }
+      }
+      valid.push(item);
+    }
+  }
+
+  if (valid.length > 0) {
+    store.set(openerTabId, valid);
+  } else {
+    store.delete(openerTabId);
+  }
+
+  return matched;
+}
+
 const POPUNDER_MALVERTISING_PATHS = [
   '/afu.php',
   '/ntfc.php',
@@ -1091,6 +1163,74 @@ const LEGITIMATE_HOST_WHITELIST = new Set([
   'apple.com',
   'microsoft.com'
 ]);
+
+const TRUSTED_AUTH_PAYMENT_DOMAINS = [
+  'accounts.google.com',
+  'appleid.apple.com',
+  'login.microsoftonline.com',
+  'login.live.com',
+  'github.com',
+  'discord.com',
+  'facebook.com',
+  'twitter.com',
+  'x.com',
+  'stripe.com',
+  'checkout.stripe.com',
+  'paypal.com',
+  'www.paypal.com',
+  'paypalobjects.com',
+  'iyzico.com',
+  'sandbox-api.iyzico.com',
+  'paytr.com',
+  'bkmexpress.com.tr'
+];
+
+function isAuthOrPaymentUrl(targetUrlStr) {
+  try {
+    const u = new URL(targetUrlStr);
+    const host = u.hostname.toLowerCase();
+    const root = getRootDomain(host);
+    const isDomainMatch = TRUSTED_AUTH_PAYMENT_DOMAINS.some(
+      (d) => host === d || host.endsWith('.' + d) || root === d
+    );
+    if (isDomainMatch) return true;
+
+    const fullPath = (u.pathname + u.search).toLowerCase();
+    if (
+      fullPath.includes('/oauth') ||
+      fullPath.includes('/3dsecure') ||
+      fullPath.includes('/3d-secure') ||
+      fullPath.includes('/authorize') ||
+      fullPath.includes('response_type=code')
+    ) {
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+const TRUSTED_OPENER_FEEDS = new Set([
+  'google.com',
+  'bing.com',
+  'duckduckgo.com',
+  'yandex.com',
+  'yandex.com.tr',
+  'yahoo.com',
+  'search.yahoo.com',
+  'reddit.com',
+  'x.com',
+  'twitter.com',
+  'youtube.com',
+  'github.com',
+  'linkedin.com',
+  'wikipedia.org'
+]);
+
+function isTrustedFeedOpener(openerHost) {
+  if (!openerHost) return false;
+  const root = getRootDomain(openerHost.toLowerCase());
+  return TRUSTED_OPENER_FEEDS.has(root) || TRUSTED_OPENER_FEEDS.has(openerHost.toLowerCase());
+}
 
 function getRootDomain(hostname) {
   if (!hostname || typeof hostname !== 'string') return '';
@@ -1221,25 +1361,124 @@ function isVignetteCandidate(el) {
   return false;
 }
 
-async function checkAndNeutralizePopunderTab(tabId, url, openerTabId) {
+function shouldBlockNewTab({
+  openerTabId,
+  openerUrl = '',
+  tabUrl = '',
+  intentsStore = trustedIntents,
+  whitelist = [],
+  popupShield = true
+}) {
+  if (!popupShield) {
+    return { block: false, reason: 'shield_disabled' };
+  }
+
+  // User initiated (manual new tab, bookmarks, omnibox) without programmatic opener
+  if (!openerTabId) {
+    return { block: false, reason: 'user_initiated_no_opener' };
+  }
+
+  if (!tabUrl || typeof tabUrl !== 'string') {
+    return { block: false, reason: 'empty_url' };
+  }
+
+  const trimmedTab = tabUrl.trim();
+  if (
+    trimmedTab === 'about:blank' ||
+    trimmedTab.startsWith('chrome://') ||
+    trimmedTab.startsWith('edge://') ||
+    trimmedTab.startsWith('brave://') ||
+    trimmedTab.startsWith('chrome-extension://') ||
+    trimmedTab.startsWith('javascript:')
+  ) {
+    return { block: false, reason: 'non_http_protocol' };
+  }
+
+  let targetUrlObj;
+  try {
+    targetUrlObj = new URL(trimmedTab);
+  } catch {
+    return { block: false, reason: 'invalid_url' };
+  }
+
+  const targetHost = targetUrlObj.hostname.toLowerCase();
+  let openerHost = '';
+  if (openerUrl) {
+    try {
+      openerHost = new URL(openerUrl).hostname.toLowerCase();
+    } catch {}
+  }
+
+  // Opener is in user whitelist
+  if (openerHost && whitelist.some((w) => openerHost === w || openerHost.endsWith('.' + w))) {
+    return { block: false, reason: 'opener_whitelisted' };
+  }
+
+  // Same root domain navigation is legitimate
+  const openerRoot = getRootDomain(openerHost);
+  const targetRoot = getRootDomain(targetHost);
+  if (openerRoot && targetRoot && openerRoot === targetRoot) {
+    return { block: false, reason: 'same_site' };
+  }
+
+  // Known pop-under / malvertising signatures are blocked immediately
+  if (isPopunderAdUrl(trimmedTab, openerHost)) {
+    return { block: true, reason: 'known_popunder_ad_signature' };
+  }
+
+  // Exception 1: Explicit user intent verified in content script
+  if (hasValidTrustedIntent(openerTabId, targetHost, trimmedTab, intentsStore)) {
+    return { block: false, reason: 'trusted_user_intent' };
+  }
+
+  // Exception 2: Target is authentication or payment gateway
+  if (isAuthOrPaymentUrl(trimmedTab)) {
+    return { block: false, reason: 'auth_or_payment_gateway' };
+  }
+
+  // Exception 3: Opener is search engine or social media feed
+  if (isTrustedFeedOpener(openerHost)) {
+    return { block: false, reason: 'trusted_opener_feed' };
+  }
+
+  // Global platform whitelist (Google, GitHub, etc.)
+  if (LEGITIMATE_HOST_WHITELIST.has(targetRoot) || LEGITIMATE_HOST_WHITELIST.has(targetHost)) {
+    return { block: false, reason: 'legitimate_platform_whitelist' };
+  }
+
+  // Block rotating/random cross-site pop-under domains
+  return { block: true, reason: 'unsolicited_cross_site_tab' };
+}
+
+async function checkAndNeutralizeTab(tabId, url, openerTabId) {
   try {
     const { popupShield = true, whitelist = [] } = await chrome.storage.local.get(['popupShield', 'whitelist']);
     if (!popupShield) return;
 
-    let openerHost = '';
+    let openerUrl = '';
     if (openerTabId) {
       try {
         const openerTab = await chrome.tabs.get(openerTabId);
         if (openerTab?.url) {
-          openerHost = new URL(openerTab.url).hostname.toLowerCase();
-          const isOpenerWhitelisted = whitelist.some((w) => openerHost === w || openerHost.endsWith('.' + w));
-          if (isOpenerWhitelisted) return;
+          openerUrl = openerTab.url;
         }
       } catch {}
     }
 
-    if (isPopunderAdUrl(url, openerHost)) {
-      console.info(`[AX-Background] Pop-under reklam sekmesi yakalandı ve kapatıldı (${tabId}):`, url);
+    const decision = shouldBlockNewTab({
+      openerTabId,
+      openerUrl,
+      tabUrl: url,
+      intentsStore: trustedIntents,
+      whitelist,
+      popupShield
+    });
+
+    if (decision.block) {
+      console.info(
+        `[AX-Background] Pop-up/under reklam sekmesi engellendi ve kapatıldı (${tabId}, reason: ${decision.reason}):`,
+        url
+      );
       await chrome.tabs.remove(tabId).catch(() => {});
       if (openerTabId) {
         await chrome.tabs.update(openerTabId, { active: true }).catch(() => {});
@@ -1249,21 +1488,24 @@ async function checkAndNeutralizePopunderTab(tabId, url, openerTabId) {
       monitoredTabs.delete(tabId);
     }
   } catch (err) {
-    console.warn('[AX-Privacy background] checkAndNeutralizePopunderTab error:', err);
+    console.warn('[AX-Privacy background] checkAndNeutralizeTab error:', err);
   }
 }
+
+const checkAndNeutralizePopunderTab = checkAndNeutralizeTab;
 
 if (chrome.tabs?.onCreated?.addListener) {
   chrome.tabs.onCreated.addListener((tab) => {
     try {
       if (tab?.id && tab.openerTabId) {
         cleanStaleMonitoredTabs();
+        cleanStaleTrustedIntents();
         monitoredTabs.set(tab.id, {
           openerTabId: tab.openerTabId,
           createdAt: Date.now()
         });
         if (tab.url && tab.url !== 'about:blank') {
-          checkAndNeutralizePopunderTab(tab.id, tab.url, tab.openerTabId);
+          checkAndNeutralizeTab(tab.id, tab.url, tab.openerTabId);
         }
       }
     } catch {}
@@ -1278,7 +1520,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (monitoredTabs.has(tabId) && urlToCheck && urlToCheck !== 'about:blank') {
     const data = monitoredTabs.get(tabId);
     if (Date.now() - data.createdAt <= 5000) {
-      checkAndNeutralizePopunderTab(tabId, urlToCheck, data.openerTabId);
+      checkAndNeutralizeTab(tabId, urlToCheck, data.openerTabId);
     } else {
       monitoredTabs.delete(tabId);
     }
@@ -1627,6 +1869,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
+    if (message.type === 'AX_TRUSTED_NEW_TAB') {
+      const openerTabId = sender.tab?.id;
+      if (openerTabId && message.targetHost) {
+        recordTrustedIntent(openerTabId, message.targetHost, message.href);
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false });
+      }
+      return false;
+    }
+
     sendResponse({ success: false, error: 'Unhandled message type' });
     return false;
   } catch (err) {
@@ -1649,5 +1902,10 @@ export {
   toggleDomainWhitelist,
   getRootDomain,
   isPopunderAdUrl,
-  isVignetteCandidate
+  isVignetteCandidate,
+  shouldBlockNewTab,
+  recordTrustedIntent,
+  hasValidTrustedIntent,
+  TRUSTED_AUTH_PAYMENT_DOMAINS,
+  TRUSTED_OPENER_FEEDS
 };
