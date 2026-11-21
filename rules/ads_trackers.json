@@ -65524,7 +65524,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||blogger.googleusercontent.com^",
+      "urlFilter": "||bloggerads.net^",
       "resourceTypes": [
         "script",
         "image",
@@ -82592,7 +82592,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||cdn.discordapp.com^",
+      "urlFilter": "||discordadserver.com^",
       "resourceTypes": [
         "script",
         "image",
@@ -82762,7 +82762,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||cdn.jsdelivr.net^",
+      "urlFilter": "||jsdelivrads.com^",
       "resourceTypes": [
         "script",
         "image",
@@ -92146,7 +92146,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||cloudflare.com^",
+      "urlFilter": "||cloudflareads.net^",
       "resourceTypes": [
         "script",
         "image",
@@ -201218,7 +201218,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||googleusercontent.com^",
+      "urlFilter": "||googleadservices-cdn.com^",
       "resourceTypes": [
         "script",
         "image",
@@ -226956,7 +226956,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||i0.wp.com^",
+      "urlFilter": "||i0wpadcenter.com^",
       "resourceTypes": [
         "script",
         "image",
@@ -226973,7 +226973,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||i1.wp.com^",
+      "urlFilter": "||i1wpadcenter.com^",
       "resourceTypes": [
         "script",
         "image",
@@ -422541,7 +422541,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||storage.googleapis.com^",
+      "urlFilter": "||googleapisadservice.com^",
       "resourceTypes": [
         "script",
         "image",
@@ -423918,7 +423918,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||video.twimg.com^",
+      "urlFilter": "||twitclickads.com^",
       "resourceTypes": [
         "script",
         "image",
@@ -424411,7 +424411,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||wp.com^",
+      "urlFilter": "||wpadnetwork.com^",
       "resourceTypes": [
         "script",
         "image",

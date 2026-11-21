@@ -400,6 +400,42 @@ const DEFAULT_LIVE_SOURCES = [
   }
 ];
 
+const PROTECTED_INFRASTRUCTURE = [
+  'twimg.com',
+  'twitter.com',
+  'x.com',
+  't.co',
+  'instagram.com',
+  'cdninstagram.com',
+  'facebook.com',
+  'fbcdn.net',
+  'youtube.com',
+  'googlevideo.com',
+  'ytimg.com',
+  'ggpht.com',
+  'youtubei.googleapis.com',
+  'storage.googleapis.com',
+  'googleusercontent.com',
+  'blogger.googleusercontent.com',
+  'gstatic.com',
+  'cloudflare.com',
+  'cloudflare.net',
+  'jsdelivr.net',
+  'unpkg.com',
+  'cdnjs.cloudflare.com',
+  'wp.com',
+  'wordpress.com',
+  'discord.com',
+  'discordapp.com',
+  'github.com',
+  'githubusercontent.com',
+  'githubassets.com',
+  'apple.com',
+  'icloud.com',
+  'microsoft.com',
+  'azureedge.net'
+];
+
 function parseFilterLine(line) {
   if (!line || typeof line !== 'string') return null;
   let d = line.trim();
@@ -455,19 +491,9 @@ function parseFilterLine(line) {
   if (EXCLUDED_HOSTS.has(d)) return null;
   if (!DOMAIN_REGEX.test(d)) return null;
 
-  // Critical YouTube infrastructure exemption: Never block YouTube or its streaming/API endpoints
-  if (
-    d === 'youtube.com' ||
-    d.endsWith('.youtube.com') ||
-    d === 'googlevideo.com' ||
-    d.endsWith('.googlevideo.com') ||
-    d === 'ytimg.com' ||
-    d.endsWith('.ytimg.com') ||
-    d === 'ggpht.com' ||
-    d.endsWith('.ggpht.com') ||
-    d === 'youtubei.googleapis.com' ||
-    d.endsWith('.youtubei.googleapis.com')
-  ) {
+  // Critical Web Infrastructure & Essential Platform Exemptions:
+  // Never block essential CDNs, media endpoints, fonts, or social infrastructure
+  if (PROTECTED_INFRASTRUCTURE.some((p) => d === p || d.endsWith('.' + p))) {
     return null;
   }
 
@@ -1357,8 +1383,21 @@ const LEGITIMATE_HOST_WHITELIST = new Set([
   'facebook.com',
   'twitter.com',
   'x.com',
+  'instagram.com',
+  'threads.net',
+  'tiktok.com',
+  'pinterest.com',
+  'reddit.com',
+  'linkedin.com',
+  'discord.com',
+  'spotify.com',
+  'netflix.com',
+  'amazon.com',
+  'twitch.tv',
   'apple.com',
-  'microsoft.com'
+  'microsoft.com',
+  'whatsapp.com',
+  'telegram.org'
 ]);
 
 const TRUSTED_AUTH_PAYMENT_DOMAINS = [
@@ -1417,10 +1456,20 @@ const TRUSTED_OPENER_FEEDS = new Set([
   'reddit.com',
   'x.com',
   'twitter.com',
+  'instagram.com',
+  'facebook.com',
+  'threads.net',
+  'tiktok.com',
+  'pinterest.com',
   'youtube.com',
   'github.com',
   'linkedin.com',
-  'wikipedia.org'
+  'wikipedia.org',
+  'discord.com',
+  'spotify.com',
+  'twitch.tv',
+  'whatsapp.com',
+  'telegram.org'
 ]);
 
 function isTrustedFeedOpener(openerHost) {
@@ -2177,5 +2226,8 @@ export {
   hasValidTrustedIntent,
   lastUserNewTabClicks,
   TRUSTED_AUTH_PAYMENT_DOMAINS,
-  TRUSTED_OPENER_FEEDS
+  TRUSTED_OPENER_FEEDS,
+  PROTECTED_INFRASTRUCTURE,
+  LEGITIMATE_HOST_WHITELIST,
+  isTrustedFeedOpener
 };

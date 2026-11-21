@@ -63,7 +63,10 @@ const {
   recordTrustedIntent,
   hasValidTrustedIntent,
   evaluateUrlThreat,
-  lastUserNewTabClicks
+  lastUserNewTabClicks,
+  PROTECTED_INFRASTRUCTURE,
+  LEGITIMATE_HOST_WHITELIST,
+  isTrustedFeedOpener
 } = await import('../background.js');
 
 const __filename = fileURLToPath(import.meta.url);
@@ -660,6 +663,75 @@ runTest('evaluateUrlThreat flags high-risk scam TLDs combined with financial or 
 
   const normalSite = evaluateUrlThreat('https://developer.mozilla.org/en-US/docs');
   assert.strictEqual(normalSite.level, 'safe');
+});
+
+console.log('\n[Group 9: Safe Infrastructure & Feed Platforms (v3.1.1)]');
+
+runTest('PROTECTED_INFRASTRUCTURE preserves Twitter/X, Instagram, CDNs, WordPress and Cloudflare', () => {
+  const critical = [
+    'video.twimg.com',
+    'twimg.com',
+    'x.com',
+    't.co',
+    'instagram.com',
+    'cdninstagram.com',
+    'cdn.jsdelivr.net',
+    'cloudflare.com',
+    'storage.googleapis.com',
+    'googleusercontent.com',
+    'wp.com',
+    'i0.wp.com',
+    'discord.com',
+    'cdn.discordapp.com'
+  ];
+  for (const domain of critical) {
+    const isProtected = PROTECTED_INFRASTRUCTURE.some((p) => domain === p || domain.endsWith('.' + p));
+    assert.strictEqual(isProtected, true, `${domain} must be protected infrastructure`);
+  }
+});
+
+runTest('isTrustedFeedOpener permits Instagram, X/Twitter, Facebook, Reddit and YouTube openers', () => {
+  assert.strictEqual(isTrustedFeedOpener('instagram.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('www.instagram.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('x.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('twitter.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('facebook.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('threads.net'), true);
+  assert.strictEqual(isTrustedFeedOpener('tiktok.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('reddit.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('google.com'), true);
+  assert.strictEqual(isTrustedFeedOpener('randompiratesite.com'), false);
+});
+
+runTest('shouldBlockNewTab allows external outbound links originating from Instagram and Twitter feeds', () => {
+  const igResult = shouldBlockNewTab({
+    openerTabId: 301,
+    openerUrl: 'https://www.instagram.com/',
+    tabUrl: 'https://someexternalshop.com/product/123',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(igResult.block, false);
+  assert.strictEqual(igResult.reason, 'trusted_opener_feed');
+
+  const xResult = shouldBlockNewTab({
+    openerTabId: 302,
+    openerUrl: 'https://x.com/home',
+    tabUrl: 'https://newsoutlet.org/article',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(xResult.block, false);
+  assert.strictEqual(xResult.reason, 'trusted_opener_feed');
+});
+
+runTest('LEGITIMATE_HOST_WHITELIST protects major platform destinations', () => {
+  assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('instagram.com'), true);
+  assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('x.com'), true);
+  assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('reddit.com'), true);
+  assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('discord.com'), true);
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);

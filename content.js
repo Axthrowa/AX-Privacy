@@ -130,9 +130,28 @@
           tag === 'article' ||
           tag === 'form' ||
           tag === 'body' ||
-          tag === 'html'
+          tag === 'html' ||
+          tag === 'svg' ||
+          tag === 'img' ||
+          tag === 'button'
         ) {
           return true;
+        }
+
+        // Never touch dialogs, buttons, tooltips, or interactive controls
+        if (el.getAttribute) {
+          const role = el.getAttribute('role');
+          if (
+            role === 'dialog' ||
+            role === 'button' ||
+            role === 'tab' ||
+            role === 'menu' ||
+            role === 'menuitem' ||
+            role === 'tooltip' ||
+            el.getAttribute('aria-modal') === 'true'
+          ) {
+            return true;
+          }
         }
 
         // Never touch video players or interactive input forms
@@ -192,8 +211,28 @@
 
       function scanForMaliciousOverlaysAndBanners() {
         try {
-          if (currentHost.includes('youtube.com')) {
-            // YouTube ad & interface filtering is exclusively handled by youtube-shield.js
+          const MAJOR_SAFE_PLATFORMS = [
+            'x.com',
+            'twitter.com',
+            'instagram.com',
+            'facebook.com',
+            'youtube.com',
+            'twitch.tv',
+            'reddit.com',
+            'github.com',
+            'linkedin.com',
+            'google.com',
+            'netflix.com',
+            'amazon.com',
+            'discord.com',
+            'spotify.com',
+            'whatsapp.com',
+            'telegram.org',
+            'threads.net',
+            'tiktok.com',
+            'pinterest.com'
+          ];
+          if (MAJOR_SAFE_PLATFORMS.some((p) => currentHost === p || currentHost.endsWith('.' + p))) {
             return;
           }
           const candidates = document.querySelectorAll(
@@ -276,34 +315,9 @@
               }
             }
 
-            // Pattern 4: Invisible Click Overlay Trap (covers large area, z-index >= 999, transparent)
+            // Pattern 4: Vignette / Interstitial / Fake Loading Trap
             if (isAbsoluteOrFixed) {
               const zIndex = parseInt(styleObj.zIndex, 10);
-              if (zIndex >= 999 && rect.width >= 250 && rect.height >= 150) {
-                const opacity = parseFloat(styleObj.opacity);
-                const isTransparentBg =
-                  styleObj.backgroundColor === 'transparent' ||
-                  styleObj.backgroundColor.includes('rgba(0, 0, 0, 0)') ||
-                  styleObj.backgroundColor === 'rgba(0,0,0,0)';
-
-                const isTransparent = opacity < 0.1 || isTransparentBg;
-
-                if (isTransparent) {
-                  const textLen = (el.innerText || '').trim().length;
-                  if (textLen < 10) {
-                    const childCount = el.children.length;
-                    if (childCount <= 1) {
-                      el.style.setProperty('display', 'none', 'important');
-                      el.style.setProperty('pointer-events', 'none', 'important');
-                      el.__ax_scanned_hidden = true;
-                      blockedCount++;
-                      continue;
-                    }
-                  }
-                }
-              }
-
-              // Pattern 5: Vignette / Interstitial / Fake Loading Trap
               if (zIndex >= 99999 || zIndex >= 2147483000) {
                 const baitPhrases = [
                   'devam etmek için dokunun',
@@ -327,20 +341,9 @@
                   blockedCount++;
                   continue;
                 }
-
-                // Giant empty/transparent curtain with extreme z-index
-                if (rect.width >= (window.innerWidth || 1000) * 0.7 && rect.height >= (window.innerHeight || 800) * 0.7) {
-                  if (lowerText.length === 0 && !el.querySelector('input, select, textarea, video, form')) {
-                    el.remove();
-                    unlockBodyOverflow();
-                    console.info('[AX-Vignette] Reklam katmanı temizlendi');
-                    blockedCount++;
-                    continue;
-                  }
-                }
               }
 
-              // Pattern 6: Floating Corner Badges / Fake Corner Widgets (<= 90x90px)
+              // Pattern 5: Floating Corner Badges / Fake Corner Widgets (<= 90x90px)
               if (zIndex >= 1000 && rect.width >= 10 && rect.width <= 90 && rect.height >= 10 && rect.height <= 90) {
                 const winW = window.innerWidth || 1000;
                 const winH = window.innerHeight || 800;

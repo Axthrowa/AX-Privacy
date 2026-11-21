@@ -249,19 +249,45 @@ function cleanDomain(raw) {
   if (EXCLUDED_HOSTS.has(d)) return null;
   if (!DOMAIN_REGEX.test(d)) return null;
 
-  // Critical YouTube infrastructure exemption: Never block YouTube or its streaming/API endpoints
-  if (
-    d === 'youtube.com' ||
-    d.endsWith('.youtube.com') ||
-    d === 'googlevideo.com' ||
-    d.endsWith('.googlevideo.com') ||
-    d === 'ytimg.com' ||
-    d.endsWith('.ytimg.com') ||
-    d === 'ggpht.com' ||
-    d.endsWith('.ggpht.com') ||
-    d === 'youtubei.googleapis.com' ||
-    d.endsWith('.youtubei.googleapis.com')
-  ) {
+  // Critical Web Infrastructure & Essential Platform Exemptions:
+  // Never block essential CDNs, media endpoints, fonts, or social infrastructure
+  const PROTECTED_INFRASTRUCTURE = [
+    'twimg.com',
+    'twitter.com',
+    'x.com',
+    't.co',
+    'instagram.com',
+    'cdninstagram.com',
+    'facebook.com',
+    'fbcdn.net',
+    'youtube.com',
+    'googlevideo.com',
+    'ytimg.com',
+    'ggpht.com',
+    'youtubei.googleapis.com',
+    'storage.googleapis.com',
+    'googleusercontent.com',
+    'blogger.googleusercontent.com',
+    'gstatic.com',
+    'cloudflare.com',
+    'cloudflare.net',
+    'jsdelivr.net',
+    'unpkg.com',
+    'cdnjs.cloudflare.com',
+    'wp.com',
+    'wordpress.com',
+    'discord.com',
+    'discordapp.com',
+    'github.com',
+    'githubusercontent.com',
+    'githubassets.com',
+    'apple.com',
+    'icloud.com',
+    'microsoft.com',
+    'azureedge.net'
+  ];
+
+  if (PROTECTED_INFRASTRUCTURE.some((p) => d === p || d.endsWith('.' + p))) {
     return null;
   }
 
