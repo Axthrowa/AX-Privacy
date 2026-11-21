@@ -219,6 +219,32 @@
 
       function defuseVideoPlayerClickTraps() {
         try {
+          const MAJOR_SAFE_PLATFORMS = [
+            'x.com',
+            'twitter.com',
+            'instagram.com',
+            'facebook.com',
+            'youtube.com',
+            'twitch.tv',
+            'reddit.com',
+            'github.com',
+            'linkedin.com',
+            'google.com',
+            'netflix.com',
+            'amazon.com',
+            'amazon.com.tr',
+            'discord.com',
+            'spotify.com',
+            'whatsapp.com',
+            'telegram.org',
+            'threads.net',
+            'tiktok.com',
+            'pinterest.com'
+          ];
+          if (MAJOR_SAFE_PLATFORMS.some((p) => currentHost === p || currentHost.endsWith('.' + p))) {
+            return;
+          }
+
           const videos = document.querySelectorAll('video');
           if (!videos || videos.length === 0) return;
 
@@ -240,7 +266,7 @@
               const el = overlays[o];
               if (el === video || el.contains(video)) continue;
 
-              // Never touch legitimate controls
+              // Never touch legitimate controls, buttons, or overlay containers housing controls
               const isControl = Boolean(
                 (el.matches &&
                   el.matches(
@@ -248,8 +274,11 @@
                   )) ||
                   (el.closest &&
                     el.closest(
-                      '[class*="control"], [class*="progress"], [class*="slider"], [class*="rail"], [class*="timeline"], [class*="seekbar"], [role="slider"], [role="progressbar"], button, input'
-                    ))
+                      '[class*="control"], [class*="progress"], [class*="slider"], [class*="rail"], [class*="timeline"], [class*="seekbar"], [role="slider"], [role="progressbar"], button, input, .video-player, [data-a-target*="player"]'
+                    )) ||
+                  el.querySelector(
+                    'button, [role="button"], [role="slider"], input, select, textarea, [class*="control"], [class*="progress"], [data-a-target*="button"], [data-a-target*="player"]'
+                  )
               );
               if (isControl) continue;
 
@@ -270,13 +299,9 @@
                 oRect.width >= vRect.width * 0.6 && oRect.height >= vRect.height * 0.6;
 
               if (isCoveringPlayer) {
+                // Must be an actual ad or external link trap; never disable pure UI overlays
                 const hasAdOrLink = el.tagName === 'A' || Boolean(el.querySelector('a[href^="http"], a[target="_blank"]'));
-                const opacity = parseFloat(style.opacity);
-                const isTransparent =
-                  opacity < 0.1 ||
-                  style.backgroundColor === 'transparent' ||
-                  style.backgroundColor.includes('rgba(0, 0, 0, 0)');
-                if (hasAdOrLink || isTransparent) {
+                if (hasAdOrLink) {
                   el.style.setProperty('pointer-events', 'none', 'important');
                   if (el.tagName === 'A') {
                     el.removeAttribute('href');
@@ -291,6 +316,32 @@
 
       function neutralizeAntiAdblockModals() {
         try {
+          const MAJOR_SAFE_PLATFORMS = [
+            'x.com',
+            'twitter.com',
+            'instagram.com',
+            'facebook.com',
+            'youtube.com',
+            'twitch.tv',
+            'reddit.com',
+            'github.com',
+            'linkedin.com',
+            'google.com',
+            'netflix.com',
+            'amazon.com',
+            'amazon.com.tr',
+            'discord.com',
+            'spotify.com',
+            'whatsapp.com',
+            'telegram.org',
+            'threads.net',
+            'tiktok.com',
+            'pinterest.com'
+          ];
+          if (MAJOR_SAFE_PLATFORMS.some((p) => currentHost === p || currentHost.endsWith('.' + p))) {
+            return;
+          }
+
           const modals = document.querySelectorAll(
             'div, section, aside, [role="dialog"], [class*="modal"], [id*="modal"], [class*="overlay"], [id*="overlay"], [class*="blocker"], [id*="blocker"], [class*="adblock"], [id*="adblock"]'
           );
@@ -332,9 +383,6 @@
 
       function scanForMaliciousOverlaysAndBanners() {
         try {
-          defuseVideoPlayerClickTraps();
-          neutralizeAntiAdblockModals();
-
           const MAJOR_SAFE_PLATFORMS = [
             'x.com',
             'twitter.com',
@@ -348,6 +396,7 @@
             'google.com',
             'netflix.com',
             'amazon.com',
+            'amazon.com.tr',
             'discord.com',
             'spotify.com',
             'whatsapp.com',
@@ -359,6 +408,9 @@
           if (MAJOR_SAFE_PLATFORMS.some((p) => currentHost === p || currentHost.endsWith('.' + p))) {
             return;
           }
+
+          defuseVideoPlayerClickTraps();
+          neutralizeAntiAdblockModals();
           const candidates = document.querySelectorAll(
             'div, section, aside, span, a, [id*="overlay"], [class*="overlay"], [id*="banner"], [class*="banner"], [id*="reklam"], [class*="reklam"]'
           );

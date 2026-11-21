@@ -909,13 +909,28 @@
     style.textContent = `
       .ad-interrupt,
       [data-test-selector="ad-banner-default-text"],
+      [data-test-selector="sad-overlay"],
       [data-a-target="video-ad-label"],
       [data-a-target="video-ad-countdown"],
-      .video-player__overlay [data-a-target*="ad-"],
-      .video-player__overlay [data-test-selector*="ad-"] {
+      [data-a-target="ad-feedback-button"] {
         display: none !important;
         opacity: 0 !important;
         pointer-events: none !important;
+      }
+
+      /* Guarantee that Twitch player controls, seekbars, and overlays are always interactive */
+      .video-player__overlay,
+      .video-player__default-player,
+      [data-a-target="player-overlay-click-handler"],
+      [data-a-target="player-play-pause-button"],
+      [data-a-target="player-fullscreen-button"],
+      [data-a-target="player-settings-button"],
+      [data-a-target="player-theatre-mode-button"],
+      [data-a-target="player-volume-slider"],
+      .video-player button,
+      .video-player [role="button"],
+      .video-player [role="slider"] {
+        pointer-events: auto !important;
       }
     `;
     const target = document.head || document.documentElement;

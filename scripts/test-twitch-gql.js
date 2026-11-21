@@ -84,6 +84,17 @@ if (undeclaredVars.length > 0) {
 
 console.log('[PASS] Static GQL variable check passed: 100% of declared variables are used and valid.');
 
+// Static Check 3: Verify Twitch Player Controls are guaranteed pointer-events: auto
+if (!source.includes('player-play-pause-button') || !source.includes('player-fullscreen-button') || !source.includes('pointer-events: auto !important')) {
+  console.error('[FAIL] twitch-shield.js does not contain pointer-events: auto protection for player controls');
+  process.exit(1);
+}
+if (source.includes('.video-player__overlay [data-a-target*="ad-"]')) {
+  console.error('[FAIL] twitch-shield.js contains dangerous wildcard selector inside .video-player__overlay');
+  process.exit(1);
+}
+console.log('[PASS] Twitch player controls are guaranteed interactive and protected from pointer-events suppression.');
+
 // 2. Live Network Validation
 async function runLiveTest() {
   const DEFAULT_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
