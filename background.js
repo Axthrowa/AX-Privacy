@@ -1043,9 +1043,245 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 // Tab navigation monitoring
+// Monitored newly opened tabs: tabId -> { openerTabId, createdAt }
+const monitoredTabs = new Map();
+
+function cleanStaleMonitoredTabs() {
+  const now = Date.now();
+  for (const [id, data] of monitoredTabs.entries()) {
+    if (now - data.createdAt > 5000) {
+      monitoredTabs.delete(id);
+    }
+  }
+}
+
+const POPUNDER_MALVERTISING_PATHS = [
+  '/afu.php',
+  '/ntfc.php',
+  'in-page-push',
+  'popunder'
+];
+
+const POPUNDER_AD_NETWORKS = [
+  'monetag.com',
+  'propellerads.com',
+  'adsterra.com',
+  'hilltopads.net',
+  'clickadu.com',
+  'exoclick.com',
+  'popads.net',
+  'popcash.net',
+  'tsyndicate.com',
+  'trafficstars.com',
+  'onclickalgo.com',
+  'rollerads.com',
+  'richads.com'
+];
+
+const LEGITIMATE_HOST_WHITELIST = new Set([
+  'github.com',
+  'google.com',
+  'www.google.com',
+  'youtube.com',
+  'www.youtube.com',
+  'wikipedia.org',
+  'facebook.com',
+  'twitter.com',
+  'x.com',
+  'apple.com',
+  'microsoft.com'
+]);
+
+function getRootDomain(hostname) {
+  if (!hostname || typeof hostname !== 'string') return '';
+  const clean = hostname.trim().toLowerCase();
+  const parts = clean.split('.');
+  if (parts.length <= 2) return clean;
+  const secondToLast = parts[parts.length - 2];
+  if (['com', 'co', 'gov', 'org', 'edu', 'net'].includes(secondToLast) && parts.length >= 3) {
+    return parts.slice(-3).join('.');
+  }
+  return parts.slice(-2).join('.');
+}
+
+function isPopunderAdUrl(urlStr, openerHost = '') {
+  if (!urlStr || typeof urlStr !== 'string') return false;
+  const trimmed = urlStr.trim();
+  if (
+    trimmed === 'about:blank' ||
+    trimmed.startsWith('chrome://') ||
+    trimmed.startsWith('edge://') ||
+    trimmed.startsWith('brave://') ||
+    trimmed.startsWith('javascript:')
+  ) {
+    return false;
+  }
+
+  let u;
+  try {
+    u = new URL(trimmed);
+  } catch {
+    return false;
+  }
+
+  const targetHost = u.hostname.toLowerCase();
+  const openerRoot = getRootDomain(openerHost);
+  const targetRoot = getRootDomain(targetHost);
+
+  // If same root domain as opener, NEVER treat as pop-under
+  if (openerRoot && targetRoot && openerRoot === targetRoot) {
+    return false;
+  }
+
+  // If target root is an explicitly legitimate platform, never close
+  if (LEGITIMATE_HOST_WHITELIST.has(targetRoot) || LEGITIMATE_HOST_WHITELIST.has(targetHost)) {
+    return false;
+  }
+
+  const targetPath = u.pathname.toLowerCase();
+  const targetQuery = u.search.toLowerCase();
+
+  // 1. Direct match on known pop-under ad network domains
+  if (POPUNDER_AD_NETWORKS.some((net) => targetHost === net || targetHost.endsWith('.' + net))) {
+    return true;
+  }
+
+  // 2. Specific malvertising path signatures
+  if (POPUNDER_MALVERTISING_PATHS.some((p) => targetPath.includes(p) || targetQuery.includes(p))) {
+    return true;
+  }
+
+  // 3. Monetag / Propeller /4/ + 7+ digit zone ID pattern
+  if (/\/4\/\d{7,}/.test(targetPath) || /\/4\/\d{7,}/.test(targetQuery)) {
+    return true;
+  }
+
+  // 4. Query signatures for click hijackers
+  const hasZone = targetQuery.includes('zoneid=') || targetQuery.includes('zone_id=');
+  const hasClickId = targetQuery.includes('click_id=') || targetQuery.includes('clickid=');
+  if (hasZone && hasClickId) {
+    return true;
+  }
+
+  const hasSubId = targetQuery.includes('subid=') || targetQuery.includes('sub_id=');
+  const hasOfferId = targetQuery.includes('offer_id=') || targetQuery.includes('offerid=');
+  if (hasSubId && hasOfferId) {
+    return true;
+  }
+
+  return false;
+}
+
+function isVignetteCandidate(el) {
+  if (!el) return false;
+  if (el.hasPasswordInput || el.hasVideo || el.hasAuthKeywords) return false;
+
+  // Pattern 1: Max-Z-Index Fullscreen Ad Iframe
+  if (el.tagName === 'IFRAME') {
+    const z = parseInt(el.style?.zIndex || '0', 10);
+    if (z >= 9999999 || z >= 2147483000) {
+      const w = el.rect?.width || 0;
+      const h = el.rect?.height || 0;
+      if (w >= 300 && h >= 300) {
+        return true;
+      }
+    }
+  }
+
+  const z = parseInt(el.style?.zIndex || '0', 10);
+  const text = (el.text || '').toLowerCase();
+  const isFixed = el.style?.position === 'fixed';
+
+  // Pattern 2: Fake Loading / Tap-To-Continue Bait text
+  if (isFixed && z >= 99999) {
+    const baitPhrases = [
+      'devam etmek için dokunun',
+      'devam etmek için tıklayın',
+      'tap to continue',
+      'click to continue',
+      'press allow',
+      'bildirimlere izin ver'
+    ];
+    const hasBaitPhrase = baitPhrases.some((b) => text.includes(b));
+    const hasProgress =
+      /\d{1,3}\s*%/i.test(text) &&
+      (text.includes('yükleniyor') || text.includes('loading') || text.includes('dokunun') || text.includes('continue'));
+    if (hasBaitPhrase || hasProgress) {
+      return true;
+    }
+
+    // Pattern 3: Giant Empty / Transparent Click Curtain
+    const w = el.rect?.width || 0;
+    const h = el.rect?.height || 0;
+    if (w >= 600 && h >= 400 && text.trim().length === 0 && !el.hasRealInputs) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function checkAndNeutralizePopunderTab(tabId, url, openerTabId) {
+  try {
+    const { popupShield = true, whitelist = [] } = await chrome.storage.local.get(['popupShield', 'whitelist']);
+    if (!popupShield) return;
+
+    let openerHost = '';
+    if (openerTabId) {
+      try {
+        const openerTab = await chrome.tabs.get(openerTabId);
+        if (openerTab?.url) {
+          openerHost = new URL(openerTab.url).hostname.toLowerCase();
+          const isOpenerWhitelisted = whitelist.some((w) => openerHost === w || openerHost.endsWith('.' + w));
+          if (isOpenerWhitelisted) return;
+        }
+      } catch {}
+    }
+
+    if (isPopunderAdUrl(url, openerHost)) {
+      console.info(`[AX-Background] Pop-under reklam sekmesi yakalandı ve kapatıldı (${tabId}):`, url);
+      await chrome.tabs.remove(tabId).catch(() => {});
+      if (openerTabId) {
+        await chrome.tabs.update(openerTabId, { active: true }).catch(() => {});
+      }
+      const { totalBlocked = 0 } = await chrome.storage.local.get('totalBlocked');
+      await chrome.storage.local.set({ totalBlocked: totalBlocked + 1 }).catch(() => {});
+      monitoredTabs.delete(tabId);
+    }
+  } catch (err) {
+    console.warn('[AX-Privacy background] checkAndNeutralizePopunderTab error:', err);
+  }
+}
+
+if (chrome.tabs?.onCreated?.addListener) {
+  chrome.tabs.onCreated.addListener((tab) => {
+    try {
+      if (tab?.id && tab.openerTabId) {
+        cleanStaleMonitoredTabs();
+        monitoredTabs.set(tab.id, {
+          openerTabId: tab.openerTabId,
+          createdAt: Date.now()
+        });
+        if (tab.url && tab.url !== 'about:blank') {
+          checkAndNeutralizePopunderTab(tab.id, tab.url, tab.openerTabId);
+        }
+      }
+    } catch {}
+  });
+}
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.url || (changeInfo.status === 'complete' && tab?.url)) {
-    analyzeTab(tabId, changeInfo.url || tab.url);
+  const urlToCheck = changeInfo.url || tab?.url;
+  if (urlToCheck) {
+    analyzeTab(tabId, urlToCheck);
+  }
+  if (monitoredTabs.has(tabId) && urlToCheck && urlToCheck !== 'about:blank') {
+    const data = monitoredTabs.get(tabId);
+    if (Date.now() - data.createdAt <= 5000) {
+      checkAndNeutralizePopunderTab(tabId, urlToCheck, data.openerTabId);
+    } else {
+      monitoredTabs.delete(tabId);
+    }
   }
 });
 
@@ -1059,6 +1295,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
+  monitoredTabs.delete(tabId);
   tabThreats.delete(tabId);
   await clearTabAlerted(tabId);
 });
@@ -1409,5 +1646,8 @@ export {
   getStaticDomains,
   getCosmeticRules,
   syncWhitelistRules,
-  toggleDomainWhitelist
+  toggleDomainWhitelist,
+  getRootDomain,
+  isPopunderAdUrl,
+  isVignetteCandidate
 };

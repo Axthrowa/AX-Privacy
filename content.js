@@ -75,6 +75,10 @@
 
       // Collapse blocked empty ad iframe elements
       cssRules.push(`
+        [class*="vignette"]:not(main):not(body),
+        [id*="vignette"]:not(main):not(body),
+        [class*="interstitial"]:not(main):not(body),
+        [id*="interstitial"]:not(main):not(body),
         iframe[src="about:blank"][style*="display: none"],
         iframe[style*="display: none"],
         iframe[style*="visibility: hidden"] {
@@ -143,6 +147,18 @@
         }
 
         return false;
+      }
+
+      function unlockBodyOverflow() {
+        try {
+          if (document.body && (document.body.style.overflow === 'hidden' || document.body.style.position === 'fixed')) {
+            document.body.style.removeProperty('overflow');
+            document.body.style.removeProperty('position');
+          }
+          if (document.documentElement && document.documentElement.style.overflow === 'hidden') {
+            document.documentElement.style.removeProperty('overflow');
+          }
+        } catch {}
       }
 
       function scanForMaliciousOverlaysAndBanners() {
@@ -250,6 +266,43 @@
                       blockedCount++;
                       continue;
                     }
+                  }
+                }
+              }
+
+              // Pattern 5: Vignette / Interstitial / Fake Loading Trap
+              if (zIndex >= 99999 || zIndex >= 2147483000) {
+                const baitPhrases = [
+                  'devam etmek için dokunun',
+                  'devam etmek için tıklayın',
+                  'tap to continue',
+                  'click to continue',
+                  'press allow',
+                  'bildirimlere izin ver'
+                ];
+                const text = (el.innerText || '').trim();
+                const lowerText = text.toLowerCase();
+                const hasBait = baitPhrases.some((b) => lowerText.includes(b));
+                const hasProgress =
+                  /\d{1,3}\s*%/i.test(text) &&
+                  (lowerText.includes('yükleniyor') || lowerText.includes('loading') || lowerText.includes('dokunun') || lowerText.includes('continue'));
+
+                if ((hasBait || hasProgress) && !el.querySelector('input, select, textarea, video')) {
+                  el.remove();
+                  unlockBodyOverflow();
+                  console.info('[AX-Vignette] Reklam katmanı temizlendi');
+                  blockedCount++;
+                  continue;
+                }
+
+                // Giant empty/transparent curtain with extreme z-index
+                if (rect.width >= (window.innerWidth || 1000) * 0.7 && rect.height >= (window.innerHeight || 800) * 0.7) {
+                  if (lowerText.length === 0 && !el.querySelector('input, select, textarea, video, form')) {
+                    el.remove();
+                    unlockBodyOverflow();
+                    console.info('[AX-Vignette] Reklam katmanı temizlendi');
+                    blockedCount++;
+                    continue;
                   }
                 }
               }

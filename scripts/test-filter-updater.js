@@ -74,6 +74,7 @@ globalThis.chrome = {
     getURL: (path) => path
   },
   tabs: {
+    onCreated: { addListener: () => {} },
     onUpdated: { addListener: () => {} },
     onActivated: { addListener: () => {} },
     onRemoved: { addListener: () => {} },
