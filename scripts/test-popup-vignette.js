@@ -55,7 +55,13 @@ globalThis.chrome = {
   }
 };
 
-const { isPopunderAdUrl, getRootDomain, isVignetteCandidate } = await import('../background.js');
+const {
+  isPopunderAdUrl,
+  getRootDomain,
+  isVignetteCandidate,
+  shouldBlockNewTab,
+  recordTrustedIntent
+} = await import('../background.js');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,6 +78,12 @@ const vmContext = {};
 vm.runInNewContext(`${vignetteFnMatch[0]}; extractedVignette = isVignetteCandidate;`, vmContext);
 const shieldVignetteCandidate = vmContext.extractedVignette;
 assert.strictEqual(typeof shieldVignetteCandidate, 'function');
+
+const devToolsFnMatch = popupShieldSource.match(/function\s+isDevToolsKey\s*\([\s\S]*?return\s+false;\s*\}/);
+assert.ok(devToolsFnMatch, 'isDevToolsKey must be present in popup-shield.js');
+vm.runInNewContext(`${devToolsFnMatch[0]}; extractedDevTools = isDevToolsKey;`, vmContext);
+const shieldDevToolsKey = vmContext.extractedDevTools;
+assert.strictEqual(typeof shieldDevToolsKey, 'function');
 
 let passedTests = 0;
 let totalTests = 0;
@@ -279,6 +291,170 @@ runTest('Strictly PRESERVES legitimate cookie consent or terms dialogs with real
   };
   assert.strictEqual(isVignetteCandidate(cookieBanner), false);
   assert.strictEqual(shieldVignetteCandidate(cookieBanner), false);
+});
+
+// ---------------------------------------------------------------------------
+// 4. Intent-Verified Tab Shield Decision Engine (v2.8.0)
+// ---------------------------------------------------------------------------
+console.log('\n[Group 4: Intent-Verified Tab Shield Decision Engine]');
+
+runTest('Blocks cross-site random ad domain when no user intent exists', () => {
+  const result = shouldBlockNewTab({
+    openerTabId: 101,
+    openerUrl: 'https://film-dizi-izle.net/izle',
+    tabUrl: 'https://random-ad-9921.xyz/go',
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(result.block, true);
+  assert.strictEqual(result.reason, 'unsolicited_cross_site_tab');
+});
+
+runTest('Allows cross-site tab when verified trusted intent exists in memory', () => {
+  const testStore = new Map();
+  recordTrustedIntent(102, 'external-partner.com', 'https://external-partner.com/product/123', testStore);
+
+  const result = shouldBlockNewTab({
+    openerTabId: 102,
+    openerUrl: 'https://film-dizi-izle.net/izle',
+    tabUrl: 'https://external-partner.com/product/123',
+    intentsStore: testStore,
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'trusted_user_intent');
+});
+
+runTest('Allows manual user-initiated tabs without openerTabId (Ctrl+T, bookmarks, omnibox)', () => {
+  const result = shouldBlockNewTab({
+    openerTabId: null,
+    tabUrl: 'https://any-site.com',
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'user_initiated_no_opener');
+});
+
+runTest('Allows legitimate same-site links and subdomains', () => {
+  const result = shouldBlockNewTab({
+    openerTabId: 103,
+    openerUrl: 'https://example.com/page1',
+    tabUrl: 'https://sub.example.com/page2',
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'same_site');
+});
+
+runTest('Allows authentication and payment gateways without prior intent', () => {
+  const oauthResult = shouldBlockNewTab({
+    openerTabId: 104,
+    openerUrl: 'https://mystore.com/checkout',
+    tabUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(oauthResult.block, false);
+  assert.strictEqual(oauthResult.reason, 'auth_or_payment_gateway');
+
+  const stripeResult = shouldBlockNewTab({
+    openerTabId: 104,
+    openerUrl: 'https://mystore.com/checkout',
+    tabUrl: 'https://checkout.stripe.com/c/pay/cs_live_123',
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(stripeResult.block, false);
+  assert.strictEqual(stripeResult.reason, 'auth_or_payment_gateway');
+
+  const iyzicoResult = shouldBlockNewTab({
+    openerTabId: 104,
+    openerUrl: 'https://mystore.com/checkout',
+    tabUrl: 'https://sandbox-api.iyzico.com/payment',
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(iyzicoResult.block, false);
+  assert.strictEqual(iyzicoResult.reason, 'auth_or_payment_gateway');
+});
+
+runTest('Allows search engine and social media feed openers', () => {
+  const googleFeedResult = shouldBlockNewTab({
+    openerTabId: 105,
+    openerUrl: 'https://www.google.com/search?q=test',
+    tabUrl: 'https://destination-result.org/doc',
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(googleFeedResult.block, false);
+  assert.strictEqual(googleFeedResult.reason, 'trusted_opener_feed');
+
+  const redditFeedResult = shouldBlockNewTab({
+    openerTabId: 105,
+    openerUrl: 'https://reddit.com/r/technology',
+    tabUrl: 'https://news-outlet.com/article',
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(redditFeedResult.block, false);
+  assert.strictEqual(redditFeedResult.reason, 'trusted_opener_feed');
+});
+
+runTest('Allows whitelisted opener domains', () => {
+  const result = shouldBlockNewTab({
+    openerTabId: 106,
+    openerUrl: 'https://trusted-site.com/hub',
+    tabUrl: 'https://cross-site.com/view',
+    whitelist: ['trusted-site.com'],
+    popupShield: true
+  });
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'opener_whitelisted');
+});
+
+runTest('Allows all tabs when popupShield is disabled in settings', () => {
+  const result = shouldBlockNewTab({
+    openerTabId: 107,
+    openerUrl: 'https://ad-site.com',
+    tabUrl: 'https://random-ad.xyz',
+    whitelist: [],
+    popupShield: false
+  });
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'shield_disabled');
+});
+
+// ---------------------------------------------------------------------------
+// 5. Anti-DevTools & Right-Click Guard (v2.8.0)
+// ---------------------------------------------------------------------------
+console.log('\n[Group 5: Anti-DevTools Key Classifier]');
+
+runTest('Correctly classifies F12 key events', () => {
+  assert.strictEqual(shieldDevToolsKey({ key: 'F12' }), true);
+  assert.strictEqual(shieldDevToolsKey({ keyCode: 123 }), true);
+});
+
+runTest('Correctly classifies Ctrl+Shift+I / J / C (DevTools inspector)', () => {
+  assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, shiftKey: true, key: 'I' }), true);
+  assert.strictEqual(shieldDevToolsKey({ metaKey: true, shiftKey: true, key: 'J' }), true);
+  assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, shiftKey: true, key: 'C' }), true);
+  assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, shiftKey: true, keyCode: 73 }), true);
+});
+
+runTest('Correctly classifies Ctrl+U (View Page Source)', () => {
+  assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, shiftKey: false, key: 'u' }), true);
+  assert.strictEqual(shieldDevToolsKey({ metaKey: true, shiftKey: false, keyCode: 85 }), true);
+});
+
+runTest('Does not classify normal keys or typing events', () => {
+  assert.strictEqual(shieldDevToolsKey({ key: 'Enter' }), false);
+  assert.strictEqual(shieldDevToolsKey({ key: 'a' }), false);
+  assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, key: 'c' }), false); // Normal copy
+  assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, key: 'v' }), false); // Normal paste
+  assert.strictEqual(shieldDevToolsKey({ key: 'F5' }), false); // Refresh
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
