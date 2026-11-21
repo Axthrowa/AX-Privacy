@@ -313,6 +313,76 @@ function isAllowedDestination(targetUrl) {
   }
 }
 
+/**
+ * Validates in-page navigations (Location.prototype.assign, replace, href setter, window.open self).
+ * Strictly prevents Anti-DevTools scripts from hijacking or redirecting the current page to
+ * external domains (e.g. google.com, bing.com, about:blank) when DevTools is opened.
+ */
+function isAllowedNavigation(targetUrl) {
+  if (typeof window !== 'undefined') {
+    try {
+      if (window.sessionStorage?.getItem('ax_privacy_popup_shield') === 'disabled') {
+        return true;
+      }
+    } catch {}
+  }
+
+  if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
+    return hasTrustedIntent(targetUrl);
+  }
+
+  try {
+    if (typeof window === 'undefined' || !window.location) return true;
+    const currentOrigin = window.location.origin.toLowerCase();
+    const resolved = new URL(targetUrl, window.location.href);
+    const targetOrigin = resolved.origin.toLowerCase();
+    const targetHost = resolved.hostname.toLowerCase();
+
+    // 1. Same-origin navigation or relative paths are always allowed
+    if (targetOrigin === currentOrigin) {
+      return true;
+    }
+
+    // 2. Same root domain navigation is allowed (e.g. sub.mysite.com -> mysite.com)
+    const currentRoot = getRootDomain(window.location.hostname);
+    const targetRoot = getRootDomain(targetHost);
+    if (currentRoot && targetRoot && currentRoot === targetRoot) {
+      return true;
+    }
+
+    // 3. User genuinely clicked a link with navigation/new-tab intent (last 750ms)
+    if (hasTrustedIntent(targetUrl)) {
+      return true;
+    }
+
+    if (lastTrustedLink && Date.now() - lastTrustedLink.time <= 750) {
+      if (
+        lastTrustedLink.origin === targetOrigin ||
+        lastTrustedLink.href === targetUrl ||
+        getRootDomain(new URL(lastTrustedLink.href, window.location.href).hostname) === targetRoot
+      ) {
+        return true;
+      }
+    }
+
+    // 4. Legitimate auth/payment callbacks
+    const fullPath = (resolved.pathname + resolved.search).toLowerCase();
+    if (
+      fullPath.includes('/oauth') ||
+      fullPath.includes('/3dsecure') ||
+      fullPath.includes('/3d-secure') ||
+      fullPath.includes('response_type=code')
+    ) {
+      return true;
+    }
+
+    // Otherwise, unsolicited external redirect (e.g. anti-devtools jumping to google.com/bing.com) is blocked!
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function isDevToolsKey(e) {
   if (!e) return false;
   const key = (e.key || '').toLowerCase();
@@ -452,6 +522,10 @@ function isDevToolsKey(e) {
 
       const anchor = target.closest('a[href]');
       if (anchor && anchor.href) {
+        // Record initial href on pointerdown before malicious scripts can swap it
+        if (!anchor.hasAttribute('data-ax-orig-href')) {
+          anchor.setAttribute('data-ax-orig-href', anchor.href);
+        }
         try {
           const href = anchor.href.trim();
           if (href.startsWith('http://') || href.startsWith('https://')) {
@@ -518,6 +592,25 @@ function isDevToolsKey(e) {
       const anchor = target.closest('a[href]');
       if (!anchor || !anchor.href) return;
 
+      // Clickjack Defense: Check if href was swapped dynamically between pointerdown and click
+      const origHref = anchor.getAttribute('data-ax-orig-href');
+      const currentHref = anchor.href || '';
+      if (origHref && currentHref && origHref !== currentHref) {
+        if (isCrossSite(currentHref) && !hasTrustedIntent(currentHref)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          reportBlocked(currentHref, 'href-swap-trap');
+          console.info('[AX-Popup] Anlık href değiştirme tuzağı (clickjack) engellendi:', {
+            origHref,
+            swappedHref: currentHref
+          });
+          anchor.href = origHref;
+          anchor.removeAttribute('data-ax-orig-href');
+          return;
+        }
+      }
+      anchor.removeAttribute('data-ax-orig-href');
+
       if (!isCrossSite(anchor.href)) return;
 
       let isTrap = false;
@@ -579,6 +672,27 @@ function isDevToolsKey(e) {
   window.addEventListener('auxclick', onCaptureClickOrUp, true);
   window.addEventListener('pointerup', onCaptureClickOrUp, true);
 
+  // Catch unsolicited cross-site target="_blank" form submissions
+  window.addEventListener(
+    'submit',
+    (e) => {
+      try {
+        const form = e.target;
+        if (!form || form.tagName !== 'FORM') return;
+        const target = (form.getAttribute('target') || '').toLowerCase();
+        const action = form.action || '';
+        const cross = isCrossSite(action);
+        if ((target === '_blank' || cross) && !isAllowedDestination(action)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          reportBlocked(action, 'event.submit');
+          console.info('[AX-Popup] Form gönderimi önlendi (submit event):', action);
+        }
+      } catch {}
+    },
+    true
+  );
+
   // Track DOM additions for recentLinks
   function markAnchorNode(node) {
     try {
@@ -636,9 +750,12 @@ function isDevToolsKey(e) {
         win.open = function (url, target, features) {
           try {
             const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
-            if (!isAllowedDestination(strUrl)) {
+            const targetStr = (target !== undefined && target !== null ? String(target) : '').toLowerCase().trim();
+            const isSelfNav = targetStr === '_self' || targetStr === '_top' || targetStr === '_parent';
+            const isAllowed = isSelfNav ? isAllowedNavigation(strUrl) : isAllowedDestination(strUrl);
+            if (!isAllowed) {
               reportBlocked(strUrl, 'window.open');
-              console.info('[AX-Popup] Yeni sekme açılışı önlendi (window.open):', strUrl || 'about:blank');
+              console.info('[AX-Popup] Açılış/yönlendirme önlendi (window.open):', strUrl || 'about:blank');
               return createDummyWindow(strUrl);
             }
           } catch {}
@@ -704,56 +821,133 @@ function isDevToolsKey(e) {
         };
       }
 
-      // 4. Wrap win.HTMLFormElement.prototype.submit
+      // 4. Wrap win.HTMLFormElement.prototype.submit & requestSubmit
       if (win.HTMLFormElement && win.HTMLFormElement.prototype) {
         const nativeFormSubmit = win.HTMLFormElement.prototype.submit;
         win.HTMLFormElement.prototype.submit = function () {
           try {
-            const isDetached = !this.isConnected;
-            const isZeroSize = this.offsetWidth === 0 && this.offsetHeight === 0;
             const target = (this.getAttribute('target') || '').toLowerCase();
             const action = this.action || '';
+            const cross = isCrossSite(action);
 
-            if ((isDetached || isZeroSize) && target === '_blank' && action) {
-              if (!isAllowedDestination(action)) {
-                reportBlocked(action, 'form.submit');
-                return;
-              }
+            if ((target === '_blank' || cross) && !isAllowedDestination(action)) {
+              reportBlocked(action, 'form.submit');
+              console.info('[AX-Popup] Form açılışı önlendi (form.submit):', action);
+              return;
             }
           } catch {}
           return nativeFormSubmit.apply(this, arguments);
         };
+
+        if (typeof win.HTMLFormElement.prototype.requestSubmit === 'function') {
+          const nativeFormRequestSubmit = win.HTMLFormElement.prototype.requestSubmit;
+          win.HTMLFormElement.prototype.requestSubmit = function (submitter) {
+            try {
+              const target = (submitter?.getAttribute?.('target') || this.getAttribute('target') || '').toLowerCase();
+              const action = submitter?.getAttribute?.('formaction') || this.action || '';
+              const cross = isCrossSite(action);
+
+              if ((target === '_blank' || cross) && !isAllowedDestination(action)) {
+                reportBlocked(action, 'form.requestSubmit');
+                console.info('[AX-Popup] Form açılışı önlendi (form.requestSubmit):', action);
+                return;
+              }
+            } catch {}
+            return nativeFormRequestSubmit.apply(this, arguments);
+          };
+        }
       }
 
-      // 5. Wrap Location.prototype.assign and replace
+      // 5. Wrap Location.prototype.assign, replace, and href setter (Anti-DevTools & unprompted redirect blocker)
       const locProto = win.Location ? win.Location.prototype : null;
-      if (locProto && typeof locProto.assign === 'function') {
-        const nativeAssign = locProto.assign;
-        locProto.assign = function (url) {
-          try {
-            const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
-            if (!isAllowedDestination(strUrl)) {
-              reportBlocked(strUrl, 'location.assign');
-              return;
-            }
-          } catch {}
-          return nativeAssign.apply(this, arguments);
-        };
+      if (locProto) {
+        if (typeof locProto.assign === 'function') {
+          const nativeAssign = locProto.assign;
+          locProto.assign = function (url) {
+            try {
+              const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
+              if (!isAllowedNavigation(strUrl)) {
+                reportBlocked(strUrl, 'location.assign');
+                console.info('[AX-Popup] Sayfa yönlendirmesi önlendi (location.assign):', strUrl);
+                return;
+              }
+            } catch {}
+            return nativeAssign.apply(this, arguments);
+          };
+        }
+
+        if (typeof locProto.replace === 'function') {
+          const nativeReplace = locProto.replace;
+          locProto.replace = function (url) {
+            try {
+              const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
+              if (!isAllowedNavigation(strUrl)) {
+                reportBlocked(strUrl, 'location.replace');
+                console.info('[AX-Popup] Sayfa yönlendirmesi önlendi (location.replace):', strUrl);
+                return;
+              }
+            } catch {}
+            return nativeReplace.apply(this, arguments);
+          };
+        }
+
+        try {
+          const descHref = Object.getOwnPropertyDescriptor(locProto, 'href');
+          if (descHref && descHref.set) {
+            const nativeHrefSet = descHref.set;
+            Object.defineProperty(locProto, 'href', {
+              set(url) {
+                try {
+                  const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
+                  if (!isAllowedNavigation(strUrl)) {
+                    reportBlocked(strUrl, 'location.href');
+                    console.info('[AX-Popup] Sayfa yönlendirmesi önlendi (location.href):', strUrl);
+                    return;
+                  }
+                } catch {}
+                return nativeHrefSet.call(this, url);
+              },
+              get: descHref.get,
+              configurable: true,
+              enumerable: true
+            });
+          }
+        } catch {}
       }
 
-      if (locProto && typeof locProto.replace === 'function') {
-        const nativeReplace = locProto.replace;
-        locProto.replace = function (url) {
-          try {
-            const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
-            if (!isAllowedDestination(strUrl)) {
-              reportBlocked(strUrl, 'location.replace');
-              return;
-            }
-          } catch {}
-          return nativeReplace.apply(this, arguments);
-        };
-      }
+      // Also protect win.location directly if it has instance methods
+      try {
+        if (win.location) {
+          if (typeof win.location.assign === 'function') {
+            const origLocAssign = win.location.assign;
+            win.location.assign = function (url) {
+              try {
+                const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
+                if (!isAllowedNavigation(strUrl)) {
+                  reportBlocked(strUrl, 'win.location.assign');
+                  console.info('[AX-Popup] Sayfa yönlendirmesi önlendi (win.location.assign):', strUrl);
+                  return;
+                }
+              } catch {}
+              return origLocAssign.apply(this, arguments);
+            };
+          }
+          if (typeof win.location.replace === 'function') {
+            const origLocReplace = win.location.replace;
+            win.location.replace = function (url) {
+              try {
+                const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
+                if (!isAllowedNavigation(strUrl)) {
+                  reportBlocked(strUrl, 'win.location.replace');
+                  console.info('[AX-Popup] Sayfa yönlendirmesi önlendi (win.location.replace):', strUrl);
+                  return;
+                }
+              } catch {}
+              return origLocReplace.apply(this, arguments);
+            };
+          }
+        }
+      } catch {}
     } catch {}
   }
 
@@ -953,6 +1147,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     isVignetteCandidate,
     isAllowedDestination,
+    isAllowedNavigation,
     getRootDomain,
     isCrossSite,
     isDevToolsKey,

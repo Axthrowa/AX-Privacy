@@ -1078,7 +1078,7 @@ function recordTrustedIntent(openerTabId, targetHost, href = '', store = trusted
     targetHost: cleanHost,
     targetRoot: getRootDomain(cleanHost),
     href: href ? href.trim() : '',
-    expiresAt: now + 2000 // Valid for 2000ms
+    expiresAt: now + 2500 // Valid for 2500ms
   };
 
   const existing = store.get(openerTabId) || [];

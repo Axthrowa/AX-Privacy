@@ -105,6 +105,9 @@
 
       function isMediaOrLegitimateContent(el) {
         if (!el) return true;
+        if (el.id === 'ax-privacy-alert-host' || (el.closest && el.closest('#ax-privacy-alert-host'))) {
+          return true;
+        }
         const tag = el.tagName.toLowerCase();
         if (
           tag === 'video' ||
@@ -301,6 +304,35 @@
                     el.remove();
                     unlockBodyOverflow();
                     console.info('[AX-Vignette] Reklam katmanı temizlendi');
+                    blockedCount++;
+                    continue;
+                  }
+                }
+              }
+
+              // Pattern 6: Floating Corner Badges / Fake Corner Widgets (<= 90x90px)
+              if (zIndex >= 1000 && rect.width >= 10 && rect.width <= 90 && rect.height >= 10 && rect.height <= 90) {
+                const winW = window.innerWidth || 1000;
+                const winH = window.innerHeight || 800;
+                const isTopEdge = rect.top <= 40;
+                const isBottomEdge = rect.bottom >= winH - 40;
+                const isLeftEdge = rect.left <= 40;
+                const isRightEdge = rect.right >= winW - 40;
+                const isCorner = (isTopEdge || isBottomEdge) && (isLeftEdge || isRightEdge);
+
+                if (isCorner) {
+                  const isSafeControl =
+                    (el.closest && el.closest('nav, header, footer, aside, .chat, [role="navigation"]')) ||
+                    (el.matches &&
+                      el.matches(
+                        '[aria-label*="chat" i], [aria-label*="scroll" i], [class*="scroll-to-top" i], [class*="back-to-top" i], [id*="scroll-to-top" i], [id*="back-to-top" i]'
+                      )) ||
+                    el.querySelector('input, select, textarea, video, audio, form');
+
+                  if (!isSafeControl && (hasExternalLink || hasAdKeywords || hasGifOrWebp || el.querySelector('a[href*="http"], img'))) {
+                    el.style.setProperty('display', 'none', 'important');
+                    el.style.setProperty('pointer-events', 'none', 'important');
+                    el.__ax_scanned_hidden = true;
                     blockedCount++;
                     continue;
                   }
