@@ -186,8 +186,17 @@ function cleanDomain(raw) {
   if (!raw) return null;
   let d = raw.trim().toLowerCase();
 
-  // Strip comments
-  if (d.startsWith('#') || d.startsWith('!') || d.startsWith('[')) return null;
+  // Strip comments and metadata
+  if (d.startsWith('#') || d.startsWith('!') || d.startsWith('[') || d.startsWith(';')) return null;
+
+  // Skip exception rules (@@)
+  if (d.startsWith('@@')) return null;
+
+  // Skip cosmetic and element hiding rules (##, #@#, #?#)
+  if (d.includes('##') || d.includes('#@#') || d.includes('#?#')) return null;
+
+  // Skip page-breaking directives ($document, $popup, $csp, $badfilter)
+  if (/\$(?:document|popup|csp|badfilter)\b/i.test(d)) return null;
 
   // Handle hosts format: "0.0.0.0 domain" or "127.0.0.1 domain"
   const hostsMatch = d.match(/^(?:0\.0\.0\.0|127\.0\.0\.1)\s+([^\s#]+)/);
@@ -218,6 +227,22 @@ function cleanDomain(raw) {
   if (IP_REGEX.test(d)) return null;
   if (EXCLUDED_HOSTS.has(d)) return null;
   if (!DOMAIN_REGEX.test(d)) return null;
+
+  // Critical YouTube infrastructure exemption: Never block YouTube or its streaming/API endpoints
+  if (
+    d === 'youtube.com' ||
+    d.endsWith('.youtube.com') ||
+    d === 'googlevideo.com' ||
+    d.endsWith('.googlevideo.com') ||
+    d === 'ytimg.com' ||
+    d.endsWith('.ytimg.com') ||
+    d === 'ggpht.com' ||
+    d.endsWith('.ggpht.com') ||
+    d === 'youtubei.googleapis.com' ||
+    d.endsWith('.youtubei.googleapis.com')
+  ) {
+    return null;
+  }
 
   return d;
 }
