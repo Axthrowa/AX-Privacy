@@ -15,6 +15,7 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 
 const ADS_RULES_PATH = path.join(ROOT_DIR, 'rules', 'ads_trackers.json');
 const URL_CLEAN_PATH = path.join(ROOT_DIR, 'rules', 'url_clean.json');
+const COSMETIC_RULES_PATH = path.join(ROOT_DIR, 'rules', 'cosmetic_rules.json');
 const MANIFEST_PATH = path.join(ROOT_DIR, 'manifest.json');
 
 const MANDATORY_AD_DOMAINS = [
@@ -183,11 +184,47 @@ async function validateUrlCleanRules() {
   console.log(`[validate-rules] rules/url_clean.json OK (${rules.length} valid rules)`);
 }
 
+async function validateCosmeticRules() {
+  console.log('[validate-rules] Validating rules/cosmetic_rules.json...');
+  const raw = await fs.readFile(COSMETIC_RULES_PATH, 'utf8');
+  const cosmeticMap = JSON.parse(raw);
+
+  if (typeof cosmeticMap !== 'object' || Array.isArray(cosmeticMap) || cosmeticMap === null) {
+    throw new Error('rules/cosmetic_rules.json must be a JSON object mapping domains to selector arrays');
+  }
+
+  const domainCount = Object.keys(cosmeticMap).length;
+  if (domainCount < 50) {
+    throw new Error(`rules/cosmetic_rules.json has too few domains (${domainCount})`);
+  }
+
+  if (!cosmeticMap['netprime.me'] || !Array.isArray(cosmeticMap['netprime.me'])) {
+    throw new Error('rules/cosmetic_rules.json missing required netprime.me rules');
+  }
+
+  for (const [domain, selectors] of Object.entries(cosmeticMap)) {
+    if (!Array.isArray(selectors) || selectors.length === 0) {
+      throw new Error(`rules/cosmetic_rules.json domain "${domain}" has empty selectors array`);
+    }
+    for (const sel of selectors) {
+      if (typeof sel !== 'string' || !sel.trim()) {
+        throw new Error(`rules/cosmetic_rules.json domain "${domain}" contains invalid selector: ${sel}`);
+      }
+      if (sel.includes('{') || sel.includes('}') || sel.includes(':has(') || sel.includes(':xpath(')) {
+        throw new Error(`rules/cosmetic_rules.json domain "${domain}" contains non-standard selector: ${sel}`);
+      }
+    }
+  }
+
+  console.log(`[validate-rules] rules/cosmetic_rules.json OK (${domainCount} domains validated)`);
+}
+
 async function main() {
   console.log('=== AX-Privacy Rule Validation Starting ===');
   await validateManifest();
   await validateUrlCleanRules();
   await validateAdsRules();
+  await validateCosmeticRules();
   console.log('=== AX-Privacy Rule Validation Passed with ZERO errors! ===');
 }
 

@@ -1,7 +1,7 @@
 # AX-Privacy 🛡️
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-2.5.0-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-2.6.0-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
@@ -45,8 +45,19 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 - **Kısmi Hata Toleransı:** Bir liste hata verse bile diğer sağlam listeler ve EasyList kesintisiz uygulanmaya devam eder.
 - **Öncelikli Delta Motoru:** Statik 25.000 kuralla çakışan alan adları çıkarılır; kullanıcı listeleri dinamik DNR kotasında en yüksek önceliği alır (ID izolasyonu: 10000+).
 
-### 7. Modern Koyu Kontrol Paneli (`#0b1120`)
+### 7. Pop-up, Yönlendirme ve Tıklama Tuzağı Kalkanı (v2.6.0)
+- **`popup-shield.js` (MAIN World):** Sayfada herhangi bir yere tıklayınca gizlice yeni sekme açan (`click-hijack`, pop-under) mekanizmaları engeller.
+- **Güvenli Pencere Proxy'si:** `window.open` engellendiğinde `null` yerine zararsız kukla nesne döndürerek anti-adblock ve video oynatıcı kilitlenmelerini önler.
+- **Sentetik Tıklama Önleyici:** DOM dışı veya 0x0 boyutlu görünmez `<a target="_blank">` ve `<form target="_blank">` gönderimlerini yakalar ve iptal eder.
+
+### 8. Türkçe Yayın Siteleri Banner & Görünmez Katman Temizleyici (v2.6.0)
+- **AdGuard Turkish Ağ Kuralları (Tier 1.5):** 890+ Türkçe reklam ve yasadışı bahis ağını 25.000 kural kotasında öncelikli olarak engeller.
+- **Siteye Özel Kozmetik Kural Motoru (`rules/cosmetic_rules.json`):** `netprime.me` ve 3.760+ Türkçe web sitesi için standart CSS seçicilerini anında enjekte eder.
+- **Akıllı DOM Tarayıcı (Debounced MutationObserver):** JS ile sonradan sayfaya basılan sabit/kayan GIF ve WebP bahis banner'larını ve oynatıcı üstünü kaplayan görünmez şeffaf tıklama katmanlarını (z-index >= 999) video akışına veya menülere dokunmadan temizler.
+
+### 9. Modern Koyu Kontrol Paneli (`#0b1120`)
 - Açık/kapalı durumlarını, aktif alan adının HTTPS protokol durumunu ve güvenlik rozetini tek bakışta gösterir.
+- **Modüler Kalkan Anahtarları:** Reklam, URL temizleme, tehlike kalkanı, Twitch, YouTube ve Pop-up kalkanını bağımsız kontrol etme.
 - **Açılır Özel Filtre Paneli:** URL ekleme, durum göstergeleri (+X kural yeşil / hata kırmızı), aç/kapat switch ve silme kontrolleri.
 - **XSS Korumalı Mimari:** Kullanıcı girdileri yalnızca güvenli DOM API'leri (`document.createElement`, `textContent`) ile render edilir.
 - **Tek Tıkla İstisna (Whitelist):** Güvenilen sitelerde korumayı tek tıkla duraklatma ve geri açma imkanı.
@@ -56,7 +67,7 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.5.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.6.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
 2. Tarayıcınızda eklentiler sayfasına gidin:
    - Google Chrome: `chrome://extensions`
    - Microsoft Edge: `edge://extensions`
@@ -113,6 +124,9 @@ npm run test:youtube-pruner
 
 # Çoklu format ve filtre güncelleyicisini test edin
 npm run test:filter-updater
+
+# Kozmetik kural derleyicisini ve Türkçe kuralları test edin
+npm run test:cosmetic-compiler
 ```
 
 ---

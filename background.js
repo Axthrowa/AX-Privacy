@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS = {
   twitchShield: true,
   twitchProxyUrl: '',
   youtubeShield: true,
+  popupShield: true,
   whitelist: [],
   customFilterLists: [],
   filterUpdateStatus: {
@@ -321,6 +322,11 @@ const DEFAULT_LIVE_SOURCES = [
     id: 'builtin_easyprivacy',
     name: 'EasyPrivacy',
     url: 'https://v.firebog.net/hosts/Easyprivacy.txt'
+  },
+  {
+    id: 'builtin_adguard_turkish',
+    name: 'AdGuard Turkish',
+    url: 'https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_13_Turkish/filter.txt'
   }
 ];
 
@@ -550,6 +556,34 @@ async function getStaticDomains() {
   }
   staticDomainsCache = set;
   return set;
+}
+
+let cosmeticRulesCache = null;
+
+async function getCosmeticRules() {
+  if (cosmeticRulesCache && Object.keys(cosmeticRulesCache).length > 0) {
+    return cosmeticRulesCache;
+  }
+
+  try {
+    let text = null;
+    if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+      const url = chrome.runtime.getURL('rules/cosmetic_rules.json');
+      const res = await fetch(url);
+      if (res.ok) text = await res.text();
+    } else if (typeof process !== 'undefined' && process.versions?.node) {
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const filePath = path.resolve(process.cwd(), 'rules', 'cosmetic_rules.json');
+      text = await fs.readFile(filePath, 'utf8').catch(() => null);
+    }
+    if (text) {
+      cosmeticRulesCache = JSON.parse(text);
+    }
+  } catch (err) {
+    console.warn('[AX-Privacy background] getCosmeticRules warning:', err?.message);
+  }
+  return cosmeticRulesCache || {};
 }
 
 /**
@@ -1238,6 +1272,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
 
+    if (message.type === 'GET_COSMETIC_SELECTORS') {
+      (async () => {
+        try {
+          const rawHost = (message.hostname || (sender.tab?.url ? new URL(sender.tab.url).hostname : '')).toLowerCase();
+          const rules = await getCosmeticRules();
+          const selectorsSet = new Set();
+
+          if (rawHost) {
+            // 1. Exact hostname match (e.g. www.netprime.me)
+            if (Array.isArray(rules[rawHost])) {
+              for (const s of rules[rawHost]) selectorsSet.add(s);
+            }
+            // 2. Root domain match (e.g. www.netprime.me -> netprime.me)
+            const parts = rawHost.split('.');
+            if (parts.length > 2) {
+              const rootHost = parts.slice(-2).join('.');
+              if (Array.isArray(rules[rootHost])) {
+                for (const s of rules[rootHost]) selectorsSet.add(s);
+              }
+            }
+          }
+
+          sendResponse({ success: true, selectors: Array.from(selectorsSet) });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message, selectors: [] });
+        }
+      })();
+      return true;
+    }
+
     sendResponse({ success: false, error: 'Unhandled message type' });
     return false;
   } catch (err) {
@@ -1255,6 +1319,7 @@ export {
   allocateDynamicRules,
   updateAllFilterLists,
   getStaticDomains,
+  getCosmeticRules,
   syncWhitelistRules,
   toggleDomainWhitelist
 };

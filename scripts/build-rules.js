@@ -17,6 +17,8 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_FILE = path.join(ROOT_DIR, 'rules', 'ads_trackers.json');
 const TMP_FILE = path.join(ROOT_DIR, 'rules', 'ads_trackers.json.tmp');
+const COSMETIC_OUTPUT_FILE = path.join(ROOT_DIR, 'rules', 'cosmetic_rules.json');
+const COSMETIC_TMP_FILE = path.join(ROOT_DIR, 'rules', 'cosmetic_rules.json.tmp');
 
 const MIN_RULE_THRESHOLD = 5000;
 const MAX_RULE_LIMIT = 25000; // Chrome static ruleset limit is 30,000
@@ -76,6 +78,10 @@ const SOURCES = {
   easyprivacy: {
     name: 'EasyPrivacy (Firebog mirror)',
     url: 'https://v.firebog.net/hosts/Easyprivacy.txt'
+  },
+  adguard_turkish: {
+    name: 'AdGuard Turkish Filter',
+    url: 'https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_13_Turkish/filter.txt'
   }
 };
 
@@ -168,24 +174,122 @@ function parseDomains(text) {
   return set;
 }
 
+/**
+ * Parses domain-specific standard CSS cosmetic rules from AdGuard Turkish Filter.
+ * Discards scriptlets (##+js), cosmetic exceptions (#@#), inline CSS injections (#$#),
+ * and non-standard pseudo-classes (:has, :xpath, :-abp-).
+ * Produces a deterministic sorted mapping: { "domain.com": ["selector1", "selector2"] }
+ */
+function parseCosmeticRules(text) {
+  const map = {};
+
+  // Curated baseline selectors for netprime.me and Turkish movie/streaming platforms
+  const CURATED_SITE_RULES = {
+    'netprime.me': [
+      '.ad-banner',
+      '.click-overlay',
+      '.fixed-gif-banner',
+      '.floating-ad',
+      '.sticky-ad',
+      '.video-ad-overlay',
+      '[class*="reklam-"]',
+      '[id*="reklam"]',
+      'a[target="_blank"] > img[src*=".gif"]',
+      'a[target="_blank"] > img[src*=".webp"]'
+    ]
+  };
+
+  for (const [domain, selectors] of Object.entries(CURATED_SITE_RULES)) {
+    map[domain] = new Set(selectors);
+  }
+
+  if (!text || typeof text !== 'string') {
+    const finalMap = {};
+    for (const d of Object.keys(map).sort()) {
+      finalMap[d] = Array.from(map[d]).sort();
+    }
+    return finalMap;
+  }
+
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('!') || line.startsWith('#')) continue;
+
+    // Discard non-standard cosmetic directives
+    if (
+      line.includes('#@#') ||
+      line.includes('#$#') ||
+      line.includes('#$?#') ||
+      line.includes('#%#')
+    ) {
+      continue;
+    }
+
+    if (!line.includes('##')) continue;
+
+    const idx = line.indexOf('##');
+    const domainPart = line.slice(0, idx).trim();
+    const selector = line.slice(idx + 2).trim();
+
+    if (!domainPart || !selector) continue;
+
+    // Discard scriptlets, procedural selectors and CSS rule bodies
+    if (
+      selector.startsWith('+js(') ||
+      selector.includes(':has(') ||
+      selector.includes(':xpath(') ||
+      selector.includes(':-abp-') ||
+      selector.includes('{') ||
+      selector.includes('}')
+    ) {
+      continue;
+    }
+
+    // Extract valid domain list (discard negated domains starting with ~)
+    const domains = domainPart
+      .split(',')
+      .map((d) => d.trim().toLowerCase())
+      .filter((d) => d && !d.startsWith('~') && /^[a-z0-9.-]+$/.test(d));
+
+    if (domains.length === 0) continue;
+
+    for (const d of domains) {
+      if (!map[d]) map[d] = new Set();
+      map[d].add(selector);
+    }
+  }
+
+  // Sort domains alphabetically and selectors alphabetically
+  const sortedMap = {};
+  for (const domain of Object.keys(map).sort()) {
+    sortedMap[domain] = Array.from(map[domain]).sort();
+  }
+
+  return sortedMap;
+}
+
 async function main() {
   console.log('=== AX-Privacy Rule Compiler Starting ===');
 
-  const [easylistText, oisdText, easyprivacyText] = await Promise.all([
+  const [easylistText, oisdText, easyprivacyText, turkishText] = await Promise.all([
     fetchSource(SOURCES.easylist),
     fetchSource(SOURCES.oisd),
-    fetchSource(SOURCES.easyprivacy)
+    fetchSource(SOURCES.easyprivacy),
+    fetchSource(SOURCES.adguard_turkish)
   ]);
 
   const easylistSet = parseDomains(easylistText);
   const oisdSet = parseDomains(oisdText);
   const easyprivacySet = parseDomains(easyprivacyText);
+  const turkishNetSet = parseDomains(turkishText);
 
   console.log(`[build-rules] Parsed EasyList: ${easylistSet.size} domains`);
   console.log(`[build-rules] Parsed OISD: ${oisdSet.size} domains`);
   console.log(`[build-rules] Parsed EasyPrivacy: ${easyprivacySet.size} domains`);
+  console.log(`[build-rules] Parsed AdGuard Turkish: ${turkishNetSet.size} network domains`);
 
-  const totalRawCount = easylistSet.size + oisdSet.size + easyprivacySet.size;
+  const totalRawCount = easylistSet.size + oisdSet.size + easyprivacySet.size + turkishNetSet.size;
   if (totalRawCount < MIN_RULE_THRESHOLD) {
     console.error(
       `[build-rules] ERROR: Total parsed domains (${totalRawCount}) is below minimum threshold (${MIN_RULE_THRESHOLD}). Aborting without modifying existing rules.`
@@ -205,6 +309,17 @@ async function main() {
     }
   }
   console.log(`[build-rules] Tier 1 - Core guaranteed domains added: ${guaranteedCount}`);
+
+  // Tier 1.5: AdGuard Turkish Network Rules (Priority Turkish ad & betting domains)
+  let turkishCount = 0;
+  for (const domain of turkishNetSet) {
+    if (selectedDomains.size >= MAX_RULE_LIMIT) break;
+    if (!selectedDomains.has(domain)) {
+      selectedDomains.add(domain);
+      turkishCount++;
+    }
+  }
+  console.log(`[build-rules] Tier 1.5 - AdGuard Turkish network domains added: ${turkishCount}`);
 
   // Tier 2: Intersection of EasyList and OISD (Highest confidence agreement)
   let intersectionCount = 0;
@@ -267,7 +382,7 @@ async function main() {
     }
   }));
 
-  // Atomic file write: write to .tmp then rename
+  // Atomic file write for ads_trackers.json: write to .tmp then rename
   await fs.mkdir(path.dirname(OUTPUT_FILE), { recursive: true });
   const jsonContent = JSON.stringify(rules, null, 2);
   await fs.writeFile(TMP_FILE, jsonContent, 'utf8');
@@ -275,15 +390,38 @@ async function main() {
   // Verify the tmp file parses correctly
   const verify = JSON.parse(await fs.readFile(TMP_FILE, 'utf8'));
   if (!Array.isArray(verify) || verify.length !== rules.length) {
-    throw new Error('Verification failed: temp file corrupted.');
+    throw new Error('Verification failed: ads_trackers temp file corrupted.');
   }
 
   await fs.rename(TMP_FILE, OUTPUT_FILE);
   console.log(`[build-rules] Successfully wrote ${rules.length} prioritized rules to ${OUTPUT_FILE}`);
+
+  // Compile and write rules/cosmetic_rules.json
+  const cosmeticMap = parseCosmeticRules(turkishText);
+  const cosmeticJson = JSON.stringify(cosmeticMap, null, 2);
+  await fs.writeFile(COSMETIC_TMP_FILE, cosmeticJson, 'utf8');
+
+  const verifyCosmetic = JSON.parse(await fs.readFile(COSMETIC_TMP_FILE, 'utf8'));
+  if (typeof verifyCosmetic !== 'object' || Array.isArray(verifyCosmetic)) {
+    throw new Error('Verification failed: cosmetic_rules temp file corrupted.');
+  }
+
+  await fs.rename(COSMETIC_TMP_FILE, COSMETIC_OUTPUT_FILE);
+  console.log(
+    `[build-rules] Successfully wrote ${Object.keys(cosmeticMap).length} cosmetic domain rules to ${COSMETIC_OUTPUT_FILE}`
+  );
   console.log('=== AX-Privacy Rule Compiler Finished ===');
 }
 
-main().catch((err) => {
-  console.error('[build-rules] Fatal error:', err);
-  process.exit(1);
-});
+export {
+  parseCosmeticRules,
+  parseDomains,
+  cleanDomain
+};
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((err) => {
+    console.error('[build-rules] Fatal error:', err);
+    process.exit(1);
+  });
+}
