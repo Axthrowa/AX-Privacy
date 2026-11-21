@@ -260,7 +260,10 @@
             cleanStreak: 0,
             backupMediaUrl: null,
             activePlayerType: null,
-            activePlatform: null
+            activePlatform: null,
+            targetMediaUrl: null,
+            pendingBackupPromise: null,
+            retryAfter: 0
           };
           channelState.set(ch, state);
         }
@@ -391,7 +394,7 @@
             }
 
             if (!tokenResult.ok) {
-              console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): ' + tokenResult.error);
+              console.info('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): ' + tokenResult.error);
               continue;
             }
 
@@ -404,7 +407,7 @@
 
             const usherRes = await fetchFn(usherUrl, { credentials: 'omit' });
             if (!usherRes.ok) {
-              console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): Usher HTTP ' + usherRes.status);
+              console.info('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): Usher HTTP ' + usherRes.status);
               continue;
             }
 
@@ -412,15 +415,17 @@
 
             if (usherText.includes('#EXT-X-STREAM-INF')) {
               const lines = usherText.split(/\\r?\\n/);
-              let mediaUrl = null;
+              const variantUrls = [];
               for (let i = 0; i < lines.length; i++) {
                 if (lines[i].startsWith('#EXT-X-STREAM-INF') && lines[i + 1]) {
-                  mediaUrl = lines[i + 1].trim();
-                  break;
+                  const candidateUrl = lines[i + 1].trim();
+                  if (candidateUrl && candidateUrl.startsWith('http')) {
+                    variantUrls.push(candidateUrl);
+                  }
                 }
               }
 
-              if (mediaUrl) {
+              for (const mediaUrl of variantUrls) {
                 const mediaRes = await fetchFn(mediaUrl, { credentials: 'omit' });
                 if (mediaRes.ok) {
                   const mediaText = await mediaRes.text();
@@ -432,7 +437,7 @@
                       content: cleanTags(mediaText)
                     };
                   } else {
-                    console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): Reklam içeriyor');
+                    console.info('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): Reklam içeriyor');
                   }
                 }
               }
@@ -445,7 +450,7 @@
               };
             }
           } catch (err) {
-            console.warn('[AX-Twitch][Worker] Aday hatası (' + candidate.playerType + '/' + candidate.platform + '): ' + err.message);
+            console.info('[AX-Twitch][Worker] Aday hatası (' + candidate.playerType + '/' + candidate.platform + '): ' + err.message);
           }
         }
         return null;
@@ -511,9 +516,11 @@
 
                 const state = getOrCreateChannelState(ch);
                 const hasAds = isAd(text);
+                const cleanUrl = url.split('?')[0];
 
                 if (hasAds) {
                   state.cleanStreak = 0;
+                  state.targetMediaUrl = cleanUrl;
                   if (!state.isAdActive) {
                     state.isAdActive = true;
                     console.info('[AX-Twitch][Worker] Reklam algılandı (kanal: ' + ch + ')');
@@ -544,12 +551,28 @@
                     }
                   }
 
-                  // No valid cached backup stream, find a new clean candidate
-                  const backupResult = await findCleanBackupStream(ch, origFetch);
+                  // In-flight promise lock or cooldown check
+                  let backupResult = null;
+                  if (state.pendingBackupPromise) {
+                    backupResult = await state.pendingBackupPromise;
+                  } else if (Date.now() < state.retryAfter) {
+                    return response;
+                  } else {
+                    state.pendingBackupPromise = findCleanBackupStream(ch, origFetch);
+                    try {
+                      backupResult = await state.pendingBackupPromise;
+                    } catch (err) {
+                      backupResult = null;
+                    } finally {
+                      state.pendingBackupPromise = null;
+                    }
+                  }
+
                   if (backupResult && backupResult.content) {
                     state.backupMediaUrl = backupResult.mediaUrl;
                     state.activePlayerType = backupResult.playerType;
                     state.activePlatform = backupResult.platform;
+                    state.retryAfter = 0;
                     console.info('[AX-Twitch][Worker] Yedek akış aktif (kanal: ' + ch + ', playerType: ' + backupResult.playerType + '/' + backupResult.platform + ')');
 
                     return new Response(backupResult.content, {
@@ -558,19 +581,28 @@
                       headers: response.headers
                     });
                   } else {
-                    console.warn('[AX-Twitch][Worker] Tüm adaylar başarısız, orijinal akışa düşülüyor (kanal: ' + ch + ')');
+                    state.retryAfter = Date.now() + 5000;
+                    console.info('[AX-Twitch][Worker] Tüm adaylar başarısız, orijinal akışa düşülüyor (kanal: ' + ch + ')');
+                    return response;
                   }
                 } else {
                   // No ads in this media playlist
                   if (state.isAdActive) {
+                    // Audio/auxiliary playlists must not prematurely reset the ad state
+                    if (state.targetMediaUrl && cleanUrl !== state.targetMediaUrl) {
+                      return response;
+                    }
+
                     state.cleanStreak++;
-                    // Require 2 consecutive clean polls to eliminate ad loop flapping
+                    // Require 2 consecutive clean polls on the target media playlist to eliminate ad loop flapping
                     if (state.cleanStreak >= 2) {
                       state.isAdActive = false;
                       state.cleanStreak = 0;
                       state.backupMediaUrl = null;
                       state.activePlayerType = null;
                       state.activePlatform = null;
+                      state.targetMediaUrl = null;
+                      state.retryAfter = 0;
                       console.info('[AX-Twitch][Worker] Reklam sona erdi, orijinal akışa dönüldü (kanal: ' + ch + ')');
                       return response;
                     } else if (state.backupMediaUrl) {

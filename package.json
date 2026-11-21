@@ -9,8 +9,9 @@
     "build:rules": "node scripts/build-rules.js",
     "validate:rules": "node scripts/validate-rules.js",
     "test:punycode": "node scripts/test-punycode.js",
-    "test": "npm run validate:rules && npm run test:punycode",
-    "check": "npm run validate:rules && npm run test:punycode"
+    "test:twitch-gql": "node scripts/test-twitch-gql.js",
+    "test": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql",
+    "check": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql"
   },
   "dependencies": {
     "@duckduckgo/autoconsent": "^17.2.0",
