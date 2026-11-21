@@ -247,6 +247,33 @@
         { playerType: 'embed', platform: 'android', clientId: 'ue6666qo983tsx6so1t0vnawi233wa' }
       ];
 
+      const BLANK_MP4_CHUNK = 'data:video/mp4;base64,AAAAKGZ0eXBtcDQyAAAAAWlzb21tcDQyZGFzaGF2YzFpc282aGxzZgAABEltb292AAAAbG12aGQAAAAAAAAAAAAAAAAAAYagAAAAAAABAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAABqHRyYWsAAABcdGtoZAAAAAMAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAURtZGlhAAAAIG1kaGQAAAAAAAAAAAAAAAAAALuAAAAAAFXEAAAAAAAtaGRscgAAAAAAAAAAc291bgAAAAAAAAAAAAAAAFNvdW5kSGFuZGxlcgAAAADvbWluZgAAABBzbWhkAAAAAAAAAAAAAAAkZGluZgAAABxkcmVmAAAAAAAAAAEAAAAMdXJsIAAAAAEAAACzc3RibAAAAGdzdHNkAAAAAAAAAAEAAABXbXA0YQAAAAAAAAABAAAAAAAAAAAAAgAQAAAAALuAAAAAAAAzZXNkcwAAAAADgICAIgABAASAgIAUQBUAAAAAAAAAAAAAAAWAgIACEZAGgICAAQIAAAAQc3R0cwAAAAAAAAAAAAAAEHN0c2MAAAAAAAAAAAAAABRzdHN6AAAAAAAAAAAAAAAAAAAAEHN0Y28AAAAAAAAAAAAAAeV0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAoAAAAFoAAAAAAGBbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAA9CQAAAAABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABLG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAOxzdGJsAAAAoHN0c2QAAAAAAAAAAQAAAJBhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAoABaABIAAAASAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAAOmF2Y0MBTUAe/+EAI2dNQB6WUoFAX/LgLUBAQFAAAD6AAA6mDgAAHoQAA9CW7y4KAQAEaOuPIAAAABBzdHRzAAAAAAAAAAAAAAAQc3RzYwAAAAAAAAAAAAAAFHN0c3oAAAAAAAAAAAAAAAAAAAAQc3RjbwAAAAAAAAAAAAAASG12ZXgAAAAgdHJleAAAAAAAAAABAAAAAQAAAC4AAAAAAoAAAAAAACB0cmV4AAAAAAAAAAIAAAABAACCNQAAAAACQAAA';
+
+      const adSegmentCache = new Map();
+      const pendingGqlRequests = new Map();
+
+      let blankChunkBytes = null;
+      function getBlankMp4Response() {
+        if (!blankChunkBytes) {
+          try {
+            const bin = atob(BLANK_MP4_CHUNK.split(',')[1]);
+            blankChunkBytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) {
+              blankChunkBytes[i] = bin.charCodeAt(i);
+            }
+          } catch (e) {
+            return origFetch(BLANK_MP4_CHUNK);
+          }
+        }
+        return new Response(blankChunkBytes.buffer.slice(0), {
+          status: 200,
+          headers: {
+            'Content-Type': 'video/mp4',
+            'Content-Length': String(blankChunkBytes.byteLength)
+          }
+        });
+      }
+
       let activeChannel = null;
       let workerProxyUrl = null;
       let workerGqlHeaders = {
@@ -339,23 +366,102 @@
         }).join('\\n');
       }
 
-      // Synchronize channel name, GQL headers & optional proxy from main thread
+      // Synchronize channel name, GQL headers, proxy & GQL responses from main thread
       self.addEventListener('message', (e) => {
-        if (e.data) {
-          if (e.data.type === 'AX_SET_CHANNEL' && e.data.channel) {
-            const ch = e.data.channel.toLowerCase();
-            if (isValidChannel(ch)) {
-              activeChannel = ch;
+        if (!e.data) return;
+        if (e.data.type === 'AX_SET_CHANNEL' && e.data.channel) {
+          const ch = e.data.channel.toLowerCase();
+          if (isValidChannel(ch)) {
+            activeChannel = ch;
+          }
+        } else if (e.data.type === 'AX_GQL_HEADERS' && e.data.headers) {
+          workerGqlHeaders = Object.assign(workerGqlHeaders, e.data.headers);
+        } else if (e.data.type === 'AX_SET_PROXY_URL') {
+          workerProxyUrl = typeof e.data.proxyUrl === 'string' ? e.data.proxyUrl.trim() : null;
+        } else if (e.data.type === 'AX_GQL_RES') {
+          const req = pendingGqlRequests.get(e.data.id);
+          if (req) {
+            pendingGqlRequests.delete(e.data.id);
+            if (e.data.error) {
+              req.resolve({ ok: false, error: e.data.error });
+            } else {
+              try {
+                const res = new Response(e.data.body, {
+                  status: e.data.status || 200,
+                  statusText: e.data.statusText || 'OK',
+                  headers: e.data.headers || {}
+                });
+                req.resolve({ ok: true, response: res });
+              } catch (err) {
+                req.resolve({ ok: false, error: err.message });
+              }
             }
-          } else if (e.data.type === 'AX_GQL_HEADERS' && e.data.headers) {
-            workerGqlHeaders = Object.assign(workerGqlHeaders, e.data.headers);
-          } else if (e.data.type === 'AX_SET_PROXY_URL') {
-            workerProxyUrl = typeof e.data.proxyUrl === 'string' ? e.data.proxyUrl.trim() : null;
           }
         }
       });
 
-      async function requestToken(channel, candidate, withIntegrity, fetchFn) {
+      function workerGqlFetch(url, options) {
+        return new Promise((resolve) => {
+          let timer = null;
+          let finished = false;
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+          timer = setTimeout(() => {
+            if (finished) return;
+            finished = true;
+            if (controller) controller.abort();
+            bridgeGqlFetch(url, options).then(resolve);
+          }, 3000);
+
+          origFetch(url, Object.assign({}, options, controller ? { signal: controller.signal } : {}))
+            .then((res) => {
+              if (finished) return;
+              finished = true;
+              clearTimeout(timer);
+              if (res.ok) {
+                resolve({ ok: true, response: res });
+              } else {
+                bridgeGqlFetch(url, options).then(resolve);
+              }
+            })
+            .catch(() => {
+              if (finished) return;
+              finished = true;
+              clearTimeout(timer);
+              bridgeGqlFetch(url, options).then(resolve);
+            });
+        });
+      }
+
+      function bridgeGqlFetch(url, options) {
+        return new Promise((resolve) => {
+          const id = 'gql_' + Math.random().toString(36).substring(2, 10);
+          const timeout = setTimeout(() => {
+            pendingGqlRequests.delete(id);
+            resolve({ ok: false, error: 'GQL Bridge timeout' });
+          }, 4000);
+
+          pendingGqlRequests.set(id, {
+            resolve: (res) => {
+              clearTimeout(timeout);
+              resolve(res);
+            }
+          });
+
+          self.postMessage({
+            type: 'AX_GQL_REQ',
+            id: id,
+            url: url,
+            options: {
+              method: options.method || 'POST',
+              headers: options.headers || {},
+              body: options.body || null
+            }
+          });
+        });
+      }
+
+      async function requestToken(channel, candidate, withIntegrity) {
         const clientId = candidate.clientId || workerGqlHeaders.clientId || DEFAULT_CLIENT_ID;
         const reqHeaders = {
           'Client-Id': clientId,
@@ -370,7 +476,7 @@
           }
         }
 
-        const gqlRes = await fetchFn('https://gql.twitch.tv/gql', {
+        const gqlResult = await workerGqlFetch('https://gql.twitch.tv/gql', {
           method: 'POST',
           headers: reqHeaders,
           body: JSON.stringify({
@@ -385,6 +491,11 @@
           credentials: 'omit'
         });
 
+        if (!gqlResult.ok || !gqlResult.response) {
+          return { ok: false, error: gqlResult.error || 'GQL request failed' };
+        }
+
+        const gqlRes = gqlResult.response;
         if (!gqlRes.ok) {
           return { ok: false, error: 'GQL HTTP ' + gqlRes.status };
         }
@@ -444,11 +555,11 @@
         for (const candidate of CANDIDATE_MATRIX) {
           try {
             // First attempt: anonymous request (zero identity leakage)
-            let tokenResult = await requestToken(channel, candidate, false, fetchFn);
+            let tokenResult = await requestToken(channel, candidate, false);
 
             // If failed and we have Client-Integrity, retry with integrity header
             if (!tokenResult.ok && workerGqlHeaders.clientIntegrity) {
-              tokenResult = await requestToken(channel, candidate, true, fetchFn);
+              tokenResult = await requestToken(channel, candidate, true);
             }
 
             if (!tokenResult.ok) {
@@ -535,6 +646,11 @@
           if (typeof req === 'string') url = req;
           else if (req && req.url) url = req.url;
 
+          // 0. Blank out ad video segments immediately
+          if (url && (adSegmentCache.has(url) || adSegmentCache.has(url.split('?')[0]))) {
+            return getBlankMp4Response();
+          }
+
           // 1. Usher Master Playlist: Extract channel & map variant URLs
           if (url && url.includes('usher.ttvnw.net/api/channel/hls/')) {
             const m = url.match(/\\/channel\\/hls\\/([a-z0-9_]{2,25})/i);
@@ -586,8 +702,33 @@
                 }
 
                 const state = getOrCreateChannelState(ch);
-                const hasAds = isAd(text);
                 const cleanUrl = url.split('?')[0];
+
+                // Detect and extract ad segments into adSegmentCache
+                let hasAds = isAd(text);
+                const lines = text.split(/\\r?\\n/);
+                for (let i = 0; i < lines.length; i++) {
+                  const line = lines[i];
+                  if (line.startsWith('#EXTINF:') && i < lines.length - 1) {
+                    const isAdSeg = !line.includes(',live') || /amazon/i.test(line) || /stitched/i.test(line);
+                    if (isAdSeg) {
+                      const segUrl = lines[i + 1].trim();
+                      if (segUrl && !segUrl.startsWith('#')) {
+                        adSegmentCache.set(segUrl, Date.now());
+                        adSegmentCache.set(segUrl.split('?')[0], Date.now());
+                        hasAds = true;
+                      }
+                    }
+                  }
+                }
+
+                // Prune expired ad segments (> 120s)
+                const now = Date.now();
+                for (const [sUrl, sTime] of adSegmentCache.entries()) {
+                  if (now - sTime > 120000) {
+                    adSegmentCache.delete(sUrl);
+                  }
+                }
 
                 if (hasAds) {
                   state.cleanStreak = 0;
@@ -597,7 +738,7 @@
                     console.info('[AX-Twitch][Worker] Reklam algılandı (kanal: ' + ch + ')');
                   }
 
-                  // Check if we have an active clean backup media URL cached
+                  // 1. Check if cached backup media stream is still valid & clean
                   if (state.backupMediaUrl) {
                     try {
                       const cachedRes = await origFetch(state.backupMediaUrl, { credentials: 'omit' });
@@ -623,15 +764,11 @@
                     }
                   }
 
-                  // In-flight promise lock or cooldown check
+                  // 2. Query backup candidate stream if not on cooldown
                   let backupResult = null;
                   if (state.pendingBackupPromise) {
                     backupResult = await state.pendingBackupPromise;
-                  } else if (Date.now() < state.retryAfter) {
-                    // Within 15s cooldown after failure: auto-mute and stream original
-                    self.postMessage({ type: 'AX_AD_MUTE_STATE', active: true });
-                    return response;
-                  } else {
+                  } else if (Date.now() >= state.retryAfter) {
                     state.pendingBackupPromise = findCleanBackupStream(ch, origFetch);
                     try {
                       backupResult = await state.pendingBackupPromise;
@@ -656,10 +793,19 @@
                       headers: response.headers
                     });
                   } else {
+                    // Fallback: Strip ad tags & prefetch, nullify segments to blank MP4
                     state.retryAfter = Date.now() + 15000;
-                    console.info('[AX-Twitch][Worker] Tüm adaylar başarısız, orijinal akışa düşülüyor (kanal: ' + ch + ')');
+                    console.info('[AX-Twitch][Worker] Adaylar başarısız, reklam segmentleri nötrleniyor (kanal: ' + ch + ')');
                     self.postMessage({ type: 'AX_AD_MUTE_STATE', active: true });
-                    return response;
+
+                    const strippedLines = lines.filter(l => !l.startsWith('#EXT-X-TWITCH-PREFETCH:'));
+                    const cleanedFallback = cleanTags(strippedLines.join('\\n'));
+
+                    return new Response(cleanedFallback, {
+                      status: response.status,
+                      statusText: response.statusText,
+                      headers: response.headers
+                    });
                   }
                 } else {
                   // No ads in this media playlist
@@ -764,6 +910,23 @@
           if (init && init.headers) {
             updateCapturedGqlHeaders(init.headers);
           }
+        }
+
+        // Clean ad tags from any playlist fetched in window scope
+        if (url && (url.includes('.m3u8') || url.includes('playlist.ttvnw.net'))) {
+          const res = await origWindowFetch.apply(this, args);
+          if (res && res.ok) {
+            const cloned = res.clone();
+            const text = await cloned.text();
+            if (text.includes('#EXTINF:') && isAdPlaylist(text)) {
+              return new Response(cleanAdTags(text), {
+                status: res.status,
+                statusText: res.statusText,
+                headers: res.headers
+              });
+            }
+          }
+          return res;
         }
       } catch {}
       return origWindowFetch.apply(this, args);
@@ -879,11 +1042,34 @@
       if (scriptUrlStr) {
         const wrappedSource = `
           ${WORKER_HOOK_SOURCE}
-          try {
-            importScripts(${JSON.stringify(scriptUrlStr)});
-          } catch(e) {
-            console.warn('[AX-Twitch] importScripts hatası:', e);
-          }
+          (function() {
+            function __ax_getWorkerCode(url) {
+              try {
+                const req = new XMLHttpRequest();
+                req.open('GET', url, false);
+                req.overrideMimeType('text/javascript');
+                req.send();
+                return req.responseText;
+              } catch (e) {
+                return null;
+              }
+            }
+            const __ax_scriptUrl = ${JSON.stringify(scriptUrlStr)};
+            const __ax_workerSrc = __ax_getWorkerCode(__ax_scriptUrl);
+            if (__ax_workerSrc) {
+              try {
+                (0, eval)(__ax_workerSrc);
+              } catch (err) {
+                new Function(__ax_workerSrc)();
+              }
+            } else {
+              try {
+                importScripts(__ax_scriptUrl);
+              } catch (e) {
+                console.warn('[AX-Twitch] Worker importScripts fallback hatası:', e);
+              }
+            }
+          })();
         `;
 
         const hookedBlob = new Blob([wrappedSource], { type: 'application/javascript' });
@@ -893,10 +1079,37 @@
         const worker = new OrigWorker(hookedUrl, options);
         activeWorkers.add(worker);
 
-        // Listen for worker messages (auto-mute triggers)
-        worker.addEventListener('message', (e) => {
-          if (e.data && e.data.type === 'AX_AD_MUTE_STATE') {
+        // Listen for worker messages (auto-mute triggers & GQL bridge requests)
+        worker.addEventListener('message', async (e) => {
+          if (!e.data) return;
+          if (e.data.type === 'AX_AD_MUTE_STATE') {
             handleAdMuteState(Boolean(e.data.active));
+          } else if (e.data.type === 'AX_GQL_REQ') {
+            const req = e.data;
+            try {
+              const res = await origWindowFetch(req.url, req.options);
+              const body = await res.text();
+              const headers = {};
+              if (res.headers && typeof res.headers.forEach === 'function') {
+                res.headers.forEach((v, k) => {
+                  headers[k] = v;
+                });
+              }
+              worker.postMessage({
+                type: 'AX_GQL_RES',
+                id: req.id,
+                status: res.status,
+                statusText: res.statusText,
+                headers: headers,
+                body: body
+              });
+            } catch (err) {
+              worker.postMessage({
+                type: 'AX_GQL_RES',
+                id: req.id,
+                error: err.message || 'Window fetch failed'
+              });
+            }
           }
         });
 
