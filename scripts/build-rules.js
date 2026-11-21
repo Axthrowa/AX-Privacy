@@ -229,12 +229,16 @@ function cleanDomain(raw) {
   if (d.startsWith('||')) {
     d = d.slice(2);
     const caretIdx = d.indexOf('^');
+    const slashIdx = d.indexOf('/');
+    // CRITICAL: If there is a slash before caret, or a slash with no caret,
+    // this is a URL path rule (e.g. "||dizibox.live/r/", "||airlinehaber.com/storage/*/*.gif").
+    // Stripping the path turns legitimate publisher websites into blocked ad networks!
+    // Path rules MUST NEVER be converted to domain-level blocks.
+    if (slashIdx !== -1 && (caretIdx === -1 || slashIdx < caretIdx)) {
+      return null;
+    }
     if (caretIdx !== -1) {
       d = d.slice(0, caretIdx);
-    }
-    const slashIdx = d.indexOf('/');
-    if (slashIdx !== -1) {
-      d = d.slice(0, slashIdx);
     }
   }
 

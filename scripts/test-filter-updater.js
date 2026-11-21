@@ -133,7 +133,10 @@ console.log('[Group 1: Multi-Format Parser]');
 runTest('Parses Adblock Plus / uBO filter format (||ad.test^)', () => {
   assert.strictEqual(parseFilterLine('||ad.test^'), 'ad.test');
   assert.strictEqual(parseFilterLine('||tracker.example.com^$third-party,image'), 'tracker.example.com');
-  assert.strictEqual(parseFilterLine('||badsite.org/ads/banner/*'), 'badsite.org');
+  // Path rules must NOT be converted to domain blocks to prevent breaking publisher sites (e.g. dizibox.live/r/)
+  assert.strictEqual(parseFilterLine('||badsite.org/ads/banner/*'), null);
+  assert.strictEqual(parseFilterLine('||dizibox.live/r/'), null);
+  assert.strictEqual(parseFilterLine('||airlinehaber.com/storage/*/*.gif'), null);
 });
 
 runTest('Skips ABP exception rules (@@)', () => {

@@ -395,15 +395,38 @@
               adMeta.includes('casino') ||
               adMeta.includes('sponsor');
 
-            const hasExternalLink = Boolean(
-              el.querySelector('a[href^="http://"], a[href^="https://"], a[target="_blank"]')
-            );
-            const hasGifOrWebp = Boolean(
-              el.querySelector('img[src*=".gif"], img[src*=".webp"], [style*=".gif"], [style*=".webp"]')
+            // Determine if the element links to an actual external domain (exclude same-site and relative URLs)
+            let hasActualExternalLink = false;
+            const linkList = el.querySelectorAll('a[href]');
+            for (let aIdx = 0; aIdx < linkList.length; aIdx++) {
+              try {
+                const u = new URL(linkList[aIdx].href, window.location.href);
+                if (u.protocol.startsWith('http')) {
+                  const targetHost = u.hostname.replace(/^www\./, '');
+                  const curHost = window.location.hostname.replace(/^www\./, '');
+                  if (targetHost && targetHost !== curHost && !targetHost.endsWith('.' + curHost) && !curHost.endsWith('.' + targetHost)) {
+                    hasActualExternalLink = true;
+                    break;
+                  }
+                }
+              } catch {}
+            }
+
+            // Only animated GIFs count as potential ad banners; WebP is a standard modern image format
+            const hasGifBanner = Boolean(
+              el.querySelector('img[src*=".gif"], [style*=".gif"]')
             );
 
+            // Never hide elements that contain article headings or series titles (legitimate content cards)
+            const hasHeadingOrTitle = Boolean(
+              el.querySelector('h1, h2, h3, h4, h5, h6, time, [class*="title" i], [class*="episode" i], [class*="season" i]')
+            );
+            if (hasHeadingOrTitle) {
+              continue;
+            }
+
             // Pattern 1: Fixed / Sticky Floating GIF & Betting Banners
-            if (isFixedOrSticky && (hasExternalLink || hasAdKeywords) && (hasGifOrWebp || hasAdKeywords)) {
+            if (isFixedOrSticky && (hasActualExternalLink || hasAdKeywords) && (hasGifBanner || hasAdKeywords)) {
               el.style.setProperty('display', 'none', 'important');
               el.style.setProperty('pointer-events', 'none', 'important');
               el.__ax_scanned_hidden = true;
@@ -413,8 +436,8 @@
 
             const rect = el.getBoundingClientRect();
 
-            // Pattern 2: Standard IAB Ad Dimensions
-            if (rect.width > 0 && rect.height > 0 && (hasExternalLink || hasAdKeywords || hasGifOrWebp)) {
+            // Pattern 2: Standard IAB Ad Dimensions (Must be an actual ad, not a regular content card!)
+            if (rect.width > 0 && rect.height > 0 && (hasAdKeywords || (hasActualExternalLink && hasGifBanner) || el.querySelector('iframe[src*="ad"]'))) {
               const matchesIAB = IAB_SIZES.some(
                 (size) => Math.abs(rect.width - size.w) <= 4 && Math.abs(rect.height - size.h) <= 4
               );
@@ -430,7 +453,7 @@
             // Pattern 3: Pageskin / Wallpaper Sidebars
             if (isAbsoluteOrFixed && rect.width > 40 && rect.width <= 260 && rect.height >= 400) {
               const isAtEdge = rect.left <= 25 || rect.right >= (window.innerWidth || 1200) - 25;
-              if (isAtEdge && (hasExternalLink || hasAdKeywords || hasGifOrWebp)) {
+              if (isAtEdge && (hasAdKeywords || (hasActualExternalLink && hasGifBanner))) {
                 el.style.setProperty('display', 'none', 'important');
                 el.style.setProperty('pointer-events', 'none', 'important');
                 el.__ax_scanned_hidden = true;
@@ -486,7 +509,7 @@
                       )) ||
                     el.querySelector('input, select, textarea, video, audio, form');
 
-                  if (!isSafeControl && (hasExternalLink || hasAdKeywords || hasGifOrWebp || el.querySelector('a[href*="http"], img'))) {
+                  if (!isSafeControl && (hasAdKeywords || (hasActualExternalLink && (hasGifBanner || el.querySelector('iframe'))))) {
                     el.style.setProperty('display', 'none', 'important');
                     el.style.setProperty('pointer-events', 'none', 'important');
                     el.__ax_scanned_hidden = true;

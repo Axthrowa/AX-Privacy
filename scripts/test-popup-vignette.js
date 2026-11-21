@@ -760,6 +760,37 @@ runTest('Anti-Adblock Defusers neutralize FuckAdBlock, BlockAdBlock and canRunAd
   assert.strictEqual(typeof fullVmContext.window.fuckAdBlock.onDetected, 'function');
 });
 
+console.log('\n[Group 11: Publisher Domain & WebP Image Immunity (v3.2.1)]');
+
+runTest('Publisher domains with path-only ad rules are NEVER blocked in ads_trackers.json', () => {
+  const adsRules = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'rules', 'ads_trackers.json'), 'utf8'));
+  const blockedDomainFilters = new Set(adsRules.map((r) => r.condition.urlFilter));
+
+  const protectedPublishers = [
+    'dizibox.live',
+    'diziboxx.com',
+    'dizipal.org',
+    'onedio.com',
+    'sozcu.com.tr',
+    'milliyet.com.tr',
+    'cumhuriyet.com.tr',
+    'technopat.net',
+    'tamindir.com',
+    'haberler.com',
+    'bisikletforum.com',
+    'airlinehaber.com',
+    'airporthaber.com'
+  ];
+
+  for (const pub of protectedPublishers) {
+    assert.strictEqual(
+      blockedDomainFilters.has(`||${pub}^`),
+      false,
+      `Publisher website ${pub} must not be blocked at the domain level!`
+    );
+  }
+});
+
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
 if (passedTests === totalTests) {
   console.log('✓ All Anti-Vignette & Pop-under Classifier tests passed successfully!');
