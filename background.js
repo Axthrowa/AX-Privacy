@@ -59,12 +59,20 @@ async function clearTabAlerted(tabId) {
   }
 }
 
+async function resetTabBadgeToDefault(tabId) {
+  try {
+    await chrome.action.setBadgeText({ tabId, text: null });
+  } catch {
+    await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
+  }
+  await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
+}
+
 async function clearAllAlertedTabs() {
   try {
     const list = await getAlertedTabs();
     for (const tabId of list) {
-      await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
-      await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
+      await resetTabBadgeToDefault(tabId);
     }
     await chrome.storage.session.remove('alertedTabs');
   } catch (err) {
@@ -437,8 +445,7 @@ async function analyzeTab(tabId, url) {
     if (!threatShield) {
       tabThreats.delete(tabId);
       if (isAlerted) {
-        await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
-        await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
+        await resetTabBadgeToDefault(tabId);
         await clearTabAlerted(tabId);
       }
       return;
@@ -477,8 +484,7 @@ async function analyzeTab(tabId, url) {
       // Safe page: Only reset badge override if this tab was previously alerted,
       // restoring Chrome's native DNR action count and resetting background color to blue (#0284c7)!
       if (isAlerted) {
-        await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
-        await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
+        await resetTabBadgeToDefault(tabId);
         await clearTabAlerted(tabId);
       }
     }
