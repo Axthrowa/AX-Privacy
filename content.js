@@ -88,6 +88,49 @@
         }
       `);
 
+      // Universal HTML5 Video & Media Player Controls Protection
+      cssRules.push(`
+        video,
+        audio,
+        .video-js,
+        .video-js *,
+        .jwplayer,
+        .jwplayer *,
+        .plyr,
+        .plyr *,
+        .dplayer,
+        .dplayer *,
+        .artplayer-app,
+        .artplayer-app *,
+        [class*="player"] [class*="control"],
+        [class*="player"] [class*="control"] *,
+        [class*="player"] [class*="progress"],
+        [class*="player"] [class*="progress"] *,
+        [class*="player"] [class*="slider"],
+        [class*="player"] [class*="slider"] *,
+        [class*="player"] [class*="timeline"],
+        [class*="player"] [class*="timeline"] *,
+        [class*="player"] [class*="seekbar"],
+        [class*="player"] [class*="seekbar"] *,
+        [class*="player"] [class*="fullscreen"],
+        [class*="player"] [class*="fullscreen"] *,
+        [class*="player"] [class*="volume"],
+        [class*="player"] [class*="volume"] *,
+        [class*="player"] button,
+        [class*="player"] [role="button"],
+        [class*="player"] [role="slider"],
+        [class*="player"] [role="progressbar"],
+        .video-player__default-player,
+        .video-player__default-player *,
+        [data-a-target="player-play-pause-button"],
+        [data-a-target="player-fullscreen-button"],
+        [data-a-target="player-settings-button"],
+        [data-a-target="player-settings-menu"],
+        [data-a-target="player-overlay-click-handler"] {
+          pointer-events: auto !important;
+        }
+      `);
+
       if (currentHost.includes('youtube.com')) {
         cssRules.push(`
           ytd-guide-renderer,
@@ -95,6 +138,24 @@
           #guide,
           #sections,
           ytd-mini-guide-renderer {
+            visibility: visible !important;
+          }
+          .html5-video-player .ytp-chrome-bottom,
+          .html5-video-player .ytp-chrome-bottom *,
+          .html5-video-player.ad-showing .ytp-chrome-bottom,
+          .html5-video-player.ad-showing .ytp-chrome-bottom *,
+          .ytp-play-button,
+          .ytp-fullscreen-button,
+          .ytp-volume-area,
+          .ytp-volume-panel,
+          .ytp-volume-slider,
+          .ytp-mute-button,
+          .ytp-settings-button,
+          .ytp-progress-bar-container,
+          .ytp-progress-bar,
+          .ytp-progress-bar * {
+            opacity: 1 !important;
+            pointer-events: auto !important;
             visibility: visible !important;
           }
         `);
@@ -302,10 +363,28 @@
                 // Must be an actual ad or external link trap; never disable pure UI overlays
                 const hasAdOrLink = el.tagName === 'A' || Boolean(el.querySelector('a[href^="http"], a[target="_blank"]'));
                 if (hasAdOrLink) {
-                  el.style.setProperty('pointer-events', 'none', 'important');
+                  const containsControls = Boolean(
+                    el.querySelector('video, audio, button, [role="button"], [role="slider"], [class*="control"]')
+                  );
+                  if (!containsControls) {
+                    el.style.setProperty('pointer-events', 'none', 'important');
+                  }
                   if (el.tagName === 'A') {
                     el.removeAttribute('href');
                     el.removeAttribute('target');
+                    el.onclick = (ev) => {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                    };
+                  }
+                  const innerLinks = el.querySelectorAll('a[href]');
+                  for (let l = 0; l < innerLinks.length; l++) {
+                    innerLinks[l].removeAttribute('href');
+                    innerLinks[l].removeAttribute('target');
+                    innerLinks[l].onclick = (ev) => {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                    };
                   }
                 }
               }
@@ -613,7 +692,7 @@
             chrome.runtime
               .sendMessage({
                 type: 'INCREMENT_BLOCKED',
-                count: blockedCount
+                count: Math.min(blockedCount, 25)
               })
               .catch(() => {});
           }

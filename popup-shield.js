@@ -825,11 +825,20 @@ function isDevToolsKey(e) {
       if (isVideoControl) {
         const parentAnchor = target.closest('a[href]');
         if (parentAnchor) {
-          // If anchor wraps the video player, strip the link and don't stop the player click
-          if (parentAnchor.querySelector('video, audio')) {
-            parentAnchor.removeAttribute('href');
-            parentAnchor.removeAttribute('target');
-            parentAnchor.style.setProperty('pointer-events', 'none', 'important');
+          // If anchor wraps the video player, neutralize the link navigation without blocking player clicks
+          parentAnchor.removeAttribute('href');
+          parentAnchor.removeAttribute('target');
+          parentAnchor.setAttribute('data-ax-defused-trap', 'true');
+          parentAnchor.onclick = function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+          };
+          // Explicitly ensure player elements inside remain interactive
+          const controls = parentAnchor.querySelectorAll(
+            'video, audio, button, [role="button"], [role="slider"], [class*="control"], [class*="progress"], [class*="seekbar"]'
+          );
+          for (let c = 0; c < controls.length; c++) {
+            controls[c].style.setProperty('pointer-events', 'auto', 'important');
           }
         }
         return;
@@ -967,7 +976,17 @@ function isDevToolsKey(e) {
           if (anchor.querySelector('video, audio')) {
             anchor.removeAttribute('href');
             anchor.removeAttribute('target');
-            anchor.style.setProperty('pointer-events', 'none', 'important');
+            anchor.setAttribute('data-ax-defused-trap', 'true');
+            anchor.onclick = function (ev) {
+              ev.preventDefault();
+              ev.stopPropagation();
+            };
+            const controls = anchor.querySelectorAll(
+              'video, audio, button, [role="button"], [role="slider"], [class*="control"], [class*="progress"], [class*="seekbar"]'
+            );
+            for (let c = 0; c < controls.length; c++) {
+              controls[c].style.setProperty('pointer-events', 'auto', 'important');
+            }
           } else {
             anchor.remove();
           }

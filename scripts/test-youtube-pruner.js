@@ -198,7 +198,7 @@ for (const raw of testCriticalDomains) {
 }
 console.log('[PASS] Critical YouTube domains are exempted from filter parsing');
 
-// Test Case 4: Verify youtube-shield.js cosmetic protection contains sidebar visibility
+// Test Case 4: Verify youtube-shield.js cosmetic protection contains sidebar visibility and player controls
 if (
   source.includes('ytd-guide-renderer') &&
   source.includes('tp-yt-app-drawer') &&
@@ -208,6 +208,30 @@ if (
   console.log('[PASS] YouTube shield contains sidebar and guide visibility protection rules');
 } else {
   console.error('[FAIL] Missing sidebar/guide visibility protection rules in youtube-shield.js');
+  failed = true;
+}
+
+// Test Case 5: Verify YouTube player controls interactivity and ad-showing recovery
+if (
+  source.includes('.ytp-chrome-bottom') &&
+  source.includes('.ytp-fullscreen-button') &&
+  source.includes('.ytp-volume-slider') &&
+  source.includes('.ytp-mute-button') &&
+  source.includes('pointer-events: auto !important')
+) {
+  console.log('[PASS] YouTube player controls (fullscreen, volume, seekbar, play/pause) are protected and interactive');
+} else {
+  console.error('[FAIL] Missing player controls protection in youtube-shield.js');
+  failed = true;
+}
+
+if (
+  source.includes("player.classList.remove('ad-showing', 'ad-interrupting')") &&
+  source.includes('wasMutedByExtension = false')
+) {
+  console.log('[PASS] YouTube player ad-showing cleanup and volume restoration verified');
+} else {
+  console.error('[FAIL] Missing ad-showing recovery and unmute logic in youtube-shield.js');
   failed = true;
 }
 

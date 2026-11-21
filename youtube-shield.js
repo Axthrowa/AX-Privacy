@@ -214,53 +214,89 @@
 
   // --- Layer 2: Fast-Skip Fallback ---
   let wasMutedByExtension = false;
+  let adSkipAttempts = 0;
 
   function checkAndSkipAds() {
     try {
       const player =
         document.getElementById('movie_player') ||
         document.querySelector('.html5-video-player');
-      const isAdShowing =
-        player &&
-        (player.classList.contains('ad-showing') ||
-          player.classList.contains('ad-interrupting'));
       const video =
         document.querySelector('video.html5-main-video') ||
         document.querySelector('video');
 
-      if (isAdShowing) {
-        if (video) {
-          // 1. Temporarily mute video
-          if (!video.muted) {
-            wasMutedByExtension = true;
-            video.muted = true;
-          }
-          // 2. Fast forward if duration is finite and positive
-          if (Number.isFinite(video.duration) && video.duration > 0) {
-            video.currentTime = video.duration;
-          }
-          // Accelerate playback speed as secondary bypass
-          try {
-            video.playbackRate = 16.0;
-          } catch {}
-        }
+      if (!player) return;
 
-        // 3. Programmatically click skip buttons if visible
+      const isAdShowing =
+        player.classList.contains('ad-showing') ||
+        player.classList.contains('ad-interrupting');
+
+      const hasAdBadge = Boolean(
+        document.querySelector(
+          '.ytp-ad-text, .ytp-ad-preview-text, .ytp-ad-simple-ad-badge, .ytp-ad-player-overlay, .ytp-ad-module'
+        )
+      );
+
+      if (isAdShowing || hasAdBadge) {
+        adSkipAttempts++;
+
+        // 1. Programmatically click skip buttons if visible
         const skipSelectors = [
           '.ytp-skip-ad-button',
           '.ytp-ad-skip-button',
           '.ytp-ad-skip-button-modern',
-          '.ytp-ad-skip-button-slot button'
+          '.ytp-ad-skip-button-slot button',
+          'button.ytp-ad-skip-button-text',
+          '.ytp-ad-skip-button-container button'
         ];
+        let skipClicked = false;
         for (const sel of skipSelectors) {
           const btn = document.querySelector(sel);
           if (btn && typeof btn.click === 'function') {
             btn.click();
+            skipClicked = true;
             break;
           }
         }
+
+        if (video) {
+          // Temporarily mute during active ad playback only if not already muted by user
+          if (!video.muted && !wasMutedByExtension) {
+            wasMutedByExtension = true;
+            video.muted = true;
+          }
+
+          // If ad is short or has ad badge, fast-forward safely to avoid freezing the player
+          if (Number.isFinite(video.duration) && video.duration > 0 && video.duration < 180) {
+            try {
+              video.playbackRate = 16.0;
+              // Avoid exact duration which can hang YouTube's state machine; seek to near-end
+              if (video.currentTime < video.duration - 0.2) {
+                video.currentTime = Math.max(0, video.duration - 0.1);
+              }
+            } catch {}
+          }
+        }
+
+        // If ad skip was clicked or video reached near end, or ad has lingered > 3s, clear ad classes immediately
+        if (
+          skipClicked ||
+          (video && Number.isFinite(video.duration) && video.currentTime >= video.duration - 0.5) ||
+          adSkipAttempts >= 6
+        ) {
+          player.classList.remove('ad-showing', 'ad-interrupting');
+          adSkipAttempts = 0;
+          if (wasMutedByExtension && video) {
+            video.muted = false;
+            try {
+              video.playbackRate = 1.0;
+            } catch {}
+            wasMutedByExtension = false;
+          }
+        }
       } else {
-        // Restore sound and playback speed if muted by extension
+        adSkipAttempts = 0;
+        // Restore sound and normal playback speed if muted by extension
         if (wasMutedByExtension) {
           if (video) {
             video.muted = false;
@@ -332,6 +368,33 @@
       #sections,
       ytd-mini-guide-renderer {
         visibility: visible !important;
+      }
+
+      /* Guarantee that YouTube player controls, seekbars, volume slider and buttons are ALWAYS interactive */
+      .html5-video-player .ytp-chrome-bottom,
+      .html5-video-player .ytp-chrome-bottom *,
+      .html5-video-player.ad-showing .ytp-chrome-bottom,
+      .html5-video-player.ad-showing .ytp-chrome-bottom *,
+      .ytp-play-button,
+      .ytp-fullscreen-button,
+      .ytp-volume-area,
+      .ytp-volume-panel,
+      .ytp-volume-slider,
+      .ytp-mute-button,
+      .ytp-settings-button,
+      .ytp-progress-bar-container,
+      .ytp-progress-bar,
+      .ytp-progress-bar * {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        visibility: visible !important;
+        cursor: pointer !important;
+      }
+
+      /* Protect YouTube HTML5 video element interactivity */
+      .html5-video-player video,
+      video.html5-main-video {
+        pointer-events: auto !important;
       }
     `;
     const target = document.head || document.documentElement;

@@ -203,6 +203,7 @@ function decodeHostname(hostname) {
  * Initializes extension badge settings with capped formatting and default styling
  */
 async function initActionOptions() {
+  if (typeof chrome === 'undefined') return;
   try {
     if (chrome.declarativeNetRequest?.setExtensionActionOptions) {
       // Strictly disable native unthrottled DNR counter to prevent runaway 10000+ badge numbers
@@ -227,6 +228,11 @@ async function initActionOptions() {
   } catch (err) {
     console.warn('[AX-Privacy background] initActionOptions error:', err);
   }
+}
+
+// Immediately enforce action badge settings upon service worker spin-up
+if (typeof chrome !== 'undefined') {
+  initActionOptions().catch(() => {});
 }
 
 /**
