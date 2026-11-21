@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleCosmetic = document.getElementById('toggleCosmetic');
   const toggleThreat = document.getElementById('toggleThreat');
   const toggleTwitch = document.getElementById('toggleTwitch');
+  const twitchProxyInput = document.getElementById('twitchProxyInput');
+  const btnSaveProxy = document.getElementById('btnSaveProxy');
+  const proxyFeedback = document.getElementById('proxyFeedback');
 
   let currentTab = null;
   let currentHostname = '';
@@ -112,6 +115,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       toggleCosmetic.checked = settings.cosmeticFilter !== undefined ? settings.cosmeticFilter : true;
       toggleThreat.checked = settings.threatShield !== undefined ? settings.threatShield : true;
       toggleTwitch.checked = settings.twitchShield !== undefined ? settings.twitchShield : true;
+      if (twitchProxyInput && settings.twitchProxyUrl !== undefined) {
+        twitchProxyInput.value = settings.twitchProxyUrl;
+      }
 
       // Update Stat Rules Count
       if (settings.adBlock) {
@@ -233,4 +239,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.tabs.reload(currentTab.id);
     }
   });
+
+  if (btnSaveProxy && twitchProxyInput) {
+    btnSaveProxy.addEventListener('click', async () => {
+      const val = twitchProxyInput.value.trim();
+      btnSaveProxy.disabled = true;
+      await updateSetting('twitchProxyUrl', val);
+      btnSaveProxy.disabled = false;
+      if (proxyFeedback) {
+        proxyFeedback.textContent = 'Kaydedildi ✓';
+        proxyFeedback.classList.add('visible');
+        setTimeout(() => {
+          proxyFeedback.classList.remove('visible');
+        }, 2000);
+      }
+      if (currentHostname && currentHostname.includes('twitch.tv') && currentTab?.id) {
+        chrome.tabs.reload(currentTab.id);
+      }
+    });
+  }
 });

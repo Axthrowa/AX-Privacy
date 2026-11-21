@@ -349,8 +349,9 @@
   async function syncTwitchShieldBridge() {
     if (!currentHost.includes('twitch.tv')) return;
     try {
-      const data = await chrome.storage.local.get(['twitchShield', 'whitelist']);
+      const data = await chrome.storage.local.get(['twitchShield', 'twitchProxyUrl', 'whitelist']);
       const isEnabled = data.twitchShield !== undefined ? data.twitchShield : true;
+      const proxyUrl = typeof data.twitchProxyUrl === 'string' ? data.twitchProxyUrl.trim() : '';
       const whitelist = data.whitelist || [];
       const isWhitelisted = whitelist.some(
         (w) => currentHost === w || currentHost.endsWith('.' + w)
@@ -361,6 +362,11 @@
 
       if (prevValue !== targetValue) {
         window.localStorage.setItem('ax_privacy_twitch_shield', targetValue);
+      }
+
+      const prevProxy = window.localStorage.getItem('ax_privacy_twitch_proxy');
+      if (prevProxy !== proxyUrl) {
+        window.localStorage.setItem('ax_privacy_twitch_proxy', proxyUrl);
       }
     } catch {
       // Suppress
@@ -373,7 +379,7 @@
   // Listen for storage changes to sync Twitch shield in real time
   if (chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && (changes.twitchShield || changes.whitelist)) {
+      if (area === 'local' && (changes.twitchShield || changes.whitelist || changes.twitchProxyUrl)) {
         syncTwitchShieldBridge();
       }
     });

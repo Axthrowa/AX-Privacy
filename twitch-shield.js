@@ -1,19 +1,21 @@
 /**
- * AX-Privacy Twitch Stream Shield (Manifest V3 - MAIN World - v2.2.4)
+ * AX-Privacy Twitch Stream Shield (Manifest V3 - MAIN World - v2.2.5)
  * Robust SSAI / HLS Video-Swap Architecture for Twitch.tv
  *
  * Key Architecture:
  *   1. Precise GQL PlaybackAccessToken Schema:
- *      - Uses clean GraphQL PlaybackAccessToken query without unused variables
- *      - Robust response parser handling single object and array responses
+ *      - Clean GraphQL PlaybackAccessToken query without unused variables
+ *      - Completely anonymous token request on round 1 (no identity leak)
  *      - Detailed failure diagnosis (HTTP status, error message, forbiddenReasonCode)
- *   2. Main-Window GQL Header Capture & Worker Synchronization:
- *      - Captures Client-ID, Device-ID, Client-Version, Client-Session-Id, Client-Integrity
- *      - Relays headers to Web Worker via postMessage
- *      - Anonymous by default (credentials: 'omit'); retries with Client-Integrity if needed
- *   3. Multi-Candidate Matrix:
- *      - Tries in sequence: embed/web, embed/ios, popout/web, autoplay/web, site/ios, frontpage/web
- *      - Caches clean backupMediaUrl across the ad break; 2-poll hysteresis before ad end
+ *   2. Strict SSAI Ad Matching & Auto-Mute Fallback:
+ *      - Matches exact SSAI markers (twitch-stitched-ad, stitched-ad, amazon-adsystem, EXTINF:Amazon)
+ *      - Logs matched ad keyword on candidate rejection
+ *      - Auto-mutes video when ad plays on original stream if all candidates fail
+ *   3. Multi-Candidate Matrix & Max 2 Variant Testing:
+ *      - Sequence: embed/web, thunderdome/web, picture-by-picture/web, autoplay/web, embed/android
+ *      - Tests only highest and lowest resolution variants (source + 480p/360p)
+ *      - 15s retryAfter cooldown on failure
+ *   4. Optional Custom Playlist Proxy Support
  */
 
 (function () {
@@ -85,13 +87,17 @@
    */
   function isAdPlaylist(text) {
     if (!text || typeof text !== 'string') return false;
-    return (
-      text.includes('stitched-ad') ||
-      text.includes('twitch-stitched-ad') ||
-      text.includes('X-TV-TWITCH-AD') ||
-      text.includes('amazon-adsystem') ||
-      text.includes('CLASS="twitch-stitched-ad"')
-    );
+    if (text.includes('twitch-stitched-ad')) return true;
+    if (text.includes('CLASS="twitch-stitched-ad"')) return true;
+    if (text.includes('stitched-ad')) return true;
+    if (text.includes('amazon-adsystem')) return true;
+    const lines = text.split(/\r?\n/);
+    for (const line of lines) {
+      if (line.startsWith('#EXTINF:') && /amazon/i.test(line)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -232,15 +238,15 @@
       ].join('\\n');
 
       const CANDIDATE_MATRIX = [
-        { playerType: 'embed', platform: 'web' },
-        { playerType: 'embed', platform: 'ios' },
-        { playerType: 'popout', platform: 'web' },
-        { playerType: 'autoplay', platform: 'web' },
-        { playerType: 'site', platform: 'ios' },
-        { playerType: 'frontpage', platform: 'web' }
+        { playerType: 'embed', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
+        { playerType: 'thunderdome', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
+        { playerType: 'picture-by-picture', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
+        { playerType: 'autoplay', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
+        { playerType: 'embed', platform: 'android', clientId: 'ue6666qo983tsx6so1t0vnawi233wa' }
       ];
 
       let activeChannel = null;
+      let workerProxyUrl = null;
       let workerGqlHeaders = {
         clientId: DEFAULT_CLIENT_ID,
         deviceId: null,
@@ -287,15 +293,23 @@
         return null;
       }
 
+      function getAdMatchReason(text) {
+        if (!text || typeof text !== 'string') return null;
+        if (text.includes('twitch-stitched-ad')) return 'twitch-stitched-ad';
+        if (text.includes('CLASS="twitch-stitched-ad"')) return 'CLASS="twitch-stitched-ad"';
+        if (text.includes('stitched-ad')) return 'stitched-ad';
+        if (text.includes('amazon-adsystem')) return 'amazon-adsystem';
+        const lines = text.split(/\\r?\\n/);
+        for (const line of lines) {
+          if (line.startsWith('#EXTINF:') && /amazon/i.test(line)) {
+            return 'EXTINF:Amazon';
+          }
+        }
+        return null;
+      }
+
       function isAd(text) {
-        if (!text || typeof text !== 'string') return false;
-        return (
-          text.includes('stitched-ad') ||
-          text.includes('twitch-stitched-ad') ||
-          text.includes('X-TV-TWITCH-AD') ||
-          text.includes('amazon-adsystem') ||
-          text.includes('CLASS="twitch-stitched-ad"')
-        );
+        return Boolean(getAdMatchReason(text));
       }
 
       function cleanTags(text) {
@@ -313,7 +327,7 @@
         }).join('\\n');
       }
 
-      // Synchronize channel name & GQL headers from main thread
+      // Synchronize channel name, GQL headers & optional proxy from main thread
       self.addEventListener('message', (e) => {
         if (e.data) {
           if (e.data.type === 'AX_SET_CHANNEL' && e.data.channel) {
@@ -323,21 +337,25 @@
             }
           } else if (e.data.type === 'AX_GQL_HEADERS' && e.data.headers) {
             workerGqlHeaders = Object.assign(workerGqlHeaders, e.data.headers);
+          } else if (e.data.type === 'AX_SET_PROXY_URL') {
+            workerProxyUrl = typeof e.data.proxyUrl === 'string' ? e.data.proxyUrl.trim() : null;
           }
         }
       });
 
       async function requestToken(channel, candidate, withIntegrity, fetchFn) {
+        const clientId = candidate.clientId || workerGqlHeaders.clientId || DEFAULT_CLIENT_ID;
         const reqHeaders = {
-          'Client-Id': workerGqlHeaders.clientId || DEFAULT_CLIENT_ID,
-          'Content-Type': 'application/json'
+          'Client-Id': clientId,
+          'Content-Type': 'text/plain;charset=UTF-8'
         };
-        if (workerGqlHeaders.clientVersion) reqHeaders['Client-Version'] = workerGqlHeaders.clientVersion;
-        if (workerGqlHeaders.clientSessionId) reqHeaders['Client-Session-Id'] = workerGqlHeaders.clientSessionId;
-        if (workerGqlHeaders.deviceId) reqHeaders['X-Device-Id'] = workerGqlHeaders.deviceId;
 
+        // ONLY send Client-Integrity & Device-ID if withIntegrity is explicitly requested in retry
         if (withIntegrity && workerGqlHeaders.clientIntegrity) {
           reqHeaders['Client-Integrity'] = workerGqlHeaders.clientIntegrity;
+          if (workerGqlHeaders.deviceId) {
+            reqHeaders['X-Device-Id'] = workerGqlHeaders.deviceId;
+          }
         }
 
         const gqlRes = await fetchFn('https://gql.twitch.tv/gql', {
@@ -383,9 +401,37 @@
       async function findCleanBackupStream(channel, fetchFn) {
         if (!isValidChannel(channel)) return null;
 
+        // 1. Optional Custom Playlist Proxy Check
+        if (workerProxyUrl && workerProxyUrl.startsWith('https://')) {
+          try {
+            const pUrl = workerProxyUrl
+              .replace(/\{channel\}/gi, encodeURIComponent(channel))
+              .replace(/\{channelName\}/gi, encodeURIComponent(channel))
+              .replace(/\{login\}/gi, encodeURIComponent(channel));
+
+            const pRes = await fetchFn(pUrl, { credentials: 'omit' });
+            if (pRes.ok) {
+              const pText = await pRes.text();
+              const pAdReason = getAdMatchReason(pText);
+              if (!pAdReason && pText.includes('#EXTINF:')) {
+                console.info('[AX-Twitch][Worker] Özel proxy akışı aktif (kanal: ' + channel + ')');
+                return {
+                  mediaUrl: pUrl,
+                  playerType: 'custom-proxy',
+                  platform: 'proxy',
+                  content: cleanTags(pText)
+                };
+              }
+            }
+          } catch (e) {
+            console.info('[AX-Twitch][Worker] Özel proxy başarısız, yerel adaylara geçiliyor: ' + e.message);
+          }
+        }
+
+        // 2. Local Candidate Matrix Check
         for (const candidate of CANDIDATE_MATRIX) {
           try {
-            // First attempt: anonymous request
+            // First attempt: anonymous request (zero identity leakage)
             let tokenResult = await requestToken(channel, candidate, false, fetchFn);
 
             // If failed and we have Client-Integrity, retry with integrity header
@@ -425,11 +471,21 @@
                 }
               }
 
-              for (const mediaUrl of variantUrls) {
+              // Test at most 2 variants: highest (source - first) and lowest (last - 480p/360p)
+              const selectedVariants = [];
+              if (variantUrls.length > 0) {
+                selectedVariants.push(variantUrls[0]);
+              }
+              if (variantUrls.length > 1) {
+                selectedVariants.push(variantUrls[variantUrls.length - 1]);
+              }
+
+              for (const mediaUrl of selectedVariants) {
                 const mediaRes = await fetchFn(mediaUrl, { credentials: 'omit' });
                 if (mediaRes.ok) {
                   const mediaText = await mediaRes.text();
-                  if (!isAd(mediaText) && mediaText.includes('#EXTINF:')) {
+                  const adReason = getAdMatchReason(mediaText);
+                  if (!adReason && mediaText.includes('#EXTINF:')) {
                     return {
                       mediaUrl: mediaUrl,
                       playerType: candidate.playerType,
@@ -437,7 +493,7 @@
                       content: cleanTags(mediaText)
                     };
                   } else {
-                    console.info('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): Reklam içeriyor');
+                    console.info('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): Reklam içeriyor [eşleşen: ' + (adReason || 'EXTINF eksik') + ']');
                   }
                 }
               }
@@ -448,6 +504,9 @@
                 platform: candidate.platform,
                 content: cleanTags(usherText)
               };
+            } else if (usherText.includes('#EXTINF:')) {
+              const adReason = getAdMatchReason(usherText);
+              console.info('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): Reklam içeriyor [eşleşen: ' + (adReason || 'reklam') + ']');
             }
           } catch (err) {
             console.info('[AX-Twitch][Worker] Aday hatası (' + candidate.playerType + '/' + candidate.platform + '): ' + err.message);
@@ -533,6 +592,7 @@
                       if (cachedRes.ok) {
                         const cachedText = await cachedRes.text();
                         if (!isAd(cachedText) && cachedText.includes('#EXTINF:')) {
+                          self.postMessage({ type: 'AX_AD_MUTE_STATE', active: false });
                           return new Response(cleanTags(cachedText), {
                             status: response.status,
                             statusText: response.statusText,
@@ -556,6 +616,8 @@
                   if (state.pendingBackupPromise) {
                     backupResult = await state.pendingBackupPromise;
                   } else if (Date.now() < state.retryAfter) {
+                    // Within 15s cooldown after failure: auto-mute and stream original
+                    self.postMessage({ type: 'AX_AD_MUTE_STATE', active: true });
                     return response;
                   } else {
                     state.pendingBackupPromise = findCleanBackupStream(ch, origFetch);
@@ -574,6 +636,7 @@
                     state.activePlatform = backupResult.platform;
                     state.retryAfter = 0;
                     console.info('[AX-Twitch][Worker] Yedek akış aktif (kanal: ' + ch + ', playerType: ' + backupResult.playerType + '/' + backupResult.platform + ')');
+                    self.postMessage({ type: 'AX_AD_MUTE_STATE', active: false });
 
                     return new Response(backupResult.content, {
                       status: response.status,
@@ -581,8 +644,9 @@
                       headers: response.headers
                     });
                   } else {
-                    state.retryAfter = Date.now() + 5000;
+                    state.retryAfter = Date.now() + 15000;
                     console.info('[AX-Twitch][Worker] Tüm adaylar başarısız, orijinal akışa düşülüyor (kanal: ' + ch + ')');
+                    self.postMessage({ type: 'AX_AD_MUTE_STATE', active: true });
                     return response;
                   }
                 } else {
@@ -604,6 +668,7 @@
                       state.targetMediaUrl = null;
                       state.retryAfter = 0;
                       console.info('[AX-Twitch][Worker] Reklam sona erdi, orijinal akışa dönüldü (kanal: ' + ch + ')');
+                      self.postMessage({ type: 'AX_AD_MUTE_STATE', active: false });
                       return response;
                     } else if (state.backupMediaUrl) {
                       // During streak 1, maintain backup stream to prevent brief ad flashes
@@ -612,6 +677,7 @@
                         if (cachedRes.ok) {
                           const cachedText = await cachedRes.text();
                           if (!isAd(cachedText) && cachedText.includes('#EXTINF:')) {
+                            self.postMessage({ type: 'AX_AD_MUTE_STATE', active: false });
                             return new Response(cleanTags(cachedText), {
                               status: response.status,
                               statusText: response.statusText,
@@ -641,6 +707,7 @@
   history.pushState = function (...args) {
     const res = origPushState.apply(this, args);
     setTimeout(() => {
+      handleAdMuteState(false);
       const ch = getActiveChannelFromLocation();
       if (ch) broadcastChannelToWorkers(ch);
     }, 50);
@@ -651,6 +718,7 @@
   history.replaceState = function (...args) {
     const res = origReplaceState.apply(this, args);
     setTimeout(() => {
+      handleAdMuteState(false);
       const ch = getActiveChannelFromLocation();
       if (ch) broadcastChannelToWorkers(ch);
     }, 50);
@@ -658,10 +726,12 @@
   };
 
   window.addEventListener('popstate', () => {
+    handleAdMuteState(false);
     const ch = getActiveChannelFromLocation();
     if (ch) broadcastChannelToWorkers(ch);
   });
   window.addEventListener('hashchange', () => {
+    handleAdMuteState(false);
     const ch = getActiveChannelFromLocation();
     if (ch) broadcastChannelToWorkers(ch);
   });
@@ -702,7 +772,78 @@
     return url;
   };
 
-  // 5. Hook window.Worker to inject WORKER_HOOK_SOURCE before Amazon IVS player runs
+  // 5. Auto-Mute Fallback and Notification Management
+  let wasMutedByExtension = false;
+
+  function showMuteNotice() {
+    if (document.getElementById('ax-ad-mute-notice')) return;
+    const notice = document.createElement('div');
+    notice.id = 'ax-ad-mute-notice';
+    notice.textContent = 'AX-Privacy: Reklam sessize alındı 🔇';
+    Object.assign(notice.style, {
+      position: 'absolute',
+      bottom: '64px',
+      left: '16px',
+      zIndex: '9999999',
+      backgroundColor: 'rgba(11, 17, 32, 0.88)',
+      color: '#38bdf8',
+      fontSize: '12px',
+      fontWeight: '600',
+      padding: '6px 12px',
+      borderRadius: '8px',
+      border: '1px solid rgba(56, 189, 248, 0.3)',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
+      pointerEvents: 'none',
+      transition: 'opacity 0.2s ease',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    });
+    const playerContainer =
+      document.querySelector('.video-player__container') ||
+      document.querySelector('[data-a-target="video-player"]') ||
+      document.querySelector('.video-player') ||
+      document.body;
+    playerContainer.appendChild(notice);
+  }
+
+  function hideMuteNotice() {
+    const el = document.getElementById('ax-ad-mute-notice');
+    if (el) el.remove();
+  }
+
+  function handleAdMuteState(active) {
+    const video = document.querySelector('video');
+    if (active) {
+      if (video && !video.muted) {
+        wasMutedByExtension = true;
+        video.muted = true;
+        showMuteNotice();
+      } else if (video && wasMutedByExtension) {
+        showMuteNotice();
+      }
+    } else {
+      if (wasMutedByExtension) {
+        if (video) video.muted = false;
+        wasMutedByExtension = false;
+      }
+      hideMuteNotice();
+    }
+  }
+
+  // Listen for storage changes in the main window for real-time proxy URL sync
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'ax_privacy_twitch_proxy') {
+      const pUrl = e.newValue || '';
+      for (const w of activeWorkers) {
+        try {
+          w.postMessage({ type: 'AX_SET_PROXY_URL', proxyUrl: pUrl });
+        } catch {
+          activeWorkers.delete(w);
+        }
+      }
+    }
+  });
+
+  // 6. Hook window.Worker to inject WORKER_HOOK_SOURCE before Amazon IVS player runs
   const OrigWorker = window.Worker;
   window.Worker = function (scriptURL, options) {
     try {
@@ -730,7 +871,14 @@
         const worker = new OrigWorker(hookedUrl, options);
         activeWorkers.add(worker);
 
-        // Send current active channel and captured headers immediately
+        // Listen for worker messages (auto-mute triggers)
+        worker.addEventListener('message', (e) => {
+          if (e.data && e.data.type === 'AX_AD_MUTE_STATE') {
+            handleAdMuteState(Boolean(e.data.active));
+          }
+        });
+
+        // Send current active channel, captured headers and optional proxy immediately
         setTimeout(() => {
           try {
             const initialChannel = getActiveChannelFromLocation();
@@ -738,6 +886,10 @@
               worker.postMessage({ type: 'AX_SET_CHANNEL', channel: initialChannel });
             }
             worker.postMessage({ type: 'AX_GQL_HEADERS', headers: capturedGqlHeaders });
+            const initialProxy = window.localStorage.getItem('ax_privacy_twitch_proxy');
+            if (initialProxy) {
+              worker.postMessage({ type: 'AX_SET_PROXY_URL', proxyUrl: initialProxy });
+            }
           } catch {}
         }, 0);
 
@@ -750,7 +902,7 @@
   };
   window.Worker.prototype = OrigWorker.prototype;
 
-  // 6. Visual suppression of Twitch ad banners & overlay interrupts
+  // 7. Visual suppression of Twitch ad banners & overlay interrupts
   try {
     const style = document.createElement('style');
     style.id = 'ax-twitch-shield-css';
