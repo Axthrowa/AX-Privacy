@@ -1,6 +1,6 @@
 {
   "name": "ax-privacy",
-  "version": "2.3.0",
+  "version": "2.5.0",
   "description": "Gelişmiş reklam engelleme, URL izleyici temizleyici ve yerel tehdit kalkanı tarayıcı eklentisi.",
   "private": true,
   "license": "GPL-3.0-or-later",
@@ -11,8 +11,9 @@
     "test:punycode": "node scripts/test-punycode.js",
     "test:twitch-gql": "node scripts/test-twitch-gql.js",
     "test:youtube-pruner": "node scripts/test-youtube-pruner.js",
-    "test": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner",
-    "check": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner"
+    "test:filter-updater": "node scripts/test-filter-updater.js",
+    "test": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater",
+    "check": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater"
   },
   "dependencies": {
     "@duckduckgo/autoconsent": "^17.2.0",

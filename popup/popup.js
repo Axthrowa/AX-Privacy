@@ -25,6 +25,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnSaveProxy = document.getElementById('btnSaveProxy');
   const proxyFeedback = document.getElementById('proxyFeedback');
 
+  // Custom Filter Lists Elements
+  const customFiltersToggle = document.getElementById('customFiltersToggle');
+  const customFiltersArrow = document.getElementById('customFiltersArrow');
+  const customFiltersContent = document.getElementById('customFiltersContent');
+  const customFilterCount = document.getElementById('customFilterCount');
+  const btnUpdateAllFilters = document.getElementById('btnUpdateAllFilters');
+  const customFilterUrlInput = document.getElementById('customFilterUrlInput');
+  const customFilterNameInput = document.getElementById('customFilterNameInput');
+  const btnAddCustomFilter = document.getElementById('btnAddCustomFilter');
+  const customFilterError = document.getElementById('customFilterError');
+  const customFilterEmptyState = document.getElementById('customFilterEmptyState');
+  const customFilterItems = document.getElementById('customFilterItems');
+  const filterRulesSummary = document.getElementById('filterRulesSummary');
+  const filterUpdateStatusText = document.getElementById('filterUpdateStatusText');
+
   let currentTab = null;
   let currentHostname = '';
   let isSystemPage = false;
@@ -63,6 +78,158 @@ document.addEventListener('DOMContentLoaded', async () => {
       siteBtnIcon.textContent = '✓';
       siteBtnText.textContent = 'Koruma Açık';
     }
+  }
+
+  function setCustomFilterError(msg) {
+    if (!customFilterError) return;
+    if (msg) {
+      customFilterError.textContent = msg;
+      customFilterError.style.display = 'block';
+    } else {
+      customFilterError.textContent = '';
+      customFilterError.style.display = 'none';
+    }
+  }
+
+  function renderCustomFilterLists(lists, status) {
+    const listArray = Array.isArray(lists) ? lists : [];
+    if (customFilterCount) {
+      customFilterCount.textContent = String(listArray.length);
+    }
+
+    if (filterRulesSummary && status) {
+      const dynamicCount = status.totalRules || 0;
+      filterRulesSummary.textContent = `Statik: 25.000+ • Canlı: ${dynamicCount.toLocaleString('tr-TR')} kural`;
+    }
+
+    if (filterUpdateStatusText && status) {
+      if (status.status === 'ok') {
+        filterUpdateStatusText.textContent = status.lastUpdated
+          ? new Date(status.lastUpdated).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+          : 'Güncel';
+        filterUpdateStatusText.className = 'filter-status-pill pill-ok';
+      } else if (status.status === 'error') {
+        filterUpdateStatusText.textContent = 'Hata';
+        filterUpdateStatusText.className = 'filter-status-pill pill-err';
+      } else {
+        filterUpdateStatusText.textContent = 'Bekliyor';
+        filterUpdateStatusText.className = 'filter-status-pill';
+      }
+    }
+
+    if (!customFilterItems) return;
+
+    // Strict XSS Prevention: Safe DOM node creation and textContent only
+    while (customFilterItems.firstChild) {
+      customFilterItems.removeChild(customFilterItems.firstChild);
+    }
+
+    if (listArray.length === 0) {
+      if (customFilterEmptyState) customFilterEmptyState.style.display = 'block';
+      return;
+    }
+    if (customFilterEmptyState) customFilterEmptyState.style.display = 'none';
+
+    listArray.forEach((list) => {
+      const itemEl = document.createElement('div');
+      itemEl.className = 'custom-filter-item';
+      itemEl.dataset.id = list.id;
+
+      // Left info block (Name & URL with hover tooltip)
+      const infoEl = document.createElement('div');
+      infoEl.className = 'custom-filter-info';
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'custom-filter-name';
+      nameEl.textContent = list.name || 'Özel Liste';
+
+      const urlEl = document.createElement('div');
+      urlEl.className = 'custom-filter-url';
+      urlEl.textContent = list.url || '';
+      urlEl.setAttribute('title', list.url || '');
+
+      infoEl.appendChild(nameEl);
+      infoEl.appendChild(urlEl);
+
+      // Right actions block
+      const actionsEl = document.createElement('div');
+      actionsEl.className = 'custom-filter-actions';
+
+      // Status Badge (+X kural or error)
+      const statusEl = document.createElement('span');
+      statusEl.className = 'custom-filter-status';
+      if (list.lastStatus === 'ok') {
+        statusEl.classList.add('status-ok');
+        statusEl.textContent = `+${list.ruleCount || 0} kural`;
+      } else if (list.lastStatus === 'error') {
+        statusEl.classList.add('status-err');
+        statusEl.textContent = list.lastError ? `Hata: ${list.lastError}` : 'Hata';
+        statusEl.setAttribute('title', list.lastError || 'Bilinmeyen hata');
+      } else {
+        statusEl.classList.add('status-idle');
+        statusEl.textContent = 'Bekliyor';
+      }
+      actionsEl.appendChild(statusEl);
+
+      // Toggle Switch
+      const switchLabel = document.createElement('label');
+      switchLabel.className = 'switch switch-sm';
+
+      const switchInput = document.createElement('input');
+      switchInput.type = 'checkbox';
+      switchInput.checked = !!list.enabled;
+      switchInput.addEventListener('change', async () => {
+        try {
+          switchInput.disabled = true;
+          const res = await chrome.runtime.sendMessage({
+            type: 'TOGGLE_CUSTOM_FILTER_LIST',
+            id: list.id,
+            enabled: switchInput.checked
+          });
+          if (res && res.success) {
+            renderCustomFilterLists(res.customFilterLists, res.filterUpdateStatus);
+          }
+        } catch (err) {
+          console.error('Error toggling custom filter list:', err);
+        } finally {
+          switchInput.disabled = false;
+        }
+      });
+
+      const sliderSpan = document.createElement('span');
+      sliderSpan.className = 'slider';
+
+      switchLabel.appendChild(switchInput);
+      switchLabel.appendChild(sliderSpan);
+      actionsEl.appendChild(switchLabel);
+
+      // Delete Button
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'btn-delete-filter';
+      deleteBtn.textContent = '✕';
+      deleteBtn.setAttribute('title', 'Bu listeyi sil');
+      deleteBtn.addEventListener('click', async () => {
+        try {
+          deleteBtn.disabled = true;
+          const res = await chrome.runtime.sendMessage({
+            type: 'REMOVE_CUSTOM_FILTER_LIST',
+            id: list.id
+          });
+          if (res && res.success) {
+            renderCustomFilterLists(res.customFilterLists, res.filterUpdateStatus);
+          }
+        } catch (err) {
+          console.error('Error removing custom filter list:', err);
+        }
+      });
+      actionsEl.appendChild(deleteBtn);
+
+      itemEl.appendChild(infoEl);
+      itemEl.appendChild(actionsEl);
+
+      customFilterItems.appendChild(itemEl);
+    });
   }
 
   // Get active tab info
@@ -150,6 +317,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         updateThreatBadge(threat?.level || 'safe');
       }
+
+      // Render Custom Filter Lists
+      renderCustomFilterLists(
+        res.customFilterLists || settings.customFilterLists || [],
+        res.filterUpdateStatus || settings.filterUpdateStatus || null
+      );
     }
   } catch (err) {
     console.error('Failed to get background state:', err);
@@ -265,6 +438,96 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (currentHostname && currentHostname.includes('twitch.tv') && currentTab?.id) {
         chrome.tabs.reload(currentTab.id);
+      }
+    });
+  }
+
+  // Accordion Toggle for Custom Filters
+  if (customFiltersToggle && customFiltersContent && customFiltersArrow) {
+    let isOpen = false;
+    customFiltersToggle.addEventListener('click', (e) => {
+      // Ignore click if user clicked refresh button
+      if (e.target && e.target.closest('#btnUpdateAllFilters')) return;
+      isOpen = !isOpen;
+      if (isOpen) {
+        customFiltersContent.classList.remove('collapsed');
+        customFiltersArrow.classList.add('expanded');
+        customFiltersToggle.setAttribute('aria-expanded', 'true');
+      } else {
+        customFiltersContent.classList.add('collapsed');
+        customFiltersArrow.classList.remove('expanded');
+        customFiltersToggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  // Add Custom Filter List Handler
+  if (btnAddCustomFilter && customFilterUrlInput) {
+    const handleAdd = async () => {
+      setCustomFilterError(null);
+      const url = customFilterUrlInput.value.trim();
+      const name = customFilterNameInput?.value.trim() || '';
+
+      if (!url) {
+        setCustomFilterError('Lütfen bir filtre listesi URL\'si giriniz.');
+        customFilterUrlInput.focus();
+        return;
+      }
+
+      try {
+        btnAddCustomFilter.disabled = true;
+        btnAddCustomFilter.textContent = '...';
+
+        const res = await chrome.runtime.sendMessage({
+          type: 'ADD_CUSTOM_FILTER_LIST',
+          url,
+          name
+        });
+
+        if (res && res.success) {
+          customFilterUrlInput.value = '';
+          if (customFilterNameInput) customFilterNameInput.value = '';
+          renderCustomFilterLists(res.customFilterLists, res.filterUpdateStatus);
+        } else {
+          setCustomFilterError(res?.error || 'Filtre listesi eklenemedi.');
+        }
+      } catch (err) {
+        setCustomFilterError(err?.message || 'Bağlantı hatası.');
+      } finally {
+        btnAddCustomFilter.disabled = false;
+        btnAddCustomFilter.textContent = 'Ekle';
+      }
+    };
+
+    btnAddCustomFilter.addEventListener('click', handleAdd);
+    customFilterUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleAdd();
+    });
+    if (customFilterNameInput) {
+      customFilterNameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') handleAdd();
+      });
+    }
+  }
+
+  // Manual Trigger to Refresh All Filter Lists
+  if (btnUpdateAllFilters) {
+    btnUpdateAllFilters.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        btnUpdateAllFilters.classList.add('spinning');
+        btnUpdateAllFilters.disabled = true;
+        const res = await chrome.runtime.sendMessage({
+          type: 'UPDATE_FILTER_LISTS'
+        });
+        if (res && res.success) {
+          renderCustomFilterLists(res.customFilterLists, res.filterUpdateStatus);
+        }
+      } catch (err) {
+        console.error('Error updating filter lists:', err);
+      } finally {
+        btnUpdateAllFilters.classList.remove('spinning');
+        btnUpdateAllFilters.disabled = false;
       }
     });
   }
