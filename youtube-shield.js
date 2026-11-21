@@ -75,7 +75,9 @@
   try {
     let initialResponse = window.ytInitialPlayerResponse;
     if (initialResponse) {
-      pruneAdData(initialResponse);
+      try {
+        pruneAdData(initialResponse);
+      } catch {}
     }
 
     Object.defineProperty(window, 'ytInitialPlayerResponse', {
@@ -85,77 +87,129 @@
         return initialResponse;
       },
       set(val) {
-        initialResponse = pruneAdData(val);
+        try {
+          initialResponse = pruneAdData(val);
+        } catch {
+          initialResponse = val;
+        }
       }
     });
   } catch {}
 
-  // Hook window.fetch for /youtubei/v1/player and /youtubei/v1/next
+  // Hook window.fetch for /youtubei/v1/player and /youtubei/v1/next ONLY
   try {
     const origFetch = window.fetch;
-    window.fetch = async function (...args) {
-      const req = args[0];
-      let url = '';
-      if (typeof req === 'string') url = req;
-      else if (req && req.url) url = req.url;
-
-      if (url && (url.includes('/youtubei/v1/player') || url.includes('/youtubei/v1/next'))) {
+    if (typeof origFetch === 'function') {
+      window.fetch = function (...args) {
+        let url = '';
         try {
-          const response = await origFetch.apply(this, args);
-          if (response && response.ok) {
+          const req = args[0];
+          if (typeof req === 'string') {
+            url = req;
+          } else if (req && typeof req.url === 'string') {
+            url = req.url;
+          }
+        } catch {}
+
+        // Fast-path: Only intercept player and next endpoints. Pass all other requests (guide, browse, etc.) directly!
+        const isTargetEndpoint =
+          url && (url.includes('/youtubei/v1/player') || url.includes('/youtubei/v1/next'));
+
+        if (!isTargetEndpoint) {
+          return origFetch.apply(this, args);
+        }
+
+        // For player & next endpoints, handle JSON parsing with strict fallback to original response
+        return origFetch.apply(this, args).then(async (response) => {
+          try {
+            if (!response || !response.ok) {
+              return response;
+            }
+
+            const contentType = (response.headers?.get('content-type') || '').toLowerCase();
+            if (contentType && !contentType.includes('application/json') && !contentType.includes('+json')) {
+              return response;
+            }
+
             const cloned = response.clone();
-            const json = await cloned.json();
+            const text = await cloned.text();
+            if (!text || text.trim().length === 0) {
+              return response;
+            }
+
+            const json = JSON.parse(text);
             pruneAdData(json);
+
             return new Response(JSON.stringify(json), {
               status: response.status,
               statusText: response.statusText,
               headers: response.headers
             });
+          } catch {
+            // In case of any cloning, text reading or JSON parsing error, ALWAYS return original response
+            return response;
           }
-          return response;
-        } catch {
-          return origFetch.apply(this, args);
-        }
-      }
-      return origFetch.apply(this, args);
-    };
+        }).catch((err) => {
+          throw err;
+        });
+      };
+    }
   } catch {}
 
-  // Hook XMLHttpRequest for /youtubei/v1/player and /youtubei/v1/next
+  // Hook XMLHttpRequest for /youtubei/v1/player and /youtubei/v1/next ONLY
   try {
-    const origOpen = XMLHttpRequest.prototype.open;
-    const origSend = XMLHttpRequest.prototype.send;
+    if (typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype) {
+      const origOpen = XMLHttpRequest.prototype.open;
+      const origSend = XMLHttpRequest.prototype.send;
 
-    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-      this._ax_url = typeof url === 'string' ? url : '';
-      return origOpen.apply(this, [method, url, ...rest]);
-    };
-
-    XMLHttpRequest.prototype.send = function (...args) {
-      if (
-        this._ax_url &&
-        (this._ax_url.includes('/youtubei/v1/player') || this._ax_url.includes('/youtubei/v1/next'))
-      ) {
-        this.addEventListener('readystatechange', function () {
-          if (this.readyState === 4 && this.status >= 200 && this.status < 300) {
-            try {
-              const parsed = JSON.parse(this.responseText);
-              pruneAdData(parsed);
-              const serialized = JSON.stringify(parsed);
-              Object.defineProperty(this, 'responseText', {
-                configurable: true,
-                value: serialized
-              });
-              Object.defineProperty(this, 'response', {
-                configurable: true,
-                value: serialized
-              });
-            } catch {}
+      XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+        try {
+          this._ax_is_target = false;
+          let strUrl = '';
+          if (typeof url === 'string') {
+            strUrl = url;
+          } else if (url && url.toString) {
+            strUrl = url.toString();
           }
-        });
-      }
-      return origSend.apply(this, args);
-    };
+          if (strUrl && (strUrl.includes('/youtubei/v1/player') || strUrl.includes('/youtubei/v1/next'))) {
+            this._ax_is_target = true;
+          }
+        } catch {}
+        return origOpen.apply(this, [method, url, ...rest]);
+      };
+
+      XMLHttpRequest.prototype.send = function (...args) {
+        try {
+          if (this._ax_is_target) {
+            this.addEventListener(
+              'readystatechange',
+              function () {
+                try {
+                  if (this.readyState === 4 && this.status >= 200 && this.status < 300) {
+                    const responseText = this.responseText;
+                    if (responseText && typeof responseText === 'string') {
+                      const parsed = JSON.parse(responseText);
+                      pruneAdData(parsed);
+                      const serialized = JSON.stringify(parsed);
+                      Object.defineProperty(this, 'responseText', {
+                        configurable: true,
+                        value: serialized
+                      });
+                      Object.defineProperty(this, 'response', {
+                        configurable: true,
+                        value: serialized
+                      });
+                    }
+                  }
+                } catch {}
+              },
+              false
+            );
+          }
+        } catch {}
+        return origSend.apply(this, args);
+      };
+    }
   } catch {}
 
   // --- Layer 2: Fast-Skip Fallback ---
@@ -269,6 +323,15 @@
         display: none !important;
         opacity: 0 !important;
         pointer-events: none !important;
+      }
+
+      /* Explicitly protect YouTube main layout & navigation sidebar */
+      ytd-guide-renderer,
+      tp-yt-app-drawer,
+      #guide,
+      #sections,
+      ytd-mini-guide-renderer {
+        visibility: visible !important;
       }
     `;
     const target = document.head || document.documentElement;

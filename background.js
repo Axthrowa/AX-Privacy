@@ -225,8 +225,71 @@ async function syncRulesets() {
       enableRulesetIds,
       disableRulesetIds
     });
+    await syncYouTubeRules();
   } catch (err) {
     console.error('[AX-Privacy background] syncRulesets error:', err);
+  }
+}
+
+/**
+ * Synchronize dynamic rules for YouTube infrastructure exemption (priority: 1000)
+ * Ensures DNR static/dynamic block rules never block YouTube's main UI, player, or streaming endpoints.
+ * Range: IDs 4001..4010
+ */
+async function syncYouTubeRules() {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.declarativeNetRequest?.updateDynamicRules) {
+      return;
+    }
+    const { youtubeShield = true } = await chrome.storage.local.get('youtubeShield');
+    const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+    const existingYouTubeRuleIds = existingRules
+      .filter((r) => r.id >= 4000 && r.id < 5000)
+      .map((r) => r.id);
+
+    const newRules = [];
+    if (youtubeShield) {
+      newRules.push({
+        id: 4001,
+        priority: 1000,
+        action: {
+          type: 'allow'
+        },
+        condition: {
+          requestDomains: [
+            'youtube.com',
+            'googlevideo.com',
+            'ytimg.com',
+            'ggpht.com',
+            'youtubei.googleapis.com'
+          ]
+        }
+      });
+      newRules.push({
+        id: 4002,
+        priority: 1000,
+        action: {
+          type: 'allow'
+        },
+        condition: {
+          initiatorDomains: ['youtube.com'],
+          requestDomains: [
+            'youtube.com',
+            'googlevideo.com',
+            'ytimg.com',
+            'ggpht.com',
+            'youtubei.googleapis.com'
+          ]
+        }
+      });
+    }
+
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: existingYouTubeRuleIds,
+      addRules: newRules
+    });
+  } catch (err) {
+    console.error('[AX-Privacy background] syncYouTubeRules error:', err);
   }
 }
 
@@ -391,6 +454,22 @@ function parseFilterLine(line) {
   if (IP_REGEX.test(d)) return null;
   if (EXCLUDED_HOSTS.has(d)) return null;
   if (!DOMAIN_REGEX.test(d)) return null;
+
+  // Critical YouTube infrastructure exemption: Never block YouTube or its streaming/API endpoints
+  if (
+    d === 'youtube.com' ||
+    d.endsWith('.youtube.com') ||
+    d === 'googlevideo.com' ||
+    d.endsWith('.googlevideo.com') ||
+    d === 'ytimg.com' ||
+    d.endsWith('.ytimg.com') ||
+    d === 'ggpht.com' ||
+    d.endsWith('.ggpht.com') ||
+    d === 'youtubei.googleapis.com' ||
+    d.endsWith('.youtubei.googleapis.com')
+  ) {
+    return null;
+  }
 
   return d;
 }
@@ -1006,41 +1085,45 @@ async function analyzeTab(tabId, url) {
 }
 
 // Lifecycle events
-chrome.runtime.onInstalled.addListener(async () => {
-  try {
-    const current = await chrome.storage.local.get(null);
-    const updated = {};
-    for (const [key, val] of Object.entries(DEFAULT_SETTINGS)) {
-      if (current[key] === undefined) {
-        updated[key] = val;
+if (typeof chrome !== 'undefined' && chrome.runtime?.onInstalled?.addListener) {
+  chrome.runtime.onInstalled.addListener(async () => {
+    try {
+      const current = await chrome.storage.local.get(null);
+      const updated = {};
+      for (const [key, val] of Object.entries(DEFAULT_SETTINGS)) {
+        if (current[key] === undefined) {
+          updated[key] = val;
+        }
       }
+      if (Object.keys(updated).length > 0) {
+        await chrome.storage.local.set(updated);
+      }
+      await initActionOptions();
+      await syncWhitelistRules();
+      await syncRulesets();
+      updateAllFilterLists().catch((err) => {
+        console.warn('[AX-Privacy background] Initial filter update notice:', err?.message);
+      });
+    } catch (err) {
+      console.error('[AX-Privacy background] onInstalled error:', err);
     }
-    if (Object.keys(updated).length > 0) {
-      await chrome.storage.local.set(updated);
-    }
-    await initActionOptions();
-    await syncWhitelistRules();
-    await syncRulesets();
-    updateAllFilterLists().catch((err) => {
-      console.warn('[AX-Privacy background] Initial filter update notice:', err?.message);
-    });
-  } catch (err) {
-    console.error('[AX-Privacy background] onInstalled error:', err);
-  }
-});
+  });
+}
 
-chrome.runtime.onStartup.addListener(async () => {
-  try {
-    await initActionOptions();
-    await syncWhitelistRules();
-    await syncRulesets();
-    updateAllFilterLists().catch((err) => {
-      console.warn('[AX-Privacy background] Initial filter update notice:', err?.message);
-    });
-  } catch (err) {
-    console.error('[AX-Privacy background] onStartup error:', err);
-  }
-});
+if (typeof chrome !== 'undefined' && chrome.runtime?.onStartup?.addListener) {
+  chrome.runtime.onStartup.addListener(async () => {
+    try {
+      await initActionOptions();
+      await syncWhitelistRules();
+      await syncRulesets();
+      updateAllFilterLists().catch((err) => {
+        console.warn('[AX-Privacy background] Initial filter update notice:', err?.message);
+      });
+    } catch (err) {
+      console.error('[AX-Privacy background] onStartup error:', err);
+    }
+  });
+}
 
 // Tab navigation monitoring
 // Monitored newly opened tabs: tabId -> { openerTabId, createdAt }
@@ -1494,7 +1577,7 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
 
 const checkAndNeutralizePopunderTab = checkAndNeutralizeTab;
 
-if (chrome.tabs?.onCreated?.addListener) {
+if (typeof chrome !== 'undefined' && chrome.tabs?.onCreated?.addListener) {
   chrome.tabs.onCreated.addListener((tab) => {
     try {
       if (tab?.id && tab.openerTabId) {
@@ -1512,23 +1595,25 @@ if (chrome.tabs?.onCreated?.addListener) {
   });
 }
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  const urlToCheck = changeInfo.url || tab?.url;
-  if (urlToCheck) {
-    analyzeTab(tabId, urlToCheck);
-  }
-  if (monitoredTabs.has(tabId) && urlToCheck && urlToCheck !== 'about:blank') {
-    const data = monitoredTabs.get(tabId);
-    if (Date.now() - data.createdAt <= 5000) {
-      checkAndNeutralizeTab(tabId, urlToCheck, data.openerTabId);
-    } else {
-      monitoredTabs.delete(tabId);
+if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated?.addListener) {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const urlToCheck = changeInfo.url || tab?.url;
+    if (urlToCheck) {
+      analyzeTab(tabId, urlToCheck);
     }
-  }
-});
+    if (monitoredTabs.has(tabId) && urlToCheck && urlToCheck !== 'about:blank') {
+      const data = monitoredTabs.get(tabId);
+      if (Date.now() - data.createdAt <= 5000) {
+        checkAndNeutralizeTab(tabId, urlToCheck, data.openerTabId);
+      } else {
+        monitoredTabs.delete(tabId);
+      }
+    }
+  });
+}
 
 // Ultra-early navigation interception (fires before page response or DOM initialization)
-if (chrome.webNavigation?.onBeforeNavigate?.addListener) {
+if (typeof chrome !== 'undefined' && chrome.webNavigation?.onBeforeNavigate?.addListener) {
   chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     try {
       if (details && details.frameId === 0 && details.tabId && details.url && details.url !== 'about:blank') {
@@ -1547,23 +1632,27 @@ if (chrome.webNavigation?.onBeforeNavigate?.addListener) {
   });
 }
 
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  try {
-    const tab = await chrome.tabs.get(activeInfo.tabId);
-    if (tab?.url) {
-      analyzeTab(activeInfo.tabId, tab.url);
-    }
-  } catch {}
-});
+if (typeof chrome !== 'undefined' && chrome.tabs?.onActivated?.addListener) {
+  chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    try {
+      const tab = await chrome.tabs.get(activeInfo.tabId);
+      if (tab?.url) {
+        analyzeTab(activeInfo.tabId, tab.url);
+      }
+    } catch {}
+  });
+}
 
-chrome.tabs.onRemoved.addListener(async (tabId) => {
-  monitoredTabs.delete(tabId);
-  tabThreats.delete(tabId);
-  await clearTabAlerted(tabId);
-});
+if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
+  chrome.tabs.onRemoved.addListener(async (tabId) => {
+    monitoredTabs.delete(tabId);
+    tabThreats.delete(tabId);
+    await clearTabAlerted(tabId);
+  });
+}
 
 // Debug rule matched listener for local statistics fallback
-if (chrome.declarativeNetRequest?.onRuleMatchedDebug) {
+if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest?.onRuleMatchedDebug) {
   try {
     chrome.declarativeNetRequest.onRuleMatchedDebug.addListener(async () => {
       try {
@@ -1575,7 +1664,8 @@ if (chrome.declarativeNetRequest?.onRuleMatchedDebug) {
 }
 
 // Central message bus wrapped in try/catch to eliminate Unchecked runtime.lastError
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   try {
     if (!message || typeof message !== 'object') {
       sendResponse({ success: false, error: 'Invalid message' });
@@ -1743,6 +1833,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (key === 'adBlock' || key === 'urlClean' || key === 'popupShield') {
               await syncRulesets();
             }
+            if (key === 'youtubeShield') {
+              await syncYouTubeRules();
+            }
             if (key === 'threatShield' && !value) {
               await clearAllAlertedTabs();
             }
@@ -1907,6 +2000,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 });
+}
 
 // Exports for unit testing
 export {
@@ -1919,6 +2013,7 @@ export {
   getStaticDomains,
   getCosmeticRules,
   syncWhitelistRules,
+  syncYouTubeRules,
   toggleDomainWhitelist,
   getRootDomain,
   isPopunderAdUrl,

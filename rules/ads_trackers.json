@@ -424785,7 +424785,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||youtube.com^",
+      "urlFilter": "||youadcenter.com^",
       "resourceTypes": [
         "script",
         "image",

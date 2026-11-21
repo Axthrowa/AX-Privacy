@@ -88,6 +88,18 @@
         }
       `);
 
+      if (currentHost.includes('youtube.com')) {
+        cssRules.push(`
+          ytd-guide-renderer,
+          tp-yt-app-drawer,
+          #guide,
+          #sections,
+          ytd-mini-guide-renderer {
+            visibility: visible !important;
+          }
+        `);
+      }
+
       style.textContent = cssRules.join('\n');
 
       // --- Heuristic DOM Scanner for Dynamic Malicious Overlays, GIFs & Pageskins ---
@@ -149,6 +161,20 @@
           return true;
         }
 
+        // Never touch YouTube layout and navigation components
+        if (
+          (el.closest &&
+            el.closest(
+              'ytd-guide-renderer, tp-yt-app-drawer, #guide, #sections, ytd-mini-guide-renderer, ytd-app, ytd-masthead'
+            )) ||
+          (el.matches &&
+            el.matches(
+              'ytd-guide-renderer, tp-yt-app-drawer, #guide, #sections, ytd-mini-guide-renderer, ytd-app, ytd-masthead'
+            ))
+        ) {
+          return true;
+        }
+
         return false;
       }
 
@@ -166,6 +192,10 @@
 
       function scanForMaliciousOverlaysAndBanners() {
         try {
+          if (currentHost.includes('youtube.com')) {
+            // YouTube ad & interface filtering is exclusively handled by youtube-shield.js
+            return;
+          }
           const candidates = document.querySelectorAll(
             'div, section, aside, span, a, [id*="overlay"], [class*="overlay"], [id*="banner"], [class*="banner"], [id*="reklam"], [class*="reklam"]'
           );

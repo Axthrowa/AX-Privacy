@@ -152,6 +152,23 @@ async function validateAdsRules() {
     }
   }
 
+  // Verify that YouTube critical infrastructure is NEVER blocked in rules/ads_trackers.json
+  const FORBIDDEN_YOUTUBE_FILTERS = [
+    '||youtube.com^',
+    '||www.youtube.com^',
+    '||m.youtube.com^',
+    '||music.youtube.com^',
+    '||googlevideo.com^',
+    '||ytimg.com^',
+    '||ggpht.com^',
+    '||youtubei.googleapis.com^'
+  ];
+  for (const forbidden of FORBIDDEN_YOUTUBE_FILTERS) {
+    if (domainFilters.has(forbidden)) {
+      throw new Error(`CRITICAL ERROR: YouTube domain must never be blocked in static rules: ${forbidden}`);
+    }
+  }
+
   console.log(
     `[validate-rules] rules/ads_trackers.json OK (${rules.length} valid rules, IDs 1..${rules.length})`
   );

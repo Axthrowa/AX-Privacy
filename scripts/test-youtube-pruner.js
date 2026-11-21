@@ -177,6 +177,40 @@ if (
   console.log('[PASS] Nested playerResponse structures correctly sanitized');
 }
 
+// Test Case 3: Verify YouTube critical domain exemption from filter parsing
+import { parseFilterLine } from '../background.js';
+const testCriticalDomains = [
+  '||youtube.com^',
+  '||www.youtube.com^',
+  '||m.youtube.com^',
+  '||music.youtube.com^',
+  '||googlevideo.com^',
+  '||ytimg.com^',
+  '||ggpht.com^',
+  '||youtubei.googleapis.com^'
+];
+for (const raw of testCriticalDomains) {
+  const parsed = parseFilterLine(raw);
+  if (parsed !== null) {
+    console.error(`[FAIL] parseFilterLine should exclude critical YouTube host: ${raw}`);
+    failed = true;
+  }
+}
+console.log('[PASS] Critical YouTube domains are exempted from filter parsing');
+
+// Test Case 4: Verify youtube-shield.js cosmetic protection contains sidebar visibility
+if (
+  source.includes('ytd-guide-renderer') &&
+  source.includes('tp-yt-app-drawer') &&
+  source.includes('#guide') &&
+  source.includes('visibility: visible !important')
+) {
+  console.log('[PASS] YouTube shield contains sidebar and guide visibility protection rules');
+} else {
+  console.error('[FAIL] Missing sidebar/guide visibility protection rules in youtube-shield.js');
+  failed = true;
+}
+
 if (failed) {
   console.error('=== YouTube Pruner Tests FAILED ===');
   process.exit(1);
