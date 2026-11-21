@@ -239,6 +239,8 @@
 
       const CANDIDATE_MATRIX = [
         { playerType: 'embed', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
+        { playerType: 'popout', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
+        { playerType: 'frontpage', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
         { playerType: 'thunderdome', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
         { playerType: 'picture-by-picture', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
         { playerType: 'autoplay', platform: 'web', clientId: 'kimne78kx3ncx6brgo4mv6wki5h1ko' },
@@ -299,9 +301,19 @@
         if (text.includes('CLASS="twitch-stitched-ad"')) return 'CLASS="twitch-stitched-ad"';
         if (text.includes('stitched-ad')) return 'stitched-ad';
         if (text.includes('amazon-adsystem')) return 'amazon-adsystem';
+        if (text.includes('X-TV-TWITCH-AD')) return 'X-TV-TWITCH-AD';
+        if (text.includes('#EXT-X-TWITCH-PREVIEWS:AD')) return '#EXT-X-TWITCH-PREVIEWS:AD';
         const lines = text.split(/\\r?\\n/);
         for (const line of lines) {
-          if (line.startsWith('#EXTINF:') && /amazon/i.test(line)) {
+          if (line.startsWith('#EXT-X-DATERANGE:') && (
+            line.includes('stitched') ||
+            line.includes('amazon') ||
+            line.includes('twitch') ||
+            /cue="(PRE|MID|POST)"/i.test(line)
+          )) {
+            return 'EXT-X-DATERANGE:AdCue';
+          }
+          if (line.startsWith('#EXTINF:') && (/amazon/i.test(line) || /stitched/i.test(line))) {
             return 'EXTINF:Amazon';
           }
         }
@@ -758,8 +770,9 @@
     };
   } catch {}
 
-  // 4. Hook URL.createObjectURL to capture Blob references
+  // 4. Hook URL.createObjectURL and URL.revokeObjectURL to protect hooked Web Workers
   const origCreateObjectURL = URL.createObjectURL;
+  const origRevokeObjectURL = URL.revokeObjectURL;
   const blobUrlMap = new Map();
 
   URL.createObjectURL = function (obj) {
@@ -770,6 +783,15 @@
       }
     } catch {}
     return url;
+  };
+
+  URL.revokeObjectURL = function (url) {
+    // Delay revocation of blob URLs so that hooked Web Workers have adequate time to importScripts
+    setTimeout(() => {
+      try {
+        origRevokeObjectURL.call(URL, url);
+      } catch {}
+    }, 15000);
   };
 
   // 5. Auto-Mute Fallback and Notification Management
@@ -907,20 +929,31 @@
     const style = document.createElement('style');
     style.id = 'ax-twitch-shield-css';
     style.textContent = `
+      /* Hide all Twitch video ad overlays, banners, and interrupt layers */
       .ad-interrupt,
       [data-test-selector="ad-banner-default-text"],
       [data-test-selector="sad-overlay"],
+      [data-test-selector="sda-wrapper"],
       [data-a-target="video-ad-label"],
       [data-a-target="video-ad-countdown"],
-      [data-a-target="ad-feedback-button"] {
+      [data-a-target="ad-feedback-button"],
+      [data-a-target="player-overlay-ad"],
+      [data-a-target="video-ad-overlay"],
+      [data-a-target*="video-ad-"],
+      .stream-display-ad__wrapper,
+      .video-player__overlay [data-a-target*="video-ad-"],
+      .video-player__overlay [data-a-target="player-overlay-ad"],
+      .video-player__overlay [data-test-selector*="ad-"],
+      .video-player__overlay [data-test-selector*="sad-"] {
         display: none !important;
         opacity: 0 !important;
         pointer-events: none !important;
+        visibility: hidden !important;
       }
 
-      /* Guarantee that Twitch player controls, seekbars, and overlays are always interactive */
-      .video-player__overlay,
+      /* Guarantee that Twitch player controls, seekbars, and buttons are ALWAYS interactive */
       .video-player__default-player,
+      .video-player__default-player *,
       [data-a-target="player-overlay-click-handler"],
       [data-a-target="player-play-pause-button"],
       [data-a-target="player-fullscreen-button"],

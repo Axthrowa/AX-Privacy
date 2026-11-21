@@ -93,7 +93,25 @@ if (source.includes('.video-player__overlay [data-a-target*="ad-"]')) {
   console.error('[FAIL] twitch-shield.js contains dangerous wildcard selector inside .video-player__overlay');
   process.exit(1);
 }
+if (!source.includes('player-overlay-ad') || !source.includes('video-ad-overlay') || !source.includes('sad-overlay')) {
+  console.error('[FAIL] twitch-shield.js does not contain comprehensive video ad overlay suppression selectors');
+  process.exit(1);
+}
+if (!source.includes("playerType: 'popout'") || !source.includes("playerType: 'frontpage'")) {
+  console.error('[FAIL] twitch-shield.js CANDIDATE_MATRIX is missing popout/frontpage fallback playerTypes');
+  process.exit(1);
+}
+
+// Static Check 4: Verify manifest.json matches both bare twitch.tv and subdomains
+const manifestPath = path.resolve(__dirname, '../manifest.json');
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+const twitchScript = manifest.content_scripts.find((cs) => cs.js.includes('twitch-shield.js'));
+if (!twitchScript || !twitchScript.matches.includes('https://twitch.tv/*') || !twitchScript.matches.includes('https://*.twitch.tv/*')) {
+  console.error('[FAIL] manifest.json must match both https://twitch.tv/* and https://*.twitch.tv/* for twitch-shield.js');
+  process.exit(1);
+}
 console.log('[PASS] Twitch player controls are guaranteed interactive and protected from pointer-events suppression.');
+console.log('[PASS] Twitch ad overlay suppression and manifest matching verified.');
 
 // 2. Live Network Validation
 async function runLiveTest() {

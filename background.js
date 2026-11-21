@@ -69,13 +69,40 @@ async function clearTabAlerted(tabId) {
   }
 }
 
-async function resetTabBadgeToDefault(tabId) {
+const tabBlockedCounts = new Map();
+
+function formatBadgeCount(count) {
+  if (!count || count <= 0) return '';
+  if (count > 99) return '99+';
+  return String(count);
+}
+
+async function updateTabBadge(tabId) {
+  if (!tabId || typeof chrome === 'undefined' || !chrome.action?.setBadgeText) return;
   try {
-    await chrome.action.setBadgeText({ tabId, text: null });
-  } catch {
-    await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
+    const isAlerted = (await getAlertedTabs()).includes(tabId);
+    if (isAlerted) return; // '!' threat alert has absolute precedence
+
+    const count = tabBlockedCounts.get(tabId) || 0;
+    const text = formatBadgeCount(count);
+    await chrome.action.setBadgeText({ tabId, text }).catch(() => {});
+    await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
+  } catch {}
+}
+
+async function resetTabBadgeToDefault(tabId) {
+  if (!tabId || typeof chrome === 'undefined' || !chrome.action?.setBadgeText) return;
+  try {
+    const isAlerted = (await getAlertedTabs()).includes(tabId);
+    if (isAlerted) return;
+
+    const count = tabBlockedCounts.get(tabId) || 0;
+    const text = formatBadgeCount(count);
+    await chrome.action.setBadgeText({ tabId, text }).catch(() => {});
+    await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
+  } catch (err) {
+    console.warn('[AX-Privacy background] resetTabBadgeToDefault error:', err);
   }
-  await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
 }
 
 async function clearAllAlertedTabs() {
@@ -173,17 +200,21 @@ function decodeHostname(hostname) {
 }
 
 /**
- * Enables Chrome's native DNR action badge count and sets default badge styling
+ * Initializes extension badge settings with capped formatting and default styling
  */
 async function initActionOptions() {
   try {
     if (chrome.declarativeNetRequest?.setExtensionActionOptions) {
+      // Strictly disable native unthrottled DNR counter to prevent runaway 10000+ badge numbers
       await chrome.declarativeNetRequest.setExtensionActionOptions({
-        displayActionCountAsBadgeText: true
+        displayActionCountAsBadgeText: false
       });
     }
     if (chrome.action?.setBadgeBackgroundColor) {
       await chrome.action.setBadgeBackgroundColor({ color: '#0284c7' });
+    }
+    if (chrome.action?.setBadgeText) {
+      await chrome.action.setBadgeText({ text: '' }).catch(() => {});
     }
     if (chrome.tabs?.query) {
       const tabs = await chrome.tabs.query({});
@@ -1905,6 +1936,10 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onCreated?.addListener) {
 
 if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated?.addListener) {
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'loading' && changeInfo.url) {
+      tabBlockedCounts.delete(tabId);
+      resetTabBadgeToDefault(tabId);
+    }
     const urlToCheck = changeInfo.url || tab?.url;
     if (urlToCheck) {
       analyzeTab(tabId, urlToCheck);
@@ -1925,6 +1960,8 @@ if (typeof chrome !== 'undefined' && chrome.webNavigation?.onBeforeNavigate?.add
   chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     try {
       if (details && details.frameId === 0 && details.tabId && details.url && details.url !== 'about:blank') {
+        tabBlockedCounts.delete(details.tabId);
+        resetTabBadgeToDefault(details.tabId);
         if (monitoredTabs.has(details.tabId)) {
           const data = monitoredTabs.get(details.tabId);
           if (Date.now() - data.createdAt <= 5000) {
@@ -1953,6 +1990,7 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onActivated?.addListener) {
 
 if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
   chrome.tabs.onRemoved.addListener(async (tabId) => {
+    tabBlockedCounts.delete(tabId);
     monitoredTabs.delete(tabId);
     tabThreats.delete(tabId);
     await clearTabAlerted(tabId);
@@ -2162,6 +2200,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
       (async () => {
         try {
           const count = typeof message.count === 'number' ? message.count : 1;
+          const tabId = sender.tab?.id;
+          if (tabId) {
+            const currentTabCount = (tabBlockedCounts.get(tabId) || 0) + count;
+            tabBlockedCounts.set(tabId, currentTabCount);
+            await updateTabBadge(tabId);
+          }
           const { totalBlocked = 0 } = await chrome.storage.local.get('totalBlocked');
           await chrome.storage.local.set({ totalBlocked: totalBlocked + count });
           sendResponse({ success: true, totalBlocked: totalBlocked + count });
