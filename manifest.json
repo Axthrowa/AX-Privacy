@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AX-Privacy",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Gelişmiş reklam engelleme, URL izleyici temizleyici, yerel tehdit kalkanı, Twitch SSAI, YouTube video kalkanı, pop-up/yönlendirme engelleme ve özel filtre listesi yöneticisi.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -30,7 +30,9 @@
         "content.js"
       ],
       "run_at": "document_start",
-      "all_frames": true
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
     },
     {
       "matches": [
@@ -41,7 +43,9 @@
       ],
       "run_at": "document_start",
       "world": "MAIN",
-      "all_frames": true
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
     },
     {
       "matches": [

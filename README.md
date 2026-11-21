@@ -1,7 +1,7 @@
 # AX-Privacy 🛡️
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-2.6.0-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-2.7.0-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
@@ -45,12 +45,13 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 - **Kısmi Hata Toleransı:** Bir liste hata verse bile diğer sağlam listeler ve EasyList kesintisiz uygulanmaya devam eder.
 - **Öncelikli Delta Motoru:** Statik 25.000 kuralla çakışan alan adları çıkarılır; kullanıcı listeleri dinamik DNR kotasında en yüksek önceliği alır (ID izolasyonu: 10000+).
 
-### 7. Evrensel Pop-up, Pop-under & Yönlendirme Kalkanı (v2.6.0)
-- **`popup-shield.js` (MAIN World & `all_frames: true`):** Hem ana sekmede hem de gömülü `<iframe>` video oynatıcılarında gizlice yeni sekme açan (`click-hijack`, pop-under) mekanizmaları engeller.
-- **Video & Medya Tıklama Koruması:** Kullanıcı `<video>`, oynatıcı kontrolleri (`.jwplayer`, `.plyr`, `.video-js`, oynat/duraklat butonları) veya boş bir alana tıkladığında güvenilen link bağlamı sıfırlanır; video başlatılırken tetiklenen tüm pop-up ve pop-under reklamları önlenir.
-- **Programatik Yönlendirme Kancası:** `location.assign` ve `location.replace` çağrılarını denetleyerek kullanıcının izni olmadan gerçekleştirilen yönlendirme tuzaklarını durdurur.
-- **Güvenli Pencere Proxy'si:** `window.open` engellendiğinde `null` yerine zararsız kukla pencere proxy'si döndürerek anti-adblock script'lerinin ve video oynatıcıların çökmesini önler.
-- **Ayrı Pop-up DNR Kural Seti (`rules/popups_redirects.json`):** Bilinen en agresif pop-under ve açılır reklam ağlarını (`popads.net`, `propellerads.com`, `adsterra.com`, vb.) doğrudan `main_frame` ve `sub_frame` seviyesinde bloke eder (30001..30500).
+### 7. Kırılmaz Pop-up, Anti-Vignette & Pop-under Kalkanı (v2.7.0)
+- **`about:blank` ve `srcdoc` Frame Koruması:** `all_frames: true`, `match_about_blank: true` ve `match_origin_as_fallback: true` ile dinamik oluşturulan tüm iframe'ler anında kalkan altına alınır.
+- **Temiz `<iframe>` Kaçışını Engelleme:** `HTMLIFrameElement.prototype.contentWindow` ve `contentDocument` sarılarak iframe içine kaçıp `window.open` tetikleyen betikler etkisiz kılınır.
+- **Sentetik Olay Engelleme:** `EventTarget.prototype.dispatchEvent(new MouseEvent('click'))` ile programatik tetiklenen izinsiz harici tıklamalar yakalanıp iptal edilir.
+- **Anlık Şeffaf `<a>` Tuzağı Önleyici:** `mousedown` anında DOM'a gizlice eklenen (`recentLinks`) veya ekranı kaplayan şeffaf tıklama katmanları `capture` fazında anında imha edilir.
+- **Kapalı Shadow DOM & Sahte Yükleme (Vignette) Temizleyici:** `attachShadow` kancası ve akıllı DOM tarayıcıyla "87% Yükleniyor... Devam etmek için dokunun / TAMAM" tarzı Monetag/PropellerAds sahte yükleme ekranları ve `z-index >= 99999` tam ekran perdeleri silinir; `body`/`html` kaydırma kilidi (`overflow`) otomatik açılır.
+- **Arka Plan Son Savunma Hattı (`background.js`):** Sayfa tarafından yeni açılan sekmeler (`openerTabId`) izlenir; `/afu.php`, Monetag zone linkleri veya malvertising imzası taşıyan pop-under sekmeleri anında kapatılır ve kullanıcı ana sayfada tutulur.
 
 ### 8. Evrensel Kozmetik Kural & Banner/Pageskin Temizleyici (v2.6.0)
 - **İki Katmanlı Kozmetik Motor (`rules/cosmetic_rules.json`):**
@@ -75,7 +76,7 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.6.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.7.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
 2. Tarayıcınızda eklentiler sayfasına gidin:
    - Google Chrome: `chrome://extensions`
    - Microsoft Edge: `edge://extensions`
@@ -135,6 +136,9 @@ npm run test:filter-updater
 
 # Kozmetik kural derleyicisini ve Türkçe kuralları test edin
 npm run test:cosmetic-compiler
+
+# Pop-up, anti-vignette ve pop-under kalkanını test edin
+npm run test:popup-vignette
 ```
 
 ---
