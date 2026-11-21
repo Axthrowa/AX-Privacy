@@ -1020,6 +1020,24 @@ function evaluateUrlThreat(urlString) {
     }
   }
 
+  // High-risk scam TLDs combined with financial, login, crypto or gov keywords (Malwarebytes Guard Parity)
+  const highRiskTlds = ['.top', '.xyz', '.buzz', '.click', '.rest', '.icu', '.tk', '.ml', '.ga', '.cf', '.gq', '.work'];
+  const hasHighRiskTld = highRiskTlds.some((tld) => hostname.endsWith(tld));
+  if (hasHighRiskTld) {
+    const scamKeywords = ['bank', 'crypto', 'wallet', 'login', 'secure', 'support', 'claim', 'airdrop', 'free', 'odeme', 'fatura', 'turkiye'];
+    for (const sk of scamKeywords) {
+      if (hostname.includes(sk)) {
+        return {
+          level: 'danger',
+          type: 'scam_domain_pattern',
+          title: 'Şüpheli Sahte/Dolandırıcılık Alan Adı',
+          message: `Bu web sitesi yüksek riskli alan adı uzantısı ve "${sk}" kalıbı içermektedir (${hostname}). Sahte veya zararlı içerik barındırıyor olabilir.`,
+          domain: hostname
+        };
+      }
+    }
+  }
+
   return { level: 'safe', threat: null, domain: hostname };
 }
 
@@ -1141,6 +1159,9 @@ function cleanStaleMonitoredTabs() {
 // User-intent tracking: openerTabId -> Array<{ targetHost: string, targetRoot: string, href: string, expiresAt: number }>
 const trustedIntents = new Map();
 
+// Track recent user new-tab clicks (middle-click, ctrl-click, target=_blank) per openerTabId
+const lastUserNewTabClicks = new Map(); // openerTabId -> { timestamp: number, targetHost: string, href: string, isMiddleClick: boolean }
+
 function cleanStaleTrustedIntents(store = trustedIntents) {
   const now = Date.now();
   for (const [id, list] of store.entries()) {
@@ -1151,9 +1172,14 @@ function cleanStaleTrustedIntents(store = trustedIntents) {
       store.delete(id);
     }
   }
+  for (const [tabId, clickData] of lastUserNewTabClicks.entries()) {
+    if (now - clickData.timestamp > 4000) {
+      lastUserNewTabClicks.delete(tabId);
+    }
+  }
 }
 
-function recordTrustedIntent(openerTabId, targetHost, href = '', store = trustedIntents) {
+function recordTrustedIntent(openerTabId, targetHost, href = '', store = trustedIntents, extra = {}) {
   if (!openerTabId || !targetHost) return;
   const now = Date.now();
   const cleanHost = targetHost.toLowerCase().trim();
@@ -1161,50 +1187,73 @@ function recordTrustedIntent(openerTabId, targetHost, href = '', store = trusted
     targetHost: cleanHost,
     targetRoot: getRootDomain(cleanHost),
     href: href ? href.trim() : '',
-    expiresAt: now + 2500 // Valid for 2500ms
+    expiresAt: now + 3500 // Valid for 3500ms
   };
 
   const existing = store.get(openerTabId) || [];
   const valid = existing.filter((item) => item.expiresAt > now);
   valid.push(entry);
   store.set(openerTabId, valid);
+
+  lastUserNewTabClicks.set(openerTabId, {
+    timestamp: now,
+    targetHost: cleanHost,
+    href: href ? href.trim() : '',
+    isMiddleClick: Boolean(extra.isMiddleClick || extra.button === 1)
+  });
 }
 
 function hasValidTrustedIntent(openerTabId, targetHost, tabUrl = '', store = trustedIntents) {
-  if (!openerTabId || !store.has(openerTabId)) return false;
+  if (!openerTabId) return false;
   const now = Date.now();
-  const intents = store.get(openerTabId);
   const cleanTarget = targetHost ? targetHost.toLowerCase().trim() : '';
   const targetRoot = getRootDomain(cleanTarget);
 
   let matched = false;
-  const valid = [];
 
-  for (const item of intents) {
-    if (item.expiresAt > now) {
-      if (!matched) {
-        if (
-          cleanTarget &&
-          (cleanTarget === item.targetHost ||
-            cleanTarget.endsWith('.' + item.targetHost) ||
-            (targetRoot && item.targetRoot && targetRoot === item.targetRoot))
-        ) {
-          matched = true;
-          continue; // Consume the intent
+  if (store && store.has(openerTabId)) {
+    const intents = store.get(openerTabId);
+    const valid = [];
+
+    for (const item of intents) {
+      if (item.expiresAt > now) {
+        if (!matched) {
+          if (
+            cleanTarget &&
+            (cleanTarget === item.targetHost ||
+              cleanTarget.endsWith('.' + item.targetHost) ||
+              (targetRoot && item.targetRoot && targetRoot === item.targetRoot))
+          ) {
+            matched = true;
+            continue; // Consume the intent
+          }
+          if (
+            tabUrl &&
+            item.href &&
+            (tabUrl === item.href || tabUrl.startsWith(item.href) || item.href.startsWith(tabUrl))
+          ) {
+            matched = true;
+            continue; // Consume the intent
+          }
         }
-        if (tabUrl && item.href && (tabUrl === item.href || tabUrl.startsWith(item.href))) {
-          matched = true;
-          continue; // Consume the intent
-        }
+        valid.push(item);
       }
-      valid.push(item);
+    }
+
+    if (valid.length > 0) {
+      store.set(openerTabId, valid);
+    } else {
+      store.delete(openerTabId);
     }
   }
 
-  if (valid.length > 0) {
-    store.set(openerTabId, valid);
-  } else {
-    store.delete(openerTabId);
+  // Fallback: If user recently performed a new-tab click on this opener (within 2500ms)
+  // and destination is not an ad network, allow it! (Handles middle-clicks, shorteners, redirects)
+  if (!matched && lastUserNewTabClicks.has(openerTabId)) {
+    const clickData = lastUserNewTabClicks.get(openerTabId);
+    if (now - clickData.timestamp <= 2500) {
+      matched = true;
+    }
   }
 
   return matched;
@@ -1214,7 +1263,15 @@ const POPUNDER_MALVERTISING_PATHS = [
   '/afu.php',
   '/ntfc.php',
   'in-page-push',
-  'popunder'
+  'popunder',
+  '/direct-link',
+  '/redirect.php',
+  'click.php',
+  'go.php?url=',
+  'open.php?zone=',
+  'ad.php?',
+  '/vignette/',
+  'delivery/impressions'
 ];
 
 const POPUNDER_AD_NETWORKS = [
@@ -1230,7 +1287,64 @@ const POPUNDER_AD_NETWORKS = [
   'trafficstars.com',
   'onclickalgo.com',
   'rollerads.com',
-  'richads.com'
+  'richads.com',
+  'juicyads.com',
+  'trafee.com',
+  'yllix.com',
+  'evadav.com',
+  'twinred.com',
+  'trafficjunky.com',
+  'admaven.com',
+  'ad-maven.com',
+  'bidvertiser.com',
+  'clickraine.com',
+  'galaksion.com',
+  'vignetteads.com',
+  'alwingulla.com',
+  'deloplen.com',
+  'gloaphoo.net',
+  'coomeeno.com',
+  'onclickperformance.com',
+  'adxad.com',
+  'tubecorporate.com',
+  'bidgear.com',
+  'adkernel.com',
+  'adtrue.com',
+  'directrev.com',
+  'infolinks.com',
+  'ero-advertising.com',
+  'trafficfactory.biz',
+  'zeroredirect.com',
+  'zeroredirect1.com',
+  'zeroredirect2.com',
+  'trafficholder.com',
+  'clickaine.com',
+  'doublepimp.com',
+  'plugrush.com',
+  'rtmark.net',
+  'popmyads.com',
+  'cpmleader.com',
+  'popmytraffic.com',
+  'popunder.net',
+  'adxpansion.com',
+  'adxpansion.net',
+  'advertises.ru',
+  'popcorn-vod.tv',
+  'trafficjunky.net',
+  'servenobid.com',
+  'onclickads.net',
+  'adbooth.com',
+  'adbuffs.com',
+  'clicky.com',
+  'wigetmedia.com',
+  'fidelity-media.com',
+  'clicksor.net',
+  'clicksor.com',
+  'adfox.ru',
+  'adversal.com',
+  'buzzcity.com',
+  'chitika.com',
+  'revenuehits.com'
 ];
 
 const LEGITIMATE_HOST_WHITELIST = new Set([
@@ -1392,6 +1506,12 @@ function isPopunderAdUrl(urlStr, openerHost = '') {
     return true;
   }
 
+  const hasAffId = targetQuery.includes('affid=') || targetQuery.includes('aff_id=');
+  const hasCampId = targetQuery.includes('campaign_id=') || targetQuery.includes('campaignid=');
+  if (hasAffId && hasCampId) {
+    return true;
+  }
+
   return false;
 }
 
@@ -1548,7 +1668,7 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
       } catch {}
     }
 
-    const decision = shouldBlockNewTab({
+    let decision = shouldBlockNewTab({
       openerTabId,
       openerUrl,
       tabUrl: url,
@@ -1558,6 +1678,36 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
     });
 
     if (decision.block) {
+      // If decision is 'unsolicited_cross_site_tab', provide a 200ms grace period
+      // to allow in-flight IPC AX_TRUSTED_NEW_TAB message from content.js (middle-click / Ctrl-click)
+      // to be delivered and processed by the service worker before closing!
+      if (decision.reason === 'unsolicited_cross_site_tab') {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        let currentUrl = url;
+        try {
+          const freshTab = await chrome.tabs.get(tabId);
+          if (freshTab?.url && freshTab.url !== 'about:blank') {
+            currentUrl = freshTab.url;
+          }
+        } catch {
+          return; // Tab was already closed or navigated away
+        }
+
+        decision = shouldBlockNewTab({
+          openerTabId,
+          openerUrl,
+          tabUrl: currentUrl,
+          intentsStore: trustedIntents,
+          whitelist,
+          popupShield
+        });
+
+        if (!decision.block) {
+          return; // Intent verified! Tab spared!
+        }
+      }
+
       console.info(
         `[AX-Background] Pop-up/under reklam sekmesi engellendi ve kapatıldı (${tabId}, reason: ${decision.reason}):`,
         url
@@ -1985,7 +2135,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
     if (message.type === 'AX_TRUSTED_NEW_TAB') {
       const openerTabId = sender.tab?.id;
       if (openerTabId && message.targetHost) {
-        recordTrustedIntent(openerTabId, message.targetHost, message.href);
+        recordTrustedIntent(openerTabId, message.targetHost, message.href, trustedIntents, {
+          isMiddleClick: message.isMiddleClick,
+          button: message.button
+        });
         sendResponse({ success: true });
       } else {
         sendResponse({ success: false });
@@ -2018,9 +2171,11 @@ export {
   getRootDomain,
   isPopunderAdUrl,
   isVignetteCandidate,
+  evaluateUrlThreat,
   shouldBlockNewTab,
   recordTrustedIntent,
   hasValidTrustedIntent,
+  lastUserNewTabClicks,
   TRUSTED_AUTH_PAYMENT_DOMAINS,
   TRUSTED_OPENER_FEEDS
 };

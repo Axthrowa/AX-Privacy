@@ -813,13 +813,26 @@
 
       if (!isNewTabIntent) return;
 
-      // Ensure element was not injected in the last 600ms (trap protection)
-      if (recentContentAnchors.has(anchor)) {
-        const addedAt = recentContentAnchors.get(anchor);
-        if (Date.now() - addedAt < 600) return;
+      // Physical visibility & dimension check (supports inline elements and display: contents)
+      let rect = anchor.getBoundingClientRect();
+      if ((rect.width <= 0 || rect.height <= 0) && target.getBoundingClientRect) {
+        rect = target.getBoundingClientRect();
       }
 
-      // Check visibility and physical presence
+      // Check if text or media exists inside anchor
+      const textLen = (anchor.innerText || '').trim().length;
+      const hasMedia = Boolean(anchor.querySelector('img, svg, canvas, video'));
+
+      if (rect.width <= 0 || rect.height <= 0) {
+        if (!textLen && !hasMedia) return;
+      }
+
+      // Trap protection: Only reject dynamic injection if element has NO visible text/media
+      if (recentContentAnchors.has(anchor)) {
+        const addedAt = recentContentAnchors.get(anchor);
+        if (Date.now() - addedAt < 600 && textLen === 0 && !hasMedia) return;
+      }
+
       let style;
       try {
         style = window.getComputedStyle(anchor);
@@ -829,15 +842,14 @@
 
       if (style.display === 'none' || style.visibility === 'hidden') return;
       const opacity = parseFloat(style.opacity);
-      if (opacity < 0.2) return;
-
-      const rect = anchor.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
+      if (opacity < 0.15) return;
 
       // Must not cover the entire screen (transparent curtain traps)
-      const wRatio = rect.width / (window.innerWidth || 1);
-      const hRatio = rect.height / (window.innerHeight || 1);
-      if (wRatio >= 0.7 && hRatio >= 0.7) return;
+      if (rect.width > 0 && rect.height > 0) {
+        const wRatio = rect.width / (window.innerWidth || 1);
+        const hRatio = rect.height / (window.innerHeight || 1);
+        if (wRatio >= 0.7 && hRatio >= 0.7) return;
+      }
 
       let targetHost = '';
       try {
@@ -849,11 +861,17 @@
       chrome.runtime.sendMessage({
         type: 'AX_TRUSTED_NEW_TAB',
         targetHost,
-        href
+        href,
+        button: e.button,
+        isMiddleClick,
+        time: Date.now()
       }).catch(() => {});
     } catch {}
   }
 
+  // Hook all pointer and click phases to guarantee ultra-early delivery before tab creation
+  window.addEventListener('pointerdown', handleTrustedNewTabIntent, true);
+  window.addEventListener('mousedown', handleTrustedNewTabIntent, true);
   window.addEventListener('click', handleTrustedNewTabIntent, true);
   window.addEventListener('auxclick', handleTrustedNewTabIntent, true);
 

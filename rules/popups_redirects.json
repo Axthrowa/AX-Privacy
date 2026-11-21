@@ -86,7 +86,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||adsterra.com^",
+      "urlFilter": "||adkernel.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -102,7 +102,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||adversal.com^",
+      "urlFilter": "||admaven.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -118,7 +118,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||advertises.ru^",
+      "urlFilter": "||adsterra.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -134,7 +134,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||adxpansion.com^",
+      "urlFilter": "||adtrue.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -150,7 +150,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||adxpansion.net^",
+      "urlFilter": "||adversal.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -166,7 +166,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||adxprts.com^",
+      "urlFilter": "||advertises.ru^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -182,7 +182,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||as.propellerads.com^",
+      "urlFilter": "||adxad.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -198,7 +198,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||bidvertiser.com^",
+      "urlFilter": "||adxmedia.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -214,7 +214,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||buzzcity.com^",
+      "urlFilter": "||adxpansion.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -230,7 +230,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||chitika.com^",
+      "urlFilter": "||adxpansion.net^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -246,7 +246,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||clickadu.com^",
+      "urlFilter": "||adxprts.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -262,7 +262,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||clickaine.com^",
+      "urlFilter": "||alwingulla.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -278,7 +278,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||clickraine.com^",
+      "urlFilter": "||as.propellerads.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -294,7 +294,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||clicksor.com^",
+      "urlFilter": "||bidgear.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -310,7 +310,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||clicksor.net^",
+      "urlFilter": "||bidvertiser.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -326,7 +326,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||clicky.com^",
+      "urlFilter": "||buzzcity.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -342,7 +342,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||cpmleader.com^",
+      "urlFilter": "||chitika.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -358,7 +358,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||delivery.adrecover.com^",
+      "urlFilter": "||clckssp.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -374,7 +374,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||directrev.com^",
+      "urlFilter": "||clickadu.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -390,7 +390,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||doublepimp.com^",
+      "urlFilter": "||clickaine.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -406,7 +406,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||engine.phn.doublepimp.com^",
+      "urlFilter": "||clickraine.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -422,7 +422,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||ero-advertising.com^",
+      "urlFilter": "||clicksor.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -438,7 +438,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||exoclick.com^",
+      "urlFilter": "||clicksor.net^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -454,7 +454,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||fidelity-media.com^",
+      "urlFilter": "||clicky.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -470,7 +470,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||galaksion.com^",
+      "urlFilter": "||coomeeno.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -486,7 +486,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||hilltopads.net^",
+      "urlFilter": "||cpmleader.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -502,7 +502,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||infolinks.com^",
+      "urlFilter": "||delivery.adrecover.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -518,7 +518,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||juicyads.com^",
+      "urlFilter": "||deloplen.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -534,7 +534,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||monetag.com^",
+      "urlFilter": "||directrev.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -550,7 +550,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||onclickads.net^",
+      "urlFilter": "||doublepimp.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -566,7 +566,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||onclickalgo.com^",
+      "urlFilter": "||engine.phn.doublepimp.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -582,7 +582,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||plugrush.com^",
+      "urlFilter": "||ero-advertising.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -598,7 +598,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||popads.net^",
+      "urlFilter": "||evadav.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -614,7 +614,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||popcash.net^",
+      "urlFilter": "||exoclick.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -630,7 +630,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||popcorn-vod.tv^",
+      "urlFilter": "||fidelity-media.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -646,7 +646,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||popmyads.com^",
+      "urlFilter": "||galaksion.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -662,7 +662,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||popmytraffic.com^",
+      "urlFilter": "||gloaphoo.net^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -678,7 +678,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||popunder.net^",
+      "urlFilter": "||hilltopads.net^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -694,7 +694,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||propellerads.com^",
+      "urlFilter": "||infolinks.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -710,7 +710,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||revenuehits.com^",
+      "urlFilter": "||juicyads.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -726,7 +726,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||richads.com^",
+      "urlFilter": "||monetag.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -742,7 +742,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||rollerads.com^",
+      "urlFilter": "||onclickads.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -758,7 +758,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||rtmark.net^",
+      "urlFilter": "||onclickads.net^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -774,7 +774,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||s.mngts.net^",
+      "urlFilter": "||onclickalgo.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -790,7 +790,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||serve.popads.net^",
+      "urlFilter": "||onclickperformance.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -806,7 +806,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||servenobid.com^",
+      "urlFilter": "||onclickrev.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -822,7 +822,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||syndication.exoclick.com^",
+      "urlFilter": "||plugrush.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -838,7 +838,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||syndication.realsrv.com^",
+      "urlFilter": "||popads.net^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -854,7 +854,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||trafficfactory.biz^",
+      "urlFilter": "||popcash.net^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -870,7 +870,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||trafficholder.com^",
+      "urlFilter": "||popcorn-vod.tv^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -886,7 +886,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||trafficjunky.net^",
+      "urlFilter": "||popmyads.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -902,7 +902,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||trafficstars.com^",
+      "urlFilter": "||popmytraffic.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -918,7 +918,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||tsyndicate.com^",
+      "urlFilter": "||popunder.net^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -934,7 +934,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||twinred.com^",
+      "urlFilter": "||popunderclick.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -950,7 +950,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||wigetmedia.com^",
+      "urlFilter": "||propellerads.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -966,7 +966,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||xml.popcash.net^",
+      "urlFilter": "||revenuehits.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -982,7 +982,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||yllix.com^",
+      "urlFilter": "||richads.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -998,7 +998,7 @@
       "type": "block"
     },
     "condition": {
-      "urlFilter": "||zeroredirect1.com^",
+      "urlFilter": "||rollerads.com^",
       "resourceTypes": [
         "main_frame",
         "sub_frame",
@@ -1009,6 +1009,342 @@
   },
   {
     "id": 30064,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||rtmark.net^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30065,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||s.mngts.net^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30066,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||serve.popads.net^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30067,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||servenobid.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30068,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||syndication.exoclick.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30069,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||syndication.realsrv.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30070,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||trafee.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30071,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||trafficfactory.biz^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30072,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||trafficholder.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30073,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||trafficjunky.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30074,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||trafficjunky.net^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30075,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||trafficstars.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30076,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||tsyndicate.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30077,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||tubecorporate.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30078,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||twinred.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30079,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||vignetteads.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30080,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||wigetmedia.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30081,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||xml.popcash.net^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30082,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||yllix.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30083,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||zeroredirect.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30084,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||zeroredirect1.com^",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+        "script",
+        "xmlhttprequest"
+      ]
+    }
+  },
+  {
+    "id": 30085,
     "priority": 1,
     "action": {
       "type": "block"

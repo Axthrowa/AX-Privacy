@@ -142,7 +142,28 @@ const POPUP_REDIRECT_DOMAINS = [
   'as.propellerads.com',
   'onclickads.net',
   'adxpansion.com',
-  'adxpansion.net'
+  'adxpansion.net',
+  'admaven.com',
+  'vignetteads.com',
+  'alwingulla.com',
+  'deloplen.com',
+  'gloaphoo.net',
+  'coomeeno.com',
+  'onclickperformance.com',
+  'adxad.com',
+  'tubecorporate.com',
+  'bidgear.com',
+  'adkernel.com',
+  'adtrue.com',
+  'zeroredirect.com',
+  'trafee.com',
+  'evadav.com',
+  'trafficjunky.com',
+  'onclickads.com',
+  'onclickrev.com',
+  'clckssp.com',
+  'adxmedia.com',
+  'popunderclick.com'
 ];
 
 const SOURCES = {

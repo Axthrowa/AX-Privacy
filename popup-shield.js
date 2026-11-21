@@ -425,6 +425,16 @@ function isDevToolsKey(e) {
 
   window.__AX_POPUP_SHIELD_INSTALLED__ = true;
 
+  // Defeat aggressive anti-adblock scripts that check for dummy globals
+  try {
+    window.canRunAds = true;
+    window.isAdBlockActive = false;
+    if (!window.adsbygoogle) {
+      window.adsbygoogle = [];
+      window.adsbygoogle.loaded = true;
+    }
+  } catch {}
+
   // Track newly added cross-site <a> tags injected on mousedown/pointerdown
   const recentLinks = new WeakMap(); // HTMLAnchorElement -> timestamp
 
@@ -507,20 +517,21 @@ function isDevToolsKey(e) {
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
 
-      // CRITICAL: If click target is video, media player controls, buttons, inputs, or form fields,
-      // reset trusted intent so pop-ups attached to video clicks are immediately intercepted!
+      const anchor = target.closest('a[href]');
+
+      // If click target is inside a media player (video, audio, player controls) and NOT an anchor with href,
+      // reset trusted intent so pop-ups attached to video playback clicks are intercepted!
       const isMediaOrControl = Boolean(
         target.closest(
-          'video, audio, button, input, select, textarea, .jwplayer, .plyr, .video-js, [class*="play"], [class*="control"], [class*="btn"]'
+          'video, audio, .jwplayer, .plyr, .video-js, [class*="vjs-"], [class*="player-poster"], [class*="player-control"]'
         )
       );
-      if (isMediaOrControl) {
+      if (isMediaOrControl && !anchor) {
         lastTrustedIntent = null;
         lastTrustedLink = null;
         return;
       }
 
-      const anchor = target.closest('a[href]');
       if (anchor && anchor.href) {
         // Record initial href on pointerdown before malicious scripts can swap it
         if (!anchor.hasAttribute('data-ax-orig-href')) {
@@ -529,7 +540,11 @@ function isDevToolsKey(e) {
         try {
           const href = anchor.href.trim();
           if (href.startsWith('http://') || href.startsWith('https://')) {
-            const rect = anchor.getBoundingClientRect();
+            let rect = anchor.getBoundingClientRect();
+            if ((rect.width <= 0 || rect.height <= 0) && target.getBoundingClientRect) {
+              rect = target.getBoundingClientRect();
+            }
+
             let style;
             try {
               style = window.getComputedStyle(anchor);
@@ -537,7 +552,11 @@ function isDevToolsKey(e) {
             const opacity = style ? parseFloat(style.opacity) : 1;
             const isVisible = style ? style.display !== 'none' && style.visibility !== 'hidden' : true;
 
-            if (rect.width > 0 && rect.height > 0 && isVisible && opacity >= 0.2) {
+            const textLen = (anchor.innerText || '').trim().length;
+            const hasMedia = Boolean(anchor.querySelector('img, svg, canvas, video'));
+            const hasContent = (rect.width > 0 && rect.height > 0) || textLen > 0 || hasMedia;
+
+            if (hasContent && isVisible && opacity >= 0.15) {
               const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
               const isNewTabIntent = targetAttr === '_blank' || e.button === 1 || e.ctrlKey || e.metaKey;
               if (isNewTabIntent) {
@@ -574,14 +593,21 @@ function isDevToolsKey(e) {
             const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
             const isNewTabIntent = targetAttr === '_blank' || e.button === 1 || e.ctrlKey || e.metaKey;
             if (isNewTabIntent) {
+              let rect = anchor.getBoundingClientRect();
+              if ((rect.width <= 0 || rect.height <= 0) && target.getBoundingClientRect) {
+                rect = target.getBoundingClientRect();
+              }
               let style;
               try {
                 style = window.getComputedStyle(anchor);
               } catch {}
               const opacity = style ? parseFloat(style.opacity) : 1;
               const isVisible = style ? style.display !== 'none' && style.visibility !== 'hidden' : true;
-              const rect = anchor.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0 && isVisible && opacity >= 0.2) {
+              const textLen = (anchor.innerText || '').trim().length;
+              const hasMedia = Boolean(anchor.querySelector('img, svg, canvas, video'));
+              const hasContent = (rect.width > 0 && rect.height > 0) || textLen > 0 || hasMedia;
+
+              if (hasContent && isVisible && opacity >= 0.15) {
                 setTrustedIntent(href);
               }
             }
@@ -616,40 +642,62 @@ function isDevToolsKey(e) {
       let isTrap = false;
       const now = Date.now();
 
-      // Sign 1: Added to DOM within the last 600ms (classic mousedown injection trap)
+      // Sign 1: Added to DOM within the last 600ms without visible text/media (mousedown injection trap)
+      const textLen = (anchor.innerText || '').trim().length;
+      const hasMedia = Boolean(anchor.querySelector('img, svg, button, canvas, video'));
       if (recentLinks.has(anchor)) {
         const addedAt = recentLinks.get(anchor);
-        if (now - addedAt < 600) {
+        if (now - addedAt < 600 && textLen === 0 && !hasMedia) {
           isTrap = true;
         }
       }
 
-      // Sign 2: Fixed or absolute overlay with high z-index, opacity < 0.15, or covering huge screen area
+      // Sign 2: Fixed or absolute overlay (or inside fixed/absolute container) covering screen area
       if (!isTrap) {
         try {
+          const rect = anchor.getBoundingClientRect();
+          const wRatio = rect.width / (window.innerWidth || 1);
+          const hRatio = rect.height / (window.innerHeight || 1);
+
           const style = window.getComputedStyle(anchor);
           const pos = style.position;
-          if (pos === 'fixed' || pos === 'absolute') {
-            const z = parseInt(style.zIndex, 10);
-            const opacity = parseFloat(style.opacity);
-            const rect = anchor.getBoundingClientRect();
-            const wRatio = rect.width / (window.innerWidth || 1);
-            const hRatio = rect.height / (window.innerHeight || 1);
+          const z = parseInt(style.zIndex, 10);
+          const opacity = parseFloat(style.opacity);
 
-            if (opacity < 0.15 || z >= 99999 || (wRatio >= 0.45 && hRatio >= 0.45)) {
+          // Check parent container
+          const positionedParent = anchor.closest('div, section, aside, span');
+          let parentZ = 0;
+          let parentOpacity = 1;
+          let parentPos = '';
+          if (positionedParent && positionedParent !== document.body) {
+            try {
+              const pStyle = window.getComputedStyle(positionedParent);
+              parentPos = pStyle.position;
+              parentZ = parseInt(pStyle.zIndex, 10) || 0;
+              parentOpacity = parseFloat(pStyle.opacity);
+            } catch {}
+          }
+
+          const isPositioned =
+            pos === 'fixed' || pos === 'absolute' || parentPos === 'fixed' || parentPos === 'absolute';
+          const effectiveZ = Math.max(isNaN(z) ? 0 : z, isNaN(parentZ) ? 0 : parentZ);
+          const effectiveOpacity = Math.min(isNaN(opacity) ? 1 : opacity, isNaN(parentOpacity) ? 1 : parentOpacity);
+
+          if (isPositioned) {
+            if (effectiveOpacity < 0.15 || effectiveZ >= 99999 || (wRatio >= 0.40 && hRatio >= 0.40)) {
               isTrap = true;
             }
+          } else if (wRatio >= 0.50 && hRatio >= 0.50) {
+            isTrap = true;
           }
         } catch {}
       }
 
       // Sign 3: Empty text content, no visible img/svg/button, but covering substantial area
       if (!isTrap) {
-        const textLen = (anchor.innerText || '').trim().length;
-        const hasMedia = Boolean(anchor.querySelector('img, svg, button, canvas, video'));
         if (textLen === 0 && !hasMedia) {
           const rect = anchor.getBoundingClientRect();
-          if (rect.width >= 150 && rect.height >= 100) {
+          if (rect.width >= 120 && rect.height >= 80) {
             isTrap = true;
           }
         }
@@ -948,6 +996,25 @@ function isDevToolsKey(e) {
           }
         }
       } catch {}
+      // 6. Anti-Browser-Locker: Protect against abusive history.pushState loops that freeze browsers
+      if (win.history && typeof win.history.pushState === 'function') {
+        const origPushState = win.history.pushState;
+        let pushCount = 0;
+        let lastPushTime = Date.now();
+        win.history.pushState = function () {
+          const now = Date.now();
+          if (now - lastPushTime > 1000) {
+            pushCount = 0;
+            lastPushTime = now;
+          }
+          pushCount++;
+          if (pushCount > 50) {
+            console.warn('[AX-Popup] Kötü niyetli history.pushState döngüsü (browser-locker) sınırlandırıldı.');
+            return;
+          }
+          return origPushState.apply(this, arguments);
+        };
+      }
     } catch {}
   }
 

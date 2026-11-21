@@ -29,7 +29,14 @@
               "dclid",
               "zanpid",
               "gclsrc",
-              "twclid"
+              "twclid",
+              "ttclid",
+              "wickedid",
+              "sc_clid",
+              "li_fat_id",
+              "mkt_tok",
+              "trk_contact",
+              "trk_msg"
             ]
           }
         }
