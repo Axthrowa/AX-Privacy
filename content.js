@@ -341,4 +341,41 @@
 
   // Apply safe cosmetic filters immediately
   applyCosmeticFilter();
+
+  /**
+   * Twitch Shield bridge: synchronizes extension settings with page-level localStorage
+   * for the MAIN world twitch-shield.js script
+   */
+  async function syncTwitchShieldBridge() {
+    if (!currentHost.includes('twitch.tv')) return;
+    try {
+      const data = await chrome.storage.local.get(['twitchShield', 'whitelist']);
+      const isEnabled = data.twitchShield !== undefined ? data.twitchShield : true;
+      const whitelist = data.whitelist || [];
+      const isWhitelisted = whitelist.some(
+        (w) => currentHost === w || currentHost.endsWith('.' + w)
+      );
+
+      const targetValue = !isEnabled || isWhitelisted ? 'disabled' : 'enabled';
+      const prevValue = window.localStorage.getItem('ax_privacy_twitch_shield');
+
+      if (prevValue !== targetValue) {
+        window.localStorage.setItem('ax_privacy_twitch_shield', targetValue);
+      }
+    } catch {
+      // Suppress
+    }
+  }
+
+  // Sync Twitch shield bridge immediately on twitch.tv
+  syncTwitchShieldBridge();
+
+  // Listen for storage changes to sync Twitch shield in real time
+  if (chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && (changes.twitchShield || changes.whitelist)) {
+        syncTwitchShieldBridge();
+      }
+    });
+  }
 })();
