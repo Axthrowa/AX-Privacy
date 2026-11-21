@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = {
   urlClean: true,
   cosmeticFilter: true,
   threatShield: true,
+  twitchShield: true,
   whitelist: [],
   totalBlocked: 0
 };

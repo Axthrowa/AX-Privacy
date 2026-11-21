@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleUrlClean = document.getElementById('toggleUrlClean');
   const toggleCosmetic = document.getElementById('toggleCosmetic');
   const toggleThreat = document.getElementById('toggleThreat');
+  const toggleTwitch = document.getElementById('toggleTwitch');
 
   let currentTab = null;
   let currentHostname = '';
@@ -110,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       toggleUrlClean.checked = settings.urlClean !== undefined ? settings.urlClean : true;
       toggleCosmetic.checked = settings.cosmeticFilter !== undefined ? settings.cosmeticFilter : true;
       toggleThreat.checked = settings.threatShield !== undefined ? settings.threatShield : true;
+      toggleTwitch.checked = settings.twitchShield !== undefined ? settings.twitchShield : true;
 
       // Update Stat Rules Count
       if (settings.adBlock) {
@@ -221,6 +223,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       statThreatShield.textContent = 'Kapalı';
       statThreatShield.className = 'stat-number stat-disabled';
       updateThreatBadge('safe');
+    }
+  });
+
+  toggleTwitch.addEventListener('change', async () => {
+    const isEnabled = toggleTwitch.checked;
+    await updateSetting('twitchShield', isEnabled);
+    if (currentHostname && currentHostname.includes('twitch.tv') && currentTab?.id) {
+      chrome.tabs.reload(currentTab.id);
     }
   });
 });
