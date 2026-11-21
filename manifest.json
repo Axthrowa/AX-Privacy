@@ -29,7 +29,8 @@
       "js": [
         "content.js"
       ],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "all_frames": true
     },
     {
       "matches": [
@@ -39,7 +40,8 @@
         "popup-shield.js"
       ],
       "run_at": "document_start",
-      "world": "MAIN"
+      "world": "MAIN",
+      "all_frames": true
     },
     {
       "matches": [
@@ -81,6 +83,11 @@
         "id": "ruleset_url_clean",
         "enabled": true,
         "path": "rules/url_clean.json"
+      },
+      {
+        "id": "ruleset_popups",
+        "enabled": true,
+        "path": "rules/popups_redirects.json"
       }
     ]
   },

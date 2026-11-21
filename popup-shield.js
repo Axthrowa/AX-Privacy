@@ -1,16 +1,19 @@
 /**
- * AX-Privacy Pop-up & Click-Hijack Shield (Manifest V3 - MAIN World)
+ * AX-Privacy Pop-up & Click-Hijack Shield (Manifest V3 - MAIN World - v2.6.0)
  * Features:
  *   - Captures trusted user clicks to allow legitimate user navigations
+ *   - Resets trusted click state on video, player controls, buttons, or blank space clicks
  *   - Intercepts window.open calls to untrusted external domains and returns a safe window proxy
  *   - Neutralizes detached/hidden synthetic <a> and <form> pop-under triggers
+ *   - Intercepts programmatic location.assign & location.replace click-hijack redirects
+ *   - Supports all_frames: true (runs inside embedded iframes and top-level pages)
  *   - Zero external dependencies, pure JS wrapped in robust try/catch blocks
  */
 
 (function () {
   'use strict';
 
-  // Prevent multiple injections
+  // Prevent multiple injections in the same window/frame
   if (window.__AX_POPUP_SHIELD_INSTALLED__) return;
 
   try {
@@ -43,21 +46,38 @@
     try {
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
+
+      // CRITICAL: If click target is video, media player controls, buttons, inputs, or form fields,
+      // reset lastTrustedLink to null so pop-ups attached to video clicks are immediately intercepted!
+      const isMediaOrControl = Boolean(
+        target.closest(
+          'video, audio, button, input, select, textarea, .jwplayer, .plyr, .video-js, [class*="play"], [class*="control"], [class*="btn"]'
+        )
+      );
+      if (isMediaOrControl) {
+        lastTrustedLink = null;
+        return;
+      }
+
       const anchor = target.closest('a[href]');
       if (anchor && anchor.href) {
         try {
           const u = new URL(anchor.href, window.location.href);
           const rect = anchor.getBoundingClientRect();
-          // Ensure anchor has physical presence (not a hidden overlay)
+          // Ensure anchor has physical presence (not an invisible zero-pixel or transparent overlay trap)
           if (rect.width > 0 && rect.height > 0) {
             lastTrustedLink = {
               time: Date.now(),
               origin: u.origin.toLowerCase(),
               href: anchor.href
             };
+            return;
           }
         } catch {}
       }
+
+      // Any click on document space or background that is not a visible anchor
+      lastTrustedLink = null;
     } catch {}
   }
 
@@ -109,38 +129,6 @@
     }
   }
 
-  function createDummyWindow(targetUrl) {
-    const dummy = {
-      closed: false,
-      name: '',
-      opener: window,
-      focus() {},
-      blur() {},
-      close() {
-        dummy.closed = true;
-      },
-      postMessage() {},
-      location: {
-        href: targetUrl || '',
-        replace() {},
-        assign() {},
-        reload() {},
-        toString() {
-          return targetUrl || '';
-        }
-      },
-      document: {
-        open() {
-          return this;
-        },
-        write() {},
-        writeln() {},
-        close() {}
-      }
-    };
-    return dummy;
-  }
-
   function reportBlocked(url, context) {
     const cleanUrl = url || 'about:blank';
     console.info(`[AX-Popup] İzinsiz reklam penceresi engellendi (${context}):`, cleanUrl);
@@ -154,6 +142,61 @@
         '*'
       );
     } catch {}
+  }
+
+  function createDummyWindow(targetUrl) {
+    let currentHref = targetUrl || '';
+    const dummy = {
+      closed: false,
+      name: '',
+      opener: window,
+      focus() {},
+      blur() {},
+      close() {
+        dummy.closed = true;
+      },
+      postMessage() {},
+      location: {
+        get href() {
+          return currentHref;
+        },
+        set href(val) {
+          const str = String(val || '').trim();
+          if (!isAllowedDestination(str)) {
+            reportBlocked(str, 'dummy.location.href');
+            return;
+          }
+          currentHref = str;
+        },
+        replace(url) {
+          const str = String(url || '').trim();
+          if (!isAllowedDestination(str)) {
+            reportBlocked(str, 'dummy.location.replace');
+            return;
+          }
+        },
+        assign(url) {
+          const str = String(url || '').trim();
+          if (!isAllowedDestination(str)) {
+            reportBlocked(str, 'dummy.location.assign');
+            return;
+          }
+        },
+        reload() {},
+        toString() {
+          return currentHref;
+        }
+      },
+      document: {
+        open() {
+          return this;
+        },
+        write() {},
+        writeln() {},
+        close() {}
+      }
+    };
+    return dummy;
   }
 
   // 1. Wrap window.open
@@ -221,4 +264,39 @@
   } catch (err) {
     console.warn('[AX-Privacy popup-shield] Could not hook form.submit:', err);
   }
+
+  // 4. Wrap Location.prototype.assign and replace to block programmatic redirects
+  try {
+    const locProto = window.Location ? window.Location.prototype : null;
+    if (locProto && typeof locProto.assign === 'function') {
+      const nativeAssign = locProto.assign;
+      locProto.assign = function (url) {
+        try {
+          const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
+          if (!isAllowedDestination(strUrl)) {
+            reportBlocked(strUrl, 'location.assign');
+            return;
+          }
+        } catch {}
+        return nativeAssign.apply(this, arguments);
+      };
+    }
+  } catch (err) {}
+
+  try {
+    const locProto = window.Location ? window.Location.prototype : null;
+    if (locProto && typeof locProto.replace === 'function') {
+      const nativeReplace = locProto.replace;
+      locProto.replace = function (url) {
+        try {
+          const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
+          if (!isAllowedDestination(strUrl)) {
+            reportBlocked(strUrl, 'location.replace');
+            return;
+          }
+        } catch {}
+        return nativeReplace.apply(this, arguments);
+      };
+    }
+  } catch (err) {}
 })();

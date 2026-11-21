@@ -45,15 +45,23 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 - **Kısmi Hata Toleransı:** Bir liste hata verse bile diğer sağlam listeler ve EasyList kesintisiz uygulanmaya devam eder.
 - **Öncelikli Delta Motoru:** Statik 25.000 kuralla çakışan alan adları çıkarılır; kullanıcı listeleri dinamik DNR kotasında en yüksek önceliği alır (ID izolasyonu: 10000+).
 
-### 7. Pop-up, Yönlendirme ve Tıklama Tuzağı Kalkanı (v2.6.0)
-- **`popup-shield.js` (MAIN World):** Sayfada herhangi bir yere tıklayınca gizlice yeni sekme açan (`click-hijack`, pop-under) mekanizmaları engeller.
-- **Güvenli Pencere Proxy'si:** `window.open` engellendiğinde `null` yerine zararsız kukla nesne döndürerek anti-adblock ve video oynatıcı kilitlenmelerini önler.
-- **Sentetik Tıklama Önleyici:** DOM dışı veya 0x0 boyutlu görünmez `<a target="_blank">` ve `<form target="_blank">` gönderimlerini yakalar ve iptal eder.
+### 7. Evrensel Pop-up, Pop-under & Yönlendirme Kalkanı (v2.6.0)
+- **`popup-shield.js` (MAIN World & `all_frames: true`):** Hem ana sekmede hem de gömülü `<iframe>` video oynatıcılarında gizlice yeni sekme açan (`click-hijack`, pop-under) mekanizmaları engeller.
+- **Video & Medya Tıklama Koruması:** Kullanıcı `<video>`, oynatıcı kontrolleri (`.jwplayer`, `.plyr`, `.video-js`, oynat/duraklat butonları) veya boş bir alana tıkladığında güvenilen link bağlamı sıfırlanır; video başlatılırken tetiklenen tüm pop-up ve pop-under reklamları önlenir.
+- **Programatik Yönlendirme Kancası:** `location.assign` ve `location.replace` çağrılarını denetleyerek kullanıcının izni olmadan gerçekleştirilen yönlendirme tuzaklarını durdurur.
+- **Güvenli Pencere Proxy'si:** `window.open` engellendiğinde `null` yerine zararsız kukla pencere proxy'si döndürerek anti-adblock script'lerinin ve video oynatıcıların çökmesini önler.
+- **Ayrı Pop-up DNR Kural Seti (`rules/popups_redirects.json`):** Bilinen en agresif pop-under ve açılır reklam ağlarını (`popads.net`, `propellerads.com`, `adsterra.com`, vb.) doğrudan `main_frame` ve `sub_frame` seviyesinde bloke eder (30001..30500).
 
-### 8. Türkçe Yayın Siteleri Banner & Görünmez Katman Temizleyici (v2.6.0)
-- **AdGuard Turkish Ağ Kuralları (Tier 1.5):** 890+ Türkçe reklam ve yasadışı bahis ağını 25.000 kural kotasında öncelikli olarak engeller.
-- **Siteye Özel Kozmetik Kural Motoru (`rules/cosmetic_rules.json`):** `netprime.me` ve 3.760+ Türkçe web sitesi için standart CSS seçicilerini anında enjekte eder.
-- **Akıllı DOM Tarayıcı (Debounced MutationObserver):** JS ile sonradan sayfaya basılan sabit/kayan GIF ve WebP bahis banner'larını ve oynatıcı üstünü kaplayan görünmez şeffaf tıklama katmanlarını (z-index >= 999) video akışına veya menülere dokunmadan temizler.
+### 8. Evrensel Kozmetik Kural & Banner/Pageskin Temizleyici (v2.6.0)
+- **İki Katmanlı Kozmetik Motor (`rules/cosmetic_rules.json`):**
+  - **Evrensel Katman (`generic`):** Tüm sitelerde geçerli, site düzenini bozmayan 350+ güvenli genel reklam kapsayıcı seçicisi (`ins.adsbygoogle`, `[id^="div-gpt-ad"]`, `.ad-banner`, `.pageskin`, `.sticky-ad`, vb.).
+  - **Siteye Özel Katman (`domains`):** AdGuard Turkish ve AdGuard Base filtrelerinden derlenmiş 23.900+ alan adına özel doğrulanmış CSS kuralları.
+- **Akıllı DOM Tarayıcı (Debounced MutationObserver):**
+  1. Sabit/kayan GIF ve WebP bahis/reklam banner'larını temizler.
+  2. Standart IAB formatındaki reklam kutularını (`728x90`, `300x250`, `970x250`, `160x600`, vb.) tespit edip gizler.
+  3. Yan duvar (pageskin / wallpaper) reklam kolonlarını ekrandan kaldırır.
+  4. Oynatıcı üstünü kaplayan görünmez şeffaf tıklama katmanlarını (z-index >= 999) video akışına veya menülere dokunmadan temizler.
+- **Boş Reklam Çerçevelerini Katlama:** Ağ kuralları ile engellenen boş `<iframe>` öğelerini otomatik olarak katlar (`height: 0 !important; min-height: 0 !important; display: none !important;`).
 
 ### 9. Modern Koyu Kontrol Paneli (`#0b1120`)
 - Açık/kapalı durumlarını, aktif alan adının HTTPS protokol durumunu ve güvenlik rozetini tek bakışta gösterir.
