@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AX Privacy",
   "short_name": "AX Privacy",
-  "version": "1.0.0",
+  "version": "2.2.5",
   "description": "__MSG_description__",
   "default_locale": "en",
   "minimum_chrome_version": "121",
