@@ -83,13 +83,15 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v3.2.3-chrome.zip` paketini indirin ve bir klasöre çıkartın.
-2. Tarayıcınızda eklentiler sayfasına gidin:
-   - Google Chrome: `chrome://extensions`
-   - Microsoft Edge: `edge://extensions`
-   - Brave: `brave://extensions`
-3. Sağ üst köşedeki **Geliştirici Modu (Developer mode)** anahtarını açın.
-4. **Paketlenmemiş öğe yükle (Load unpacked)** butonuna tıklayın ve çıkarttığınız klasörü seçin.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v3.2.3-chrome.zip` veya `ax-privacy-v3.2.3-firefox.zip` paketini indirin.
+2. **Chrome / Brave / Edge:**
+   - Eklentiler sayfasına gidin (`chrome://extensions`, `brave://extensions` veya `edge://extensions`).
+   - **Geliştirici Modu (Developer mode)** anahtarını açın.
+   - **Paketlenmemiş öğe yükle (Load unpacked)** butonuna tıklayın ve çıkarttığınız klasörü (veya `dist/chrome`) seçin.
+3. **Mozilla Firefox:**
+   - Adres çubuğuna `about:debugging#/runtime/this-firefox` yazın.
+   - **Geçici Eklenti Yükle... (Load Temporary Add-on...)** butonuna tıklayın.
+   - `dist/firefox/manifest.json` dosyasını (veya indirilen `.zip` dosyasını) seçin.
 
 ### Yöntem 2: Kaynak Koddan Doğrudan Kurulum
 ```bash

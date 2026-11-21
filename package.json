@@ -7,6 +7,8 @@
   "type": "module",
   "scripts": {
     "build:rules": "node scripts/build-rules.js",
+    "build:firefox": "node scripts/build-firefox.js",
+    "build:dist": "node scripts/build-firefox.js",
     "validate:rules": "node scripts/validate-rules.js",
     "test:punycode": "node scripts/test-punycode.js",
     "test:twitch-gql": "node scripts/test-twitch-gql.js",
