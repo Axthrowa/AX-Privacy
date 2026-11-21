@@ -1,127 +1,111 @@
-# AX Privacy
+# AX-Privacy 🛡️
 
-Chromium (Brave, Chrome, Edge) ve Firefox için Manifest V3 reklam ve izleyici engelleyici. Her şey tarayıcıda çalışır: hesap yok, telemetri yok, AX'in kendi sunucusu yok.
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
+[![Version](https://img.shields.io/badge/version-2.3.0-0284c7.svg?style=flat-square)](package.json)
+[![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
+[![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
-Sürüm 1.0.0. Mağazada yayımlanmıyor; kişisel kullanım için paketsiz kurulur.
+**AX-Privacy**, Chromium tabanlı modern tarayıcılar (Google Chrome, Microsoft Edge, Brave, Opera) için geliştirilmiş; **sıfır hata**, **sıfır telemetri** ve **siteyi bozmayan** kurallarla çalışan yeni nesil bir **Manifest V3** gizlilik ve reklam engelleme eklentisidir.
 
-## Neler yapar
+Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kaydı yok, dış sunucuya veri gönderme yok, arka planda kullanıcıyı takip eden telemetri yok.
 
-**Reklam ve izleyiciler**
+---
 
-- Ağ filtreleri tarayıcının kendi `declarativeNetRequest` motoruyla çalışır; sayfa yüklenirken AX'in service worker'ı uyanmaz.
-- Varsayılan listeler: EasyList, EasyPrivacy, uBlock filtreleri (Unbreak, Quick fixes, Privacy, Badware dahil), Brave Unbreak, Peter Lowe, AdGuard Türkçe, AdGuard URL Tracking ve URLhaus. Çerez bildirimi ve açılır pencere listeleri isteğe bağlı.
-- Kozmetik filtreler ve scriptlet'ler, engellenen reklam betiklerinin yerine sahte (surrogate) betikler, açılır reklam sekmelerinin durdurulması.
-- Öğe seçici, kendi kurallarınız ve https adresinden en fazla 20 ek liste.
-- Paketle gelen listeler 12 saatte bir güncellenir (kapatılabilir).
+## 🚀 Öne Çıkan Özellikler
 
-**Video**
+### 1. 25.000+ Önceliklendirilmiş DNR Reklam ve İzleyici Kalkanı
+- Chrome'un yerel `declarativeNetRequest` (DNR) motorunu kullanır; sayfalar yüklenirken tarayıcıyı yormaz, pil ve bellek tüketimini minimumda tutar.
+- **EasyList** ve **OISD** listelerinin kesişiminden derlenmiş, çift kontrol edilmiş 25.000 yüksek etkili kural içerir.
+- **Çekirdek Garanti Listesi:** En yaygın reklam ağları (`doubleclick.net`, `googlesyndication.com`, `google-analytics.com`, `taboola.com`, `outbrain.com`, `criteo.com`, vb.) her zaman kural setinin en üstünde garanti altına alınır.
 
-- YouTube reklamlarını kaldırma, otomatik "Geç", sponsorlu kartları işaretleme veya gizleme; engelleyici uyarısı çıkarsa geri çekilme.
-- Twitch reklamları.
-- İsteğe bağlı: kaldırılamayan reklamları sessize alma veya 16 kat hızlı oynatma, genel oynatıcılarda (JW Player, HLS/DASH) reklam katmanı, SponsorBlock (kategori başına kapalı, yalnızca göster, sorarak veya otomatik atla; yanlış atlamayı geri alma; kanal istisnası).
+### 2. URL Takip Parametresi Temizleyici (Query Stripper)
+- Tıkladığınız bağlantılardaki kullanıcı takip etiketlerini (`utm_source`, `utm_medium`, `fbclid`, `gclid`, `mc_eid`, `igshid`, vb.) hedef sayfaya ulaşmadan önce temizler.
+- Bankacılık, e-ticaret sepetleri veya oturum doğrulama parametrelerine dokunmaz; web sitelerinin işlevselliğini bozmaz.
 
-**Gizlilik**
+### 3. RFC 3492 Türkçe Uyumlu Punycode & Homograph Tehdit Kalkanı
+- Sahte ve taklit alan adlarını (örn. Kiril alfabesiyle yazılmış `аpple.com` gibi homograph saldırılarını) yerel algoritmayla anında analiz eder ve sekmeyi uyarır (`!`).
+- **Türkçe Harf Koruması:** `türkiye.gov.tr` (`xn--trkiye-3ya.gov.tr`) gibi meşru ulusal alan adlarını güvenli kabul eder; yanlış alarm (false-positive) üretmez.
+- Güvenli sitelere dönüldüğünde Chrome'un yerel DNR sayaç rozetini (`#0284c7`) otomatik olarak geri yükler.
 
-- Çerez bildirimlerini otomatik reddetme (autoconsent; asla kabul etmez).
-- Parmak izi gürültüsü (Standart veya Sıkı), Global Privacy Control, Client Hints kısıtlama.
-- Bağlantılardaki izleme parametrelerini (`utm_*`, `fbclid`, `gclid`...) temizleme, `<a ping>` kapatma.
-- Tarayıcının reklam API'lerini (Topics, Protected Audience, Attribution) kapatma, WebRTC'de yerel IP gizleme.
-- Hazır profiller: Dengeli, Sıkı, Özel.
-- İsteğe bağlı: üçüncü taraf çerezleri engelleme, Facebook/X/Disqus gömülerini tıklayınca yükleme, sekme kapanınca açık olmayan sitelerin verisini silme (Firefox'ta yok).
+### 4. Twitch SSAI / Video-Swap Yayın Kalkanı
+- Twitch'in Amazon IVS oynatıcısı içerisine yerel Web Worker kancası enjekte eder.
+- **Anonim Token Alma:** Kimlik sızıntısını önlemek için oturum başlıklarını izole eder ve reklamsız yedek akış sorgular.
+- **Kesin Reklam Göstergesi Eşleştirme:** Yanlış pozitifleri önler; yalnızca `twitch-stitched-ad`, `amazon-adsystem` gibi kesin reklam etiketlerini filtreler.
+- **Otomatik Sessize Alma (Auto-Mute Fallback):** Twitch tüm yedek akışları engellediğinde reklam anında videoyu geçici olarak sessize alır (`🔇`), reklam bitince sesi otomatik olarak eski seviyesine döndürür.
+- **Özel Playlist Proxy Desteği:** İsteğe bağlı olarak kullanıcı tanımlı harici `.m3u8` proxy şablonu desteği sunar.
 
-**Güvenlik**
+### 5. YouTube Video İçi Reklam Kalkanı
+- **Katman 1 (Önleyici JSON Temizleyici):** `/youtubei/v1/player` yanıtlarından `adPlacements`, `playerAds`, `adSlots` ve YouTube'un anti-adblock uyarı ekranlarını (`bkaEnforcementMessageViewModel`) oynatıcı daha işlemeden önce siler; video oynatma akışını (`streamingData`, `videoDetails`) korur.
+- **Katman 2 (Hızlı Atlatıcı):** Oynatıcıya sızan reklamları anında sessize alır, video süresini sona sarar ve atla butonlarını tıklar.
+- **Katman 3 (Kozmetik Filtreleme):** Arayüzü kirleten banner ve sponsorlu video kartlarını siteyi bozmadan gizler.
 
-- Kötü amaçlı adres listelerindeki sayfalarda uyarı sayfası; "yine de devam et" tarayıcı oturumu boyunca geçerli.
-- Düz http üzerinden parola alanı uyarısı.
+### 6. Modern Koyu Kontrol Paneli (`#0b1120`)
+- Açık/kapalı durumlarını, aktif alan adının HTTPS protokol durumunu ve güvenlik rozetini tek bakışta gösterir.
+- **Tek Tıkla İstisna (Whitelist):** Güvenilen sitelerde korumayı tek tıkla duraklatma ve geri açma imkanı.
 
-**Panel**
+---
 
-- Site başına modül açma/kapama ve süreli duraklatma.
-- Bozulan site için adım adım gevşetme sihirbazı.
-- 30 günlük sayaçlar, ayrıntılı sekme raporu (isteğe bağlı), ayar yedeği.
-- Türkçe ve İngilizce arayüz, açık ve koyu tema.
+## 📦 Kurulum
 
-Bozulma riski taşıyan her özellik varsayılan olarak kapalıdır.
+### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.3.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
+2. Tarayıcınızda eklentiler sayfasına gidin:
+   - Google Chrome: `chrome://extensions`
+   - Microsoft Edge: `edge://extensions`
+   - Brave: `brave://extensions`
+3. Sağ üst köşedeki **Geliştirici Modu (Developer mode)** anahtarını açın.
+4. **Paketlenmemiş öğe yükle (Load unpacked)** butonuna tıklayın ve çıkarttığınız klasörü seçin.
 
-## Kurulum
-
-Aşağıdaki gibi derleyin; `dist/chrome` veya `dist/firefox` klasörünü ya da `npm run pack` ile çıkan zip'in açılmış halini yükleyin. Klasörün en üstünde `manifest.json` olmalı.
-
-**Brave, Chrome, Edge** (Chromium 121 ve üstü)
-
-1. `brave://extensions`, `chrome://extensions` veya `edge://extensions` sayfasını açın.
-2. Geliştirici modunu açın.
-3. "Paketlenmemiş öğe yükle" deyip klasörü seçin.
-
-Güncellemek için klasörü yenisiyle değiştirip eklentiler sayfasında yenile düğmesine basın.
-
-**Firefox** (140 ve üstü)
-
-1. `about:debugging#/runtime/this-firefox` sayfasını açın.
-2. "Geçici eklenti yükle" deyip klasördeki `manifest.json` dosyasını seçin.
-
-Paket imzalı olmadığı için geçici yükleme Firefox kapanınca kalkar.
-
-## Derleme
-
-Node.js 24 veya üstü gerekir.
-
+### Yöntem 2: Kaynak Koddan Doğrudan Kurulum
 ```bash
-npm ci
+# Depoyu klonlayın
+git clone https://github.com/Axthrowa/AX-Privacy.git
+cd AX-Privacy
+
+# Eklentiyi tarayıcıya ekleyin
+# Chrome / Edge / Brave üzerinde "Paketlenmemiş öğe yükle" diyerek bu klasörü seçmeniz yeterlidir.
 ```
 
+---
+
+## 🔒 Gizlilik ve Güvenlik Garantisi
+
+| Prensip | Uygulama Durumu |
+| :--- | :--- |
+| **Dış Ağ Bağlantısı** | **SIFIR.** Eklenti hiçbir analiz sunucusuna veya harici analitik servisine bağlanmaz. |
+| **Kullanıcı Verisi** | Ziyaret edilen URL'ler, çerezler ve şifreler asla kaydedilmez ve paylaşılmaz. |
+| **Minimum İzinler** | Yalnızca `declarativeNetRequest`, `storage`, `tabs` ve `<all_urls>` kullanılır. |
+| **Şeffaflık** | %100 Açık Kaynak kodludur ve tüm kurallar denetlenebilir JSON dosyalarında tutulur. |
+
+---
+
+## 🛠️ Geliştirici ve Test Komutları
+
 ```bash
-npm run build
+# Bağımlılıkları yükleyin
+npm install
+
+# Tüm test paketini çalıştırın (DNR doğrulama + Punycode + Twitch GQL + YouTube pruner)
+npm test
+
+# EasyList ve OISD filtrelerini sıfırdan derleyin (25.000 limitli öncelikli model)
+npm run build:rules
+
+# Statik DNR kurallarının geçerliliğini test edin
+npm run validate:rules
+
+# Punycode Türkçe homograph tehdit motorunu test edin
+npm run test:punycode
+
+# Twitch GraphQL şema ve değişken geçerliliğini test edin
+npm run test:twitch-gql
+
+# YouTube JSON pruner temizleyicisini test edin
+npm run test:youtube-pruner
 ```
 
-`dist/chrome` ve `dist/firefox` klasörleri oluşur. Zip için:
+---
 
-```bash
-npm run pack
-```
+## 📄 Lisans
 
-Filtre listelerini kaynaklarından indirip yeniden derlemek için:
-
-```bash
-npm run filters
-```
-
-## Testler
-
-| Komut                    | Ne yapar                                                            |
-| ------------------------ | ------------------------------------------------------------------- |
-| `npm run check`          | Typecheck, lint, biçim kontrolü ve birim testleri                   |
-| `npm run e2e`            | Brave'de uçtan uca testler (yerel sayfalarla)                       |
-| `npm run e2e:firefox`    | Firefox'ta temel akış testleri                                      |
-| `npm run sites`          | Gerçek sitelerde bozulma kontrolü (ekran görüntüsü karşılaştırmalı) |
-| `npm run live-check`     | Canlı YouTube ve Twitch kontrolü                                    |
-| `npm run resource-check` | Gezinirken service worker'ın ne kadar uyanık kaldığı                |
-
-Ölçüm sonuçları `docs/` altındaki JSON dosyalarında durur. Son ölçümde 120 saniyelik gezinmede worker zamanın %41'inde açıktı.
-
-## Gizlilik
-
-AX gezinme sırasında hiçbir sunucuya istek atmaz. Dışarı giden istekler yalnızca şunlardır:
-
-- Filtre listesi güncellemeleri: listenin kendi sunucusuna, çerez ve referrer olmadan.
-- Eklediğiniz listeler: o adrese.
-- SponsorBlock (açarsanız): video kimliğinin SHA-256 özetinin yalnızca ilk 4 karakteri.
-
-Ayarlar, sayaçlar ve raporlar tarayıcıda kalır. Gizli pencerelerdeki sayfalar kaydedilmez.
-
-## İzinler
-
-| İzin                                 | Neden                                                          |
-| ------------------------------------ | -------------------------------------------------------------- |
-| `declarativeNetRequest`              | Ağ filtreleri                                                  |
-| `scripting`, tüm siteler             | Kozmetik filtreler, scriptlet'ler, video ve gizlilik betikleri |
-| `storage`                            | Ayarlar, önbellek, sayaçlar                                    |
-| `tabs`, `webNavigation`, `activeTab` | Site başına durum, açılır pencere ve uyarı sayfası             |
-| `webRequest`                         | Yalnızca ayrıntılı sekme raporu açıkken                        |
-| `privacy`                            | WebRTC ve tarayıcı reklam API'leri                             |
-| `browsingData`                       | Yalnızca site verisi silme açıkken                             |
-| `alarms`                             | Liste güncellemesi ve süreli duraklatma                        |
-
-## Lisans
-
-GPL-3.0-or-later. Kullanılan kütüphaneler ve filtre listeleri kendi lisanslarıyla gelir (`@ghostery/adblocker` ve `@duckduckgo/autoconsent` MPL-2.0; listeler kaynaklarındaki lisanslarla).
+Bu proje [GPL-3.0-or-later](LICENSE) lisansı altında korunmaktadır.

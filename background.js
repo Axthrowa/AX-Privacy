@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS = {
   threatShield: true,
   twitchShield: true,
   twitchProxyUrl: '',
+  youtubeShield: true,
   whitelist: [],
   totalBlocked: 0
 };
