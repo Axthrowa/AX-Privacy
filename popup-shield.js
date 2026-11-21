@@ -221,6 +221,62 @@ function hasTrustedIntent(targetUrl) {
   return false;
 }
 
+const TRUSTED_FEED_OPENERS = new Set([
+  'google.com',
+  'bing.com',
+  'duckduckgo.com',
+  'yandex.com',
+  'yandex.com.tr',
+  'yahoo.com',
+  'search.yahoo.com',
+  'reddit.com',
+  'x.com',
+  'twitter.com',
+  'instagram.com',
+  'facebook.com',
+  'threads.net',
+  'tiktok.com',
+  'pinterest.com',
+  'youtube.com',
+  'github.com',
+  'linkedin.com',
+  'wikipedia.org',
+  'discord.com',
+  'spotify.com',
+  'twitch.tv',
+  'whatsapp.com',
+  'telegram.org'
+]);
+
+function isTrustedFeedOpener(host) {
+  if (!host) return false;
+  const clean = host.toLowerCase();
+  const root = getRootDomain(clean);
+  return TRUSTED_FEED_OPENERS.has(root) || TRUSTED_FEED_OPENERS.has(clean);
+}
+
+const MAJOR_SAFE_PLATFORMS = [
+  'x.com',
+  'twitter.com',
+  'instagram.com',
+  'facebook.com',
+  'youtube.com',
+  'twitch.tv',
+  'reddit.com',
+  'github.com',
+  'linkedin.com',
+  'google.com',
+  'netflix.com',
+  'amazon.com',
+  'discord.com',
+  'spotify.com',
+  'whatsapp.com',
+  'telegram.org',
+  'threads.net',
+  'tiktok.com',
+  'pinterest.com'
+];
+
 const TRUSTED_AUTH_HOSTS = [
   'accounts.google.com',
   'appleid.apple.com',
@@ -273,6 +329,11 @@ function isAllowedDestination(targetUrl) {
     const currentRoot = getRootDomain(window.location.hostname);
     const targetRoot = getRootDomain(targetHost);
     if (currentRoot && targetRoot && currentRoot === targetRoot) {
+      return true;
+    }
+
+    // Feeds, search engines and social platforms legitimately open user-clicked links
+    if (isTrustedFeedOpener(window.location.hostname)) {
       return true;
     }
 
@@ -347,6 +408,11 @@ function isAllowedNavigation(targetUrl) {
     const currentRoot = getRootDomain(window.location.hostname);
     const targetRoot = getRootDomain(targetHost);
     if (currentRoot && targetRoot && currentRoot === targetRoot) {
+      return true;
+    }
+
+    // Feeds, search engines and social platforms legitimately navigate to outbound links
+    if (isTrustedFeedOpener(window.location.hostname)) {
       return true;
     }
 
@@ -585,6 +651,18 @@ function isDevToolsKey(e) {
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
 
+      if (typeof window !== 'undefined' && window.location) {
+        const curHost = window.location.hostname.toLowerCase();
+        if (isTrustedFeedOpener(curHost) || MAJOR_SAFE_PLATFORMS.some((p) => curHost === p || curHost.endsWith('.' + p))) {
+          // Trusted social media / feed / platform: Always register user click intent and allow normal navigation
+          const anchor = target.closest('a[href]');
+          if (anchor && anchor.href) {
+            setTrustedIntent(anchor.href);
+          }
+          return;
+        }
+      }
+
       if (e && e.isTrusted === true) {
         const anchor = target.closest('a[href]');
         if (anchor && anchor.href) {
@@ -622,7 +700,13 @@ function isDevToolsKey(e) {
       const origHref = anchor.getAttribute('data-ax-orig-href');
       const currentHref = anchor.href || '';
       if (origHref && currentHref && origHref !== currentHref) {
-        if (isCrossSite(currentHref) && !hasTrustedIntent(currentHref)) {
+        const isKnownLinkShim =
+          currentHref.includes('l.instagram.com') ||
+          currentHref.includes('t.co') ||
+          currentHref.includes('google.com/url') ||
+          currentHref.includes('l.facebook.com') ||
+          currentHref.includes('out.reddit.com');
+        if (!isKnownLinkShim && isCrossSite(currentHref) && !hasTrustedIntent(currentHref)) {
           e.preventDefault();
           e.stopImmediatePropagation();
           reportBlocked(currentHref, 'href-swap-trap');
@@ -1110,6 +1194,13 @@ function isDevToolsKey(e) {
   // Universal In-Page Vignette / Fake Loading Modal Cleaner
   function cleanVignettesInDocument() {
     try {
+      if (typeof window !== 'undefined' && window.location) {
+        const curHost = window.location.hostname.toLowerCase();
+        if (isTrustedFeedOpener(curHost) || MAJOR_SAFE_PLATFORMS.some((p) => curHost === p || curHost.endsWith('.' + p))) {
+          return;
+        }
+      }
+
       const elements = document.querySelectorAll(
         'div, section, aside, iframe, [class*="vignette"], [id*="vignette"], [class*="interstitial"], [id*="interstitial"]'
       );
@@ -1118,8 +1209,11 @@ function isDevToolsKey(e) {
         const el = elements[i];
         if (!el || el.__ax_vignette_scanned || el.id === 'ax-privacy-alert-host') continue;
 
-        // Never touch login forms or media players
-        if (el.querySelector('input[type="password"], video, audio')) {
+        // Never touch login forms, media players, dialogs, or legitimate interactive UI
+        if (
+          el.querySelector('input, select, textarea, button, [role="button"], [role="dialog"], video, audio, svg, img') ||
+          (el.getAttribute && (el.getAttribute('role') === 'dialog' || el.getAttribute('aria-modal') === 'true'))
+        ) {
           continue;
         }
 

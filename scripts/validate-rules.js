@@ -152,8 +152,8 @@ async function validateAdsRules() {
     }
   }
 
-  // Verify that YouTube critical infrastructure is NEVER blocked in rules/ads_trackers.json
-  const FORBIDDEN_YOUTUBE_FILTERS = [
+  // Verify that essential web infrastructure & platform CDNs are NEVER blocked in rules/ads_trackers.json
+  const FORBIDDEN_INFRASTRUCTURE_FILTERS = [
     '||youtube.com^',
     '||www.youtube.com^',
     '||m.youtube.com^',
@@ -161,11 +161,28 @@ async function validateAdsRules() {
     '||googlevideo.com^',
     '||ytimg.com^',
     '||ggpht.com^',
-    '||youtubei.googleapis.com^'
+    '||youtubei.googleapis.com^',
+    '||twimg.com^',
+    '||video.twimg.com^',
+    '||twitter.com^',
+    '||x.com^',
+    '||instagram.com^',
+    '||cdninstagram.com^',
+    '||facebook.com^',
+    '||fbcdn.net^',
+    '||cloudflare.com^',
+    '||cdn.jsdelivr.net^',
+    '||storage.googleapis.com^',
+    '||googleusercontent.com^',
+    '||blogger.googleusercontent.com^',
+    '||wp.com^',
+    '||i0.wp.com^',
+    '||i1.wp.com^',
+    '||cdn.discordapp.com^'
   ];
-  for (const forbidden of FORBIDDEN_YOUTUBE_FILTERS) {
+  for (const forbidden of FORBIDDEN_INFRASTRUCTURE_FILTERS) {
     if (domainFilters.has(forbidden)) {
-      throw new Error(`CRITICAL ERROR: YouTube domain must never be blocked in static rules: ${forbidden}`);
+      throw new Error(`CRITICAL ERROR: Essential infrastructure domain must never be blocked in static rules: ${forbidden}`);
     }
   }
 
