@@ -1,9 +1,10 @@
 /**
- * AX-Privacy Background Service Worker (Manifest V3)
+ * AX-Privacy Background Service Worker (Manifest V3 - v2.1.0)
  * Features:
  *   - Native Chrome DNR Action Count Badge (tab-specific live network blocked counter)
  *   - Local Threat Analysis Engine with RFC 3492 Punycode decoder (Turkish domain false-positive immunity)
  *   - Full frame & subresource dynamic whitelisting via allowAllRequests (priority: 1000)
+ *   - Persistent session alerting state in chrome.storage.session (survives Service Worker sleep/restart)
  *   - Zero-leak local security alerting with strict error handling
  */
 
@@ -19,8 +20,56 @@ const DEFAULT_SETTINGS = {
 // In-memory threat map: tabId -> threat object
 const tabThreats = new Map();
 
-// In-memory set of tabs currently showing an alert badge ('!')
-const alertedTabs = new Set();
+/**
+ * chrome.storage.session Helpers for alerted tabs persistence across Service Worker restarts
+ */
+async function getAlertedTabs() {
+  try {
+    const data = await chrome.storage.session.get('alertedTabs');
+    return Array.isArray(data.alertedTabs) ? data.alertedTabs : [];
+  } catch (err) {
+    console.warn('[AX-Privacy background] getAlertedTabs error:', err);
+    return [];
+  }
+}
+
+async function markTabAlerted(tabId) {
+  try {
+    const list = await getAlertedTabs();
+    if (!list.includes(tabId)) {
+      list.push(tabId);
+      await chrome.storage.session.set({ alertedTabs: list });
+    }
+  } catch (err) {
+    console.warn('[AX-Privacy background] markTabAlerted error:', err);
+  }
+}
+
+async function clearTabAlerted(tabId) {
+  try {
+    const list = await getAlertedTabs();
+    const idx = list.indexOf(tabId);
+    if (idx !== -1) {
+      list.splice(idx, 1);
+      await chrome.storage.session.set({ alertedTabs: list });
+    }
+  } catch (err) {
+    console.warn('[AX-Privacy background] clearTabAlerted error:', err);
+  }
+}
+
+async function clearAllAlertedTabs() {
+  try {
+    const list = await getAlertedTabs();
+    for (const tabId of list) {
+      await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
+      await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
+    }
+    await chrome.storage.session.remove('alertedTabs');
+  } catch (err) {
+    console.warn('[AX-Privacy background] clearAllAlertedTabs error:', err);
+  }
+}
 
 /**
  * Lightweight RFC 3492 Punycode Decoder (Zero External Dependencies)
@@ -376,16 +425,20 @@ function evaluateUrlThreat(urlString) {
 
 /**
  * Analyze active tab and update extension badge with priority preservation
+ * Uses chrome.storage.session to survive Service Worker restarts
  */
 async function analyzeTab(tabId, url) {
   try {
     const { threatShield = true } = await chrome.storage.local.get('threatShield');
+    const alertedList = await getAlertedTabs();
+    const isAlerted = alertedList.includes(tabId);
+
     if (!threatShield) {
       tabThreats.delete(tabId);
-      if (alertedTabs.has(tabId)) {
-        alertedTabs.delete(tabId);
+      if (isAlerted) {
         await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
         await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
+        await clearTabAlerted(tabId);
       }
       return;
     }
@@ -394,7 +447,7 @@ async function analyzeTab(tabId, url) {
     tabThreats.set(tabId, threat);
 
     if (threat.level === 'danger') {
-      alertedTabs.add(tabId);
+      await markTabAlerted(tabId);
       await chrome.action.setBadgeText({ tabId, text: '!' }).catch(() => {});
       await chrome.action.setBadgeBackgroundColor({ tabId, color: '#ef4444' }).catch(() => {});
       chrome.tabs
@@ -407,7 +460,7 @@ async function analyzeTab(tabId, url) {
         })
         .catch(() => {});
     } else if (threat.level === 'warning') {
-      alertedTabs.add(tabId);
+      await markTabAlerted(tabId);
       await chrome.action.setBadgeText({ tabId, text: '!' }).catch(() => {});
       await chrome.action.setBadgeBackgroundColor({ tabId, color: '#f59e0b' }).catch(() => {});
       chrome.tabs
@@ -420,12 +473,12 @@ async function analyzeTab(tabId, url) {
         })
         .catch(() => {});
     } else {
-      // Safe page: Only clear custom badge override if this tab was previously alerted,
-      // so Chrome's native DNR action count remains visible on safe tabs!
-      if (alertedTabs.has(tabId)) {
-        alertedTabs.delete(tabId);
+      // Safe page: Only reset badge override if this tab was previously alerted,
+      // restoring Chrome's native DNR action count and resetting background color to blue (#0284c7)!
+      if (isAlerted) {
         await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
         await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0284c7' }).catch(() => {});
+        await clearTabAlerted(tabId);
       }
     }
   } catch {
@@ -480,9 +533,9 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   } catch {}
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
+chrome.tabs.onRemoved.addListener(async (tabId) => {
   tabThreats.delete(tabId);
-  alertedTabs.delete(tabId);
+  await clearTabAlerted(tabId);
 });
 
 // Debug rule matched listener for local statistics fallback
@@ -542,7 +595,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const { key, value } = message;
           if (key in DEFAULT_SETTINGS) {
             await chrome.storage.local.set({ [key]: value });
-            await syncRulesets();
+            if (key === 'adBlock' || key === 'urlClean') {
+              await syncRulesets();
+            }
+            if (key === 'threatShield' && !value) {
+              await clearAllAlertedTabs();
+            }
             sendResponse({ success: true });
           } else {
             sendResponse({ success: false, error: 'Unknown setting key' });
