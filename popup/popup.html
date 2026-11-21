@@ -14,7 +14,7 @@
         <span class="brand-icon">🛡️</span>
         <div class="brand-text">
           <span class="brand-name">AX-Privacy</span>
-          <span class="brand-version">v2.3.0</span>
+          <span class="brand-version">v2.5.0</span>
         </div>
       </div>
       <div id="securityBadge" class="status-badge status-safe">
@@ -72,6 +72,46 @@
       <span class="info-dot"></span>
       <span>Sekme bazlı canlı engelleme sayısı doğrudan <b>eklenti simgesi rozetinde</b> gösterilir.</span>
     </div>
+
+    <!-- Custom Filter Lists Card (Accordion) -->
+    <section class="card custom-filters-card" id="customFiltersCard">
+      <div class="custom-filters-header" id="customFiltersToggle" role="button" tabindex="0" aria-expanded="false">
+        <div class="custom-filters-header-title">
+          <span class="custom-filters-header-icon">📑</span>
+          <span>Özel Filtre Listeleri (<span id="customFilterCount">0</span>)</span>
+        </div>
+        <div class="custom-filters-header-actions">
+          <button type="button" id="btnUpdateAllFilters" class="btn-icon-refresh" title="Tüm filtre listelerini şimdi güncelle">🔄</button>
+          <span class="accordion-arrow" id="customFiltersArrow">▼</span>
+        </div>
+      </div>
+
+      <div class="custom-filters-content collapsed" id="customFiltersContent">
+        <!-- Compact Add Form -->
+        <div class="custom-filter-form">
+          <input type="text" id="customFilterUrlInput" class="filter-input" placeholder="https://ornek.com/filter.txt" spellcheck="false" autocomplete="off">
+          <div class="filter-form-row">
+            <input type="text" id="customFilterNameInput" class="filter-input filter-name-input" placeholder="Kısa Ad (opsiyonel)" maxlength="30" spellcheck="false" autocomplete="off">
+            <button type="button" id="btnAddCustomFilter" class="btn-filter-add">Ekle</button>
+          </div>
+          <div id="customFilterError" class="filter-error-text" style="display: none;"></div>
+        </div>
+
+        <!-- Filter Lists Scrollable Container -->
+        <div class="custom-filter-list-scroll" id="customFilterListContainer">
+          <div id="customFilterEmptyState" class="filter-empty-state">
+            Henüz özel liste eklenmedi (ABP, Hosts veya düz domain URL'si desteklenir).
+          </div>
+          <div id="customFilterItems" class="custom-filter-items"></div>
+        </div>
+
+        <!-- Filter Rules Summary Footer -->
+        <div class="filter-stats-footer">
+          <span id="filterRulesSummary">Statik: 25.000+ • Canlı: 0 kural</span>
+          <span id="filterUpdateStatusText" class="filter-status-pill">Güncel</span>
+        </div>
+      </div>
+    </section>
 
     <!-- Modules Section -->
     <section class="modules-section">
@@ -164,7 +204,7 @@
 
     <!-- Footer -->
     <footer class="footer">
-      <span>AX-Privacy v2.3.0 • %100 Yerel ve Şifresiz Koruma</span>
+      <span>AX-Privacy v2.5.0 • %100 Yerel ve Şifresiz Koruma</span>
     </footer>
   </div>
 

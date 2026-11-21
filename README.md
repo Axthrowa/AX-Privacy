@@ -1,7 +1,7 @@
 # AX-Privacy 🛡️
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-2.3.0-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-2.5.0-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
@@ -39,8 +39,16 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 - **Katman 2 (Hızlı Atlatıcı):** Oynatıcıya sızan reklamları anında sessize alır, video süresini sona sarar ve atla butonlarını tıklar.
 - **Katman 3 (Kozmetik Filtreleme):** Arayüzü kirleten banner ve sponsorlu video kartlarını siteyi bozmadan gizler.
 
-### 6. Modern Koyu Kontrol Paneli (`#0b1120`)
+### 6. Özel Filtre Listesi Yöneticisi & Çoklu Format Ayrıştırıcı (v2.5.0)
+- **Çoklu Format Desteği:** Adblock Plus / uBO (`||ad.com^`), Hosts dosyası (`0.0.0.0 domain`) ve düz domain listelerini (OISD / HaGeZi) hatasız ayrıştırır; istisna (`@@`), kozmetik (`##`) ve sayfa bozan (`$document`, `$popup`) kuralları temizler.
+- **Ağ Dayanıklılığı ve 15 MB Sınırı:** Her liste indirmesi 15 saniye zaman aşımı ile korunur; aşırı büyük dosyalar (>15 MB) engellenir.
+- **Kısmi Hata Toleransı:** Bir liste hata verse bile diğer sağlam listeler ve EasyList kesintisiz uygulanmaya devam eder.
+- **Öncelikli Delta Motoru:** Statik 25.000 kuralla çakışan alan adları çıkarılır; kullanıcı listeleri dinamik DNR kotasında en yüksek önceliği alır (ID izolasyonu: 10000+).
+
+### 7. Modern Koyu Kontrol Paneli (`#0b1120`)
 - Açık/kapalı durumlarını, aktif alan adının HTTPS protokol durumunu ve güvenlik rozetini tek bakışta gösterir.
+- **Açılır Özel Filtre Paneli:** URL ekleme, durum göstergeleri (+X kural yeşil / hata kırmızı), aç/kapat switch ve silme kontrolleri.
+- **XSS Korumalı Mimari:** Kullanıcı girdileri yalnızca güvenli DOM API'leri (`document.createElement`, `textContent`) ile render edilir.
 - **Tek Tıkla İstisna (Whitelist):** Güvenilen sitelerde korumayı tek tıkla duraklatma ve geri açma imkanı.
 
 ---
@@ -48,7 +56,7 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.3.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.5.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
 2. Tarayıcınızda eklentiler sayfasına gidin:
    - Google Chrome: `chrome://extensions`
    - Microsoft Edge: `edge://extensions`
@@ -85,7 +93,7 @@ cd AX-Privacy
 # Bağımlılıkları yükleyin
 npm install
 
-# Tüm test paketini çalıştırın (DNR doğrulama + Punycode + Twitch GQL + YouTube pruner)
+# Tüm test paketini çalıştırın (DNR doğrulama + Punycode + Twitch GQL + YouTube pruner + Filtre güncelleyici)
 npm test
 
 # EasyList ve OISD filtrelerini sıfırdan derleyin (25.000 limitli öncelikli model)
@@ -102,6 +110,9 @@ npm run test:twitch-gql
 
 # YouTube JSON pruner temizleyicisini test edin
 npm run test:youtube-pruner
+
+# Çoklu format ve filtre güncelleyicisini test edin
+npm run test:filter-updater
 ```
 
 ---
