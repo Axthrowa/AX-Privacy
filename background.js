@@ -1527,6 +1527,26 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
+// Ultra-early navigation interception (fires before page response or DOM initialization)
+if (chrome.webNavigation?.onBeforeNavigate?.addListener) {
+  chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+    try {
+      if (details && details.frameId === 0 && details.tabId && details.url && details.url !== 'about:blank') {
+        if (monitoredTabs.has(details.tabId)) {
+          const data = monitoredTabs.get(details.tabId);
+          if (Date.now() - data.createdAt <= 5000) {
+            checkAndNeutralizeTab(details.tabId, details.url, data.openerTabId);
+          } else {
+            monitoredTabs.delete(details.tabId);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[AX-Privacy background] webNavigation.onBeforeNavigate error:', err);
+    }
+  });
+}
+
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   try {
     const tab = await chrome.tabs.get(activeInfo.tabId);

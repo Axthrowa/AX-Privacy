@@ -1,7 +1,7 @@
 # AX-Privacy 🛡️
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-2.8.0-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-2.9.0-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
@@ -45,16 +45,17 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 - **Kısmi Hata Toleransı:** Bir liste hata verse bile diğer sağlam listeler ve EasyList kesintisiz uygulanmaya devam eder.
 - **Öncelikli Delta Motoru:** Statik 25.000 kuralla çakışan alan adları çıkarılır; kullanıcı listeleri dinamik DNR kotasında en yüksek önceliği alır (ID izolasyonu: 10000+).
 
-### 7. Kırılmaz Pop-up, Anti-Vignette & Niyet Doğrulamalı Sekme Kalkanı (v2.8.0)
-- **Niyet Doğrulamalı Sekme Kalkanı (Intent-Verified Tab Shield):** Rastgele/dinamik alan adı (DGA) kullanan pop-up/pop-under ağlarını alan adı listesine bağımlı kalmadan %100 durdurur. Sayfalar tarafından arka planda izinsiz açılan yeni sekmeler anında kapatılır. Yalnızca kullanıcının şeffaf olmayan, görünür bir bağlantıya (`target="_blank"`, orta tık veya `Ctrl+Tık`) son 2000ms içinde kasten basması durumunda yeni sekme açılmasına izin verilir.
-  - **Kapsamlı İstisnalar:** Aynı site içi gezintiler, manuel açılan sekmeler (`Ctrl+T`, yer imleri), arama motorları/sosyal akışlar (Google, Bing, Reddit, YouTube) ve kimlik/ödeme ağ geçitleri (Google OAuth, Apple ID, Microsoft, GitHub, Stripe, PayPal, İyzico, PayTR) asla engellenmez.
+### 7. Sıfır Gecikmeli Pre-Open, Anti-Vignette & Kırılmaz Sekme Kalkanı (v2.9.0)
+- **Sıfır Gecikmeli Pre-Open Sert Engel (Sekmenin Hiç Açılmaması):** Reklam sekmesinin açılıp sonradan kapatılması yerine **tarayıcıda hiç açılmamasını** garanti eder:
+  - **Senkron Niyet Takibi (`setTrustedIntent` / `hasTrustedIntent`):** Kullanıcı görünür, şeffaf olmayan bir bağlantıya (`target="_blank"`, orta tık veya `Ctrl/Meta+Tık`) kasten basmadıkça `sessionStorage` ve `window.name` JSON zarfında doğrulanmış niyet bulunmaz.
+  - **`window.open` Sert Engel:** İzinsiz veya cross-site `window.open` çağrıları yerel tarayıcı API'sine hiç iletilmez; doğrudan zararsız sahte `Window` nesnesi döndürülerek sekme açılışı sayfa içinde durdurulur.
+  - **Sentetik `<a>` Tıklama ve `dispatchEvent` Sert Engel:** Sayfa betiklerinin programatik olarak `.click()` veya `dispatchEvent` ile tetiklediği harici veya `target="_blank"` tıklamaları engellenir (`return false`).
+- **`webNavigation.onBeforeNavigate` Ultra Erken Müdahale:** Arka planda `chrome.webNavigation.onBeforeNavigate` dinleyicisi ile yeni açılan sekmeler henüz HTTP yanıtı gelmeden veya DOM başlamadan ilk milisaniyede yakalanıp kapatılır.
+- **Kapsamlı İstisnalar:** Aynı site içi gezintiler, manuel açılan sekmeler (`Ctrl+T`, yer imleri), arama motorları/sosyal akışlar (Google, Bing, Reddit, YouTube) ve kimlik/ödeme ağ geçitleri (Google OAuth, Apple ID, Microsoft, GitHub, Stripe, PayPal, İyzico, PayTR) asla engellenmez.
 - **Anti-DevTools & Sağ Tık Engelleme Savunması:** Sitelerin `F12`, `Ctrl+Shift+I/J/C`, `Ctrl+U` kısayollarına ve sağ tık (`contextmenu`) menüsüne koyduğu `preventDefault()` engellerini yakalama (`capture`) fazında durdurarak tarayıcının yerel geliştirici araçlarının ve sağ tık menüsünün özgürce çalışmasını sağlar.
 - **`about:blank` ve `srcdoc` Frame Koruması:** `all_frames: true`, `match_about_blank: true` ve `match_origin_as_fallback: true` ile dinamik oluşturulan tüm iframe'ler anında kalkan altına alınır.
 - **Temiz `<iframe>` Kaçışını Engelleme:** `HTMLIFrameElement.prototype.contentWindow` ve `contentDocument` sarılarak iframe içine kaçıp `window.open` tetikleyen betikler etkisiz kılınır.
-- **Sentetik Olay Engelleme:** `EventTarget.prototype.dispatchEvent(new MouseEvent('click'))` ile programatik tetiklenen izinsiz harici tıklamalar yakalanıp iptal edilir.
-- **Anlık Şeffaf `<a>` Tuzağı Önleyici:** `mousedown` anında DOM'a gizlice eklenen (`recentLinks`) veya ekranı kaplayan şeffaf tıklama katmanları `capture` fazında anında imha edilir.
 - **Kapalı Shadow DOM & Sahte Yükleme (Vignette) Temizleyici:** `attachShadow` kancası ve akıllı DOM tarayıcıyla "87% Yükleniyor... Devam etmek için dokunun / TAMAM" tarzı Monetag/PropellerAds sahte yükleme ekranları ve `z-index >= 99999` tam ekran perdeleri silinir; `body`/`html` kaydırma kilidi (`overflow`) otomatik açılır.
-- **Arka Plan Son Savunma Hattı (`background.js`):** Sayfa tarafından yeni açılan sekmeler (`openerTabId`) izlenir; `/afu.php`, Monetag zone linkleri veya malvertising imzası taşıyan pop-under sekmeleri anında kapatılır ve kullanıcı ana sayfada tutulur.
 
 ### 8. Evrensel Kozmetik Kural & Banner/Pageskin Temizleyici (v2.6.0)
 - **İki Katmanlı Kozmetik Motor (`rules/cosmetic_rules.json`):**
@@ -79,7 +80,7 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.8.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.9.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
 2. Tarayıcınızda eklentiler sayfasına gidin:
    - Google Chrome: `chrome://extensions`
    - Microsoft Edge: `edge://extensions`
@@ -105,7 +106,7 @@ cd AX-Privacy
 | :--- | :--- |
 | **Dış Ağ Bağlantısı** | **SIFIR.** Eklenti hiçbir analiz sunucusuna veya harici analitik servisine bağlanmaz. |
 | **Kullanıcı Verisi** | Ziyaret edilen URL'ler, çerezler ve şifreler asla kaydedilmez ve paylaşılmaz. |
-| **Minimum İzinler** | Yalnızca `declarativeNetRequest`, `storage`, `tabs` ve `<all_urls>` kullanılır. |
+| **Minimum İzinler** | Yalnızca `declarativeNetRequest`, `storage`, `tabs`, `webNavigation` ve `<all_urls>` kullanılır. |
 | **Şeffaflık** | %100 Açık Kaynak kodludur ve tüm kurallar denetlenebilir JSON dosyalarında tutulur. |
 
 ---

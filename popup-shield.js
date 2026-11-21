@@ -85,24 +85,173 @@ function isVignetteCandidate(el) {
   return false;
 }
 
-// Track trusted user clicks across function invocations
+// Track synchronous trusted user intents
+let lastTrustedIntent = null; // { host: string, root: string, href: string, exp: number }
 let lastTrustedLink = null; // { time: number, origin: string, href: string }
+
+function setTrustedIntent(targetUrl) {
+  try {
+    if (!targetUrl || typeof targetUrl !== 'string') {
+      lastTrustedIntent = null;
+      lastTrustedLink = null;
+      try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          window.sessionStorage.removeItem('__ax_trusted_intent');
+        }
+        if (typeof window !== 'undefined' && window.name) {
+          const rawName = window.name;
+          if (rawName.startsWith('{') && rawName.includes('__axIntent')) {
+            const envelope = JSON.parse(rawName);
+            delete envelope.__axIntent;
+            window.name = JSON.stringify(envelope);
+          }
+        }
+      } catch {}
+      return;
+    }
+    const href = targetUrl.trim();
+    let host = '';
+    try {
+      const u = new URL(href, typeof window !== 'undefined' && window.location ? window.location.href : 'http://localhost');
+      host = u.hostname.toLowerCase();
+    } catch {
+      return;
+    }
+    const now = Date.now();
+    const exp = now + 1500;
+    const intentData = { host, root: getRootDomain(host), href, exp };
+
+    // 1. In-memory fast cache
+    lastTrustedIntent = intentData;
+
+    // 2. sessionStorage
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem('__ax_trusted_intent', JSON.stringify(intentData));
+      }
+    } catch {}
+
+    // 3. window.name JSON envelope without destroying original name
+    try {
+      if (typeof window !== 'undefined') {
+        const rawName = window.name || '';
+        let envelope = {};
+        if (rawName.startsWith('{') && rawName.endsWith('}')) {
+          try {
+            envelope = JSON.parse(rawName);
+          } catch {
+            envelope = { __origName: rawName };
+          }
+        } else if (rawName) {
+          envelope = { __origName: rawName };
+        }
+        envelope.__axIntent = { host, exp };
+        window.name = JSON.stringify(envelope);
+      }
+    } catch {}
+  } catch {}
+}
+
+function matchesIntent(intent, targetUrl) {
+  if (!intent) return false;
+  if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
+    return true;
+  }
+  try {
+    const u = new URL(targetUrl, typeof window !== 'undefined' && window.location ? window.location.href : 'http://localhost');
+    const targetHost = u.hostname.toLowerCase();
+    const targetRoot = getRootDomain(targetHost);
+    if (intent.host && (targetHost === intent.host || targetHost.endsWith('.' + intent.host))) {
+      return true;
+    }
+    const intentRoot = intent.root || getRootDomain(intent.host || '');
+    if (intentRoot && targetRoot && intentRoot === targetRoot) {
+      return true;
+    }
+    if (intent.href && (targetUrl === intent.href || targetUrl.startsWith(intent.href))) {
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+function hasTrustedIntent(targetUrl) {
+  try {
+    const now = Date.now();
+
+    // 1. Check in-memory first
+    if (lastTrustedIntent && lastTrustedIntent.exp > now) {
+      if (matchesIntent(lastTrustedIntent, targetUrl)) {
+        return true;
+      }
+    }
+
+    // 2. Check sessionStorage
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const raw = window.sessionStorage.getItem('__ax_trusted_intent');
+        if (raw) {
+          const stored = JSON.parse(raw);
+          if (stored && stored.exp > now) {
+            if (matchesIntent(stored, targetUrl)) {
+              return true;
+            }
+          } else {
+            window.sessionStorage.removeItem('__ax_trusted_intent');
+          }
+        }
+      }
+    } catch {}
+
+    // 3. Check window.name envelope
+    try {
+      if (typeof window !== 'undefined' && window.name) {
+        const rawName = window.name;
+        if (rawName.startsWith('{') && rawName.includes('__axIntent')) {
+          const envelope = JSON.parse(rawName);
+          if (envelope && envelope.__axIntent && envelope.__axIntent.exp > now) {
+            if (matchesIntent(envelope.__axIntent, targetUrl)) {
+              return true;
+            }
+          }
+        }
+      }
+    } catch {}
+  } catch {}
+  return false;
+}
 
 const TRUSTED_AUTH_HOSTS = [
   'accounts.google.com',
   'appleid.apple.com',
   'login.microsoftonline.com',
+  'login.live.com',
   'github.com',
+  'discord.com',
   'facebook.com',
   'twitter.com',
   'x.com',
-  'paypal.com'
+  'stripe.com',
+  'checkout.stripe.com',
+  'paypal.com',
+  'www.paypal.com',
+  'iyzico.com',
+  'sandbox-api.iyzico.com',
+  'paytr.com',
+  'bkmexpress.com.tr'
 ];
 
 function isAllowedDestination(targetUrl) {
+  if (typeof window !== 'undefined') {
+    try {
+      if (window.sessionStorage?.getItem('ax_privacy_popup_shield') === 'disabled') {
+        return true;
+      }
+    } catch {}
+  }
+
   if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
-    // about:blank is only allowed if a trusted link click happened in the last 700ms
-    if (lastTrustedLink && Date.now() - lastTrustedLink.time <= 700) {
+    if (hasTrustedIntent(targetUrl)) {
       return true;
     }
     return false;
@@ -128,17 +277,26 @@ function isAllowedDestination(targetUrl) {
     }
 
     // Legitimate authentication, payment gateways, and banking portals
+    const isAuthHost = TRUSTED_AUTH_HOSTS.some(
+      (h) => targetHost === h || targetHost.endsWith('.' + h) || targetRoot === h
+    );
     if (
-      TRUSTED_AUTH_HOSTS.some((h) => targetHost === h || targetHost.endsWith('.' + h)) ||
+      isAuthHost ||
       targetHost.includes('oauth') ||
       targetHost.includes('3dsecure') ||
+      targetHost.includes('3d-secure') ||
       targetHost.includes('banka') ||
       targetHost.includes('odeme')
     ) {
       return true;
     }
 
-    // Check if user genuinely clicked a visible anchor to this target origin within 700ms
+    // Check synchronous user intent (set on user click with new tab intent)
+    if (hasTrustedIntent(targetUrl)) {
+      return true;
+    }
+
+    // Fallback: Check if user genuinely clicked a visible anchor to this target origin within 700ms
     if (lastTrustedLink && Date.now() - lastTrustedLink.time <= 700) {
       if (
         lastTrustedLink.origin === targetOrigin ||
@@ -280,13 +438,14 @@ function isDevToolsKey(e) {
       if (!target || !(target instanceof Element)) return;
 
       // CRITICAL: If click target is video, media player controls, buttons, inputs, or form fields,
-      // reset lastTrustedLink to null so pop-ups attached to video clicks are immediately intercepted!
+      // reset trusted intent so pop-ups attached to video clicks are immediately intercepted!
       const isMediaOrControl = Boolean(
         target.closest(
           'video, audio, button, input, select, textarea, .jwplayer, .plyr, .video-js, [class*="play"], [class*="control"], [class*="btn"]'
         )
       );
       if (isMediaOrControl) {
+        lastTrustedIntent = null;
         lastTrustedLink = null;
         return;
       }
@@ -294,21 +453,35 @@ function isDevToolsKey(e) {
       const anchor = target.closest('a[href]');
       if (anchor && anchor.href) {
         try {
-          const u = new URL(anchor.href, window.location.href);
-          const rect = anchor.getBoundingClientRect();
-          // Ensure anchor has physical presence (not an invisible zero-pixel or transparent overlay trap)
-          if (rect.width > 0 && rect.height > 0) {
-            lastTrustedLink = {
-              time: Date.now(),
-              origin: u.origin.toLowerCase(),
-              href: anchor.href
-            };
-            return;
+          const href = anchor.href.trim();
+          if (href.startsWith('http://') || href.startsWith('https://')) {
+            const rect = anchor.getBoundingClientRect();
+            let style;
+            try {
+              style = window.getComputedStyle(anchor);
+            } catch {}
+            const opacity = style ? parseFloat(style.opacity) : 1;
+            const isVisible = style ? style.display !== 'none' && style.visibility !== 'hidden' : true;
+
+            if (rect.width > 0 && rect.height > 0 && isVisible && opacity >= 0.2) {
+              const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
+              const isNewTabIntent = targetAttr === '_blank' || e.button === 1 || e.ctrlKey || e.metaKey;
+              if (isNewTabIntent) {
+                setTrustedIntent(href);
+              }
+              lastTrustedLink = {
+                time: Date.now(),
+                origin: new URL(href, window.location.href).origin.toLowerCase(),
+                href: href
+              };
+              return;
+            }
           }
         } catch {}
       }
 
       // Any click on document space or background that is not a visible anchor
+      lastTrustedIntent = null;
       lastTrustedLink = null;
     } catch {}
   }
@@ -318,6 +491,30 @@ function isDevToolsKey(e) {
     try {
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
+
+      if (e && e.isTrusted === true) {
+        const anchor = target.closest('a[href]');
+        if (anchor && anchor.href) {
+          const href = anchor.href.trim();
+          if (href.startsWith('http://') || href.startsWith('https://')) {
+            const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
+            const isNewTabIntent = targetAttr === '_blank' || e.button === 1 || e.ctrlKey || e.metaKey;
+            if (isNewTabIntent) {
+              let style;
+              try {
+                style = window.getComputedStyle(anchor);
+              } catch {}
+              const opacity = style ? parseFloat(style.opacity) : 1;
+              const isVisible = style ? style.display !== 'none' && style.visibility !== 'hidden' : true;
+              const rect = anchor.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0 && isVisible && opacity >= 0.2) {
+                setTrustedIntent(href);
+              }
+            }
+          }
+        }
+      }
+
       const anchor = target.closest('a[href]');
       if (!anchor || !anchor.href) return;
 
@@ -441,6 +638,7 @@ function isDevToolsKey(e) {
             const strUrl = url !== undefined && url !== null ? String(url).trim() : '';
             if (!isAllowedDestination(strUrl)) {
               reportBlocked(strUrl, 'window.open');
+              console.info('[AX-Popup] Yeni sekme açılışı önlendi (window.open):', strUrl || 'about:blank');
               return createDummyWindow(strUrl);
             }
           } catch {}
@@ -453,16 +651,16 @@ function isDevToolsKey(e) {
         const nativeAnchorClick = win.HTMLAnchorElement.prototype.click;
         win.HTMLAnchorElement.prototype.click = function () {
           try {
-            const isDetached = !this.isConnected;
-            const isZeroSize = this.offsetWidth === 0 && this.offsetHeight === 0;
             const target = (this.getAttribute('target') || '').toLowerCase();
             const hasDownload = this.hasAttribute('download');
             const href = this.href || '';
+            const cross = isCrossSite(href);
 
-            if ((isDetached || isZeroSize) && target === '_blank' && !hasDownload && href) {
+            if (!hasDownload && (target === '_blank' || cross)) {
               if (!isAllowedDestination(href)) {
                 reportBlocked(href, 'anchor.click');
-                return;
+                console.info('[AX-Popup] Yeni sekme açılışı önlendi (anchor.click):', href);
+                return false;
               }
             }
           } catch {}
@@ -490,11 +688,12 @@ function isDevToolsKey(e) {
                 const hasDownload = this.hasAttribute('download');
                 const target = (this.getAttribute('target') || '').toLowerCase();
                 const href = this.href;
+                const cross = isCrossSite(href);
 
-                if (!hasDownload && (target === '_blank' || isCrossSite(href))) {
+                if (!hasDownload && (target === '_blank' || cross)) {
                   if (!isAllowedDestination(href)) {
                     reportBlocked(href, 'synthetic.dispatchEvent');
-                    console.info('[AX-Popup] Sentetik dispatchEvent engellendi:', href);
+                    console.info('[AX-Popup] Yeni sekme açılışı önlendi (dispatchEvent):', href);
                     return false; // Cancel synthetic click
                   }
                 }
@@ -751,5 +950,14 @@ function isDevToolsKey(e) {
 
 // Export for Node.js unit tests
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { isVignetteCandidate, isAllowedDestination, getRootDomain, isCrossSite, isDevToolsKey };
+  module.exports = {
+    isVignetteCandidate,
+    isAllowedDestination,
+    getRootDomain,
+    isCrossSite,
+    isDevToolsKey,
+    setTrustedIntent,
+    hasTrustedIntent,
+    TRUSTED_AUTH_HOSTS
+  };
 }

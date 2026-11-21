@@ -85,6 +85,47 @@ vm.runInNewContext(`${devToolsFnMatch[0]}; extractedDevTools = isDevToolsKey;`, 
 const shieldDevToolsKey = vmContext.extractedDevTools;
 assert.strictEqual(typeof shieldDevToolsKey, 'function');
 
+// Run full popup-shield.js with mock environment to test synchronous intent & pre-open hooks
+const mockSessionStorage = new Map();
+const mockWindow = {
+  location: { href: 'https://mysite.com/page', hostname: 'mysite.com', origin: 'https://mysite.com' },
+  sessionStorage: {
+    getItem: (k) => mockSessionStorage.get(k) || null,
+    setItem: (k, v) => mockSessionStorage.set(k, String(v)),
+    removeItem: (k) => mockSessionStorage.delete(k)
+  },
+  name: '',
+  addEventListener: () => {},
+  postMessage: () => {}
+};
+const fullVmContext = {
+  window: mockWindow,
+  sessionStorage: mockWindow.sessionStorage,
+  document: { documentElement: null },
+  Node: { prototype: {} },
+  Element: { prototype: {} },
+  HTMLAnchorElement: { prototype: {} },
+  HTMLIFrameElement: { prototype: {} },
+  EventTarget: { prototype: {} },
+  HTMLFormElement: { prototype: {} },
+  MutationObserver: class { observe() {} },
+  module: { exports: {} },
+  console,
+  setTimeout,
+  clearTimeout,
+  Date,
+  URL
+};
+vm.runInNewContext(popupShieldSource, fullVmContext);
+const {
+  setTrustedIntent: shieldSetTrustedIntent,
+  hasTrustedIntent: shieldHasTrustedIntent,
+  isAllowedDestination: shieldIsAllowedDestination
+} = fullVmContext.module.exports;
+assert.strictEqual(typeof shieldSetTrustedIntent, 'function');
+assert.strictEqual(typeof shieldHasTrustedIntent, 'function');
+assert.strictEqual(typeof shieldIsAllowedDestination, 'function');
+
 let passedTests = 0;
 let totalTests = 0;
 
@@ -455,6 +496,65 @@ runTest('Does not classify normal keys or typing events', () => {
   assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, key: 'c' }), false); // Normal copy
   assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, key: 'v' }), false); // Normal paste
   assert.strictEqual(shieldDevToolsKey({ key: 'F5' }), false); // Refresh
+});
+
+// ---------------------------------------------------------------------------
+// 6. Synchronous Intent & Pre-Open Blocking Engine (v2.9.0)
+// ---------------------------------------------------------------------------
+console.log('\n[Group 6: Synchronous Intent & Pre-Open Blocking Engine (v2.9.0)]');
+
+runTest('hasTrustedIntent initially returns false for random ad destination', () => {
+  assert.strictEqual(shieldHasTrustedIntent('https://random-ad-9921.xyz/go'), false);
+});
+
+runTest('setTrustedIntent synchronously stores intent in memory, sessionStorage and window.name', () => {
+  shieldSetTrustedIntent('https://partner.com/deal');
+  assert.strictEqual(shieldHasTrustedIntent('https://partner.com/deal'), true);
+  assert.strictEqual(shieldHasTrustedIntent('https://sub.partner.com/deal'), true);
+  assert.strictEqual(mockSessionStorage.has('__ax_trusted_intent'), true);
+  assert.ok(mockWindow.name.includes('__axIntent'));
+});
+
+runTest('isAllowedDestination blocks unauthorized cross-site ad pop-ups', () => {
+  assert.strictEqual(shieldIsAllowedDestination('https://random-ad-9921.xyz/go'), false);
+  assert.strictEqual(shieldIsAllowedDestination('https://malicious-network.org/out'), false);
+});
+
+runTest('isAllowedDestination permits authorized cross-site destination when intent exists', () => {
+  assert.strictEqual(shieldIsAllowedDestination('https://partner.com/deal'), true);
+});
+
+runTest('isAllowedDestination blocks empty or about:blank URLs without active intent', () => {
+  // Clear intent
+  shieldSetTrustedIntent(null);
+  assert.strictEqual(shieldIsAllowedDestination('about:blank'), false);
+  assert.strictEqual(shieldIsAllowedDestination(''), false);
+});
+
+runTest('isAllowedDestination permits about:blank when synchronous intent is active', () => {
+  shieldSetTrustedIntent('https://any-trusted.org');
+  assert.strictEqual(shieldIsAllowedDestination('about:blank'), true);
+});
+
+runTest('isAllowedDestination always permits same-site and relative URLs', () => {
+  assert.strictEqual(shieldIsAllowedDestination('https://mysite.com/dashboard'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://cdn.mysite.com/asset.js'), true);
+  assert.strictEqual(shieldIsAllowedDestination('/internal/relative/path'), true);
+});
+
+runTest('isAllowedDestination always permits authentication and payment gateways', () => {
+  assert.strictEqual(shieldIsAllowedDestination('https://accounts.google.com/o/oauth2/v2/auth'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://appleid.apple.com/auth/authorize'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://login.microsoftonline.com/common/oauth2'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://checkout.stripe.com/pay/cs_123'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://sandbox-api.iyzico.com/payment'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://www.paypal.com/cgi-bin/webscr'), true);
+});
+
+runTest('isAllowedDestination permits all destinations if popupShield is disabled in sessionStorage', () => {
+  mockSessionStorage.set('ax_privacy_popup_shield', 'disabled');
+  assert.strictEqual(shieldIsAllowedDestination('https://random-ad-9921.xyz/go'), true);
+  mockSessionStorage.delete('ax_privacy_popup_shield');
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
