@@ -1,8 +1,12 @@
 /**
- * AX-Privacy DNR Rules Validator
+ * AX-Privacy DNR Rules Validator (v2.6.0)
  * Validates syntax, integrity, unique IDs, resource types, and MV3 limits
- * for rules/ads_trackers.json, rules/url_clean.json, and manifest.json.
- * Also verifies presence of core ad networks (doubleclick, googlesyndication, taboola, outbrain).
+ * for:
+ *   - manifest.json (3 declared static rulesets)
+ *   - rules/ads_trackers.json (25,000 rules, IDs 1..25000)
+ *   - rules/url_clean.json (redirect rules)
+ *   - rules/popups_redirects.json (dedicated pop-up/redirect rules, IDs 30001..30500)
+ *   - rules/cosmetic_rules.json (two-layer: generic + domains)
  */
 
 import fs from 'node:fs/promises';
@@ -15,6 +19,7 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 
 const ADS_RULES_PATH = path.join(ROOT_DIR, 'rules', 'ads_trackers.json');
 const URL_CLEAN_PATH = path.join(ROOT_DIR, 'rules', 'url_clean.json');
+const POPUPS_RULES_PATH = path.join(ROOT_DIR, 'rules', 'popups_redirects.json');
 const COSMETIC_RULES_PATH = path.join(ROOT_DIR, 'rules', 'cosmetic_rules.json');
 const MANIFEST_PATH = path.join(ROOT_DIR, 'manifest.json');
 
@@ -57,6 +62,7 @@ async function validateManifest() {
     throw new Error('manifest.json is missing declarative_net_request.rule_resources');
   }
 
+  const expectedRulesets = ['ruleset_ads', 'ruleset_url_clean', 'ruleset_popups'];
   const ids = new Set();
   for (const rr of dnr.rule_resources) {
     if (!rr.id || !rr.path) {
@@ -72,6 +78,12 @@ async function validateManifest() {
       await fs.access(fullPath);
     } catch {
       throw new Error(`Ruleset path declared in manifest does not exist: ${rr.path}`);
+    }
+  }
+
+  for (const exp of expectedRulesets) {
+    if (!ids.has(exp)) {
+      throw new Error(`manifest.json missing required ruleset: ${exp}`);
     }
   }
 
@@ -148,6 +160,55 @@ async function validateAdsRules() {
   );
 }
 
+async function validatePopupsRules() {
+  console.log('[validate-rules] Validating rules/popups_redirects.json...');
+  const raw = await fs.readFile(POPUPS_RULES_PATH, 'utf8');
+  const rules = JSON.parse(raw);
+
+  if (!Array.isArray(rules)) {
+    throw new Error('rules/popups_redirects.json must be a JSON array');
+  }
+
+  if (rules.length === 0 || rules.length > 500) {
+    throw new Error(`rules/popups_redirects.json rule count invalid (${rules.length}, max 500)`);
+  }
+
+  const ids = new Set();
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i];
+    if (typeof r.id !== 'number' || r.id < 30001 || r.id > 30500) {
+      throw new Error(`Rule at index ${i} has out-of-range id: ${r.id} (expected 30001..30500)`);
+    }
+    if (ids.has(r.id)) {
+      throw new Error(`Duplicate rule id found in popups_redirects: ${r.id}`);
+    }
+    ids.add(r.id);
+
+    if (r.action?.type !== 'block') {
+      throw new Error(`Rule ${r.id} action type must be "block"`);
+    }
+
+    if (!r.condition?.urlFilter || !r.condition.urlFilter.startsWith('||') || !r.condition.urlFilter.endsWith('^')) {
+      throw new Error(`Rule ${r.id} has invalid urlFilter: ${r.condition?.urlFilter}`);
+    }
+
+    const types = r.condition.resourceTypes;
+    if (!Array.isArray(types) || !types.includes('main_frame')) {
+      throw new Error(`Rule ${r.id} must include "main_frame" in resourceTypes`);
+    }
+
+    for (const t of types) {
+      if (!VALID_RESOURCE_TYPES.has(t)) {
+        throw new Error(`Rule ${r.id} has invalid resourceType: ${t}`);
+      }
+    }
+  }
+
+  console.log(
+    `[validate-rules] rules/popups_redirects.json OK (${rules.length} rules, IDs 30001..${30000 + rules.length})`
+  );
+}
+
 async function validateUrlCleanRules() {
   console.log('[validate-rules] Validating rules/url_clean.json...');
   const raw = await fs.readFile(URL_CLEAN_PATH, 'utf8');
@@ -187,22 +248,42 @@ async function validateUrlCleanRules() {
 async function validateCosmeticRules() {
   console.log('[validate-rules] Validating rules/cosmetic_rules.json...');
   const raw = await fs.readFile(COSMETIC_RULES_PATH, 'utf8');
-  const cosmeticMap = JSON.parse(raw);
+  const cosmeticData = JSON.parse(raw);
 
-  if (typeof cosmeticMap !== 'object' || Array.isArray(cosmeticMap) || cosmeticMap === null) {
-    throw new Error('rules/cosmetic_rules.json must be a JSON object mapping domains to selector arrays');
+  if (typeof cosmeticData !== 'object' || Array.isArray(cosmeticData) || cosmeticData === null) {
+    throw new Error('rules/cosmetic_rules.json must be a JSON object with { generic, domains }');
   }
 
-  const domainCount = Object.keys(cosmeticMap).length;
+  // Validate Generic layer
+  if (!Array.isArray(cosmeticData.generic) || cosmeticData.generic.length < 10) {
+    throw new Error(`rules/cosmetic_rules.json generic array missing or too small (${cosmeticData.generic?.length})`);
+  }
+
+  for (const sel of cosmeticData.generic) {
+    if (typeof sel !== 'string' || !sel.trim()) {
+      throw new Error(`rules/cosmetic_rules.json generic layer has invalid selector: ${sel}`);
+    }
+    if (sel.includes('{') || sel.includes('}') || sel.includes(':has(') || sel.includes(':xpath(')) {
+      throw new Error(`rules/cosmetic_rules.json generic layer has non-standard selector: ${sel}`);
+    }
+  }
+
+  // Validate Domains layer
+  const domainMap = cosmeticData.domains;
+  if (typeof domainMap !== 'object' || Array.isArray(domainMap) || domainMap === null) {
+    throw new Error('rules/cosmetic_rules.json domains must be an object');
+  }
+
+  const domainCount = Object.keys(domainMap).length;
   if (domainCount < 50) {
     throw new Error(`rules/cosmetic_rules.json has too few domains (${domainCount})`);
   }
 
-  if (!cosmeticMap['netprime.me'] || !Array.isArray(cosmeticMap['netprime.me'])) {
+  if (!domainMap['netprime.me'] || !Array.isArray(domainMap['netprime.me'])) {
     throw new Error('rules/cosmetic_rules.json missing required netprime.me rules');
   }
 
-  for (const [domain, selectors] of Object.entries(cosmeticMap)) {
+  for (const [domain, selectors] of Object.entries(domainMap)) {
     if (!Array.isArray(selectors) || selectors.length === 0) {
       throw new Error(`rules/cosmetic_rules.json domain "${domain}" has empty selectors array`);
     }
@@ -216,7 +297,9 @@ async function validateCosmeticRules() {
     }
   }
 
-  console.log(`[validate-rules] rules/cosmetic_rules.json OK (${domainCount} domains validated)`);
+  console.log(
+    `[validate-rules] rules/cosmetic_rules.json OK (${cosmeticData.generic.length} generic, ${domainCount} domains validated)`
+  );
 }
 
 async function main() {
@@ -224,6 +307,7 @@ async function main() {
   await validateManifest();
   await validateUrlCleanRules();
   await validateAdsRules();
+  await validatePopupsRules();
   await validateCosmeticRules();
   console.log('=== AX-Privacy Rule Validation Passed with ZERO errors! ===');
 }

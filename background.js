@@ -195,9 +195,10 @@ async function initActionOptions() {
  */
 async function syncRulesets() {
   try {
-    const data = await chrome.storage.local.get(['adBlock', 'urlClean']);
+    const data = await chrome.storage.local.get(['adBlock', 'urlClean', 'popupShield']);
     const adBlock = data.adBlock !== undefined ? data.adBlock : true;
     const urlClean = data.urlClean !== undefined ? data.urlClean : true;
+    const popupShield = data.popupShield !== undefined ? data.popupShield : true;
 
     const enableRulesetIds = [];
     const disableRulesetIds = [];
@@ -212,6 +213,12 @@ async function syncRulesets() {
       enableRulesetIds.push('ruleset_url_clean');
     } else {
       disableRulesetIds.push('ruleset_url_clean');
+    }
+
+    if (popupShield) {
+      enableRulesetIds.push('ruleset_popups');
+    } else {
+      disableRulesetIds.push('ruleset_popups');
     }
 
     await chrome.declarativeNetRequest.updateEnabledRulesets({
@@ -1234,7 +1241,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const { key, value } = message;
           if (key in DEFAULT_SETTINGS) {
             await chrome.storage.local.set({ [key]: value });
-            if (key === 'adBlock' || key === 'urlClean') {
+            if (key === 'adBlock' || key === 'urlClean' || key === 'popupShield') {
               await syncRulesets();
             }
             if (key === 'threatShield' && !value) {
@@ -1275,28 +1282,109 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_COSMETIC_SELECTORS') {
       (async () => {
         try {
-          const rawHost = (message.hostname || (sender.tab?.url ? new URL(sender.tab.url).hostname : '')).toLowerCase();
-          const rules = await getCosmeticRules();
-          const selectorsSet = new Set();
+          const { cosmeticFilter = true, popupShield = true, whitelist = [] } =
+            await chrome.storage.local.get(['cosmeticFilter', 'popupShield', 'whitelist']);
 
-          if (rawHost) {
+          let topHost = '';
+          if (sender.tab?.url) {
+            try {
+              topHost = new URL(sender.tab.url).hostname.toLowerCase();
+            } catch {}
+          }
+          const rawHost = (message.hostname || topHost).toLowerCase();
+
+          // Whitelist inheritance: Whitelist top-level page and iframe subresources
+          const isTopWhitelisted = topHost ? whitelist.some((w) => topHost === w || topHost.endsWith('.' + w)) : false;
+          const isCurrentWhitelisted = rawHost ? whitelist.some((w) => rawHost === w || rawHost.endsWith('.' + w)) : false;
+          const isWhitelisted = isTopWhitelisted || isCurrentWhitelisted;
+
+          if (isWhitelisted || !cosmeticFilter) {
+            sendResponse({
+              success: true,
+              whitelisted: isWhitelisted,
+              cosmeticFilter,
+              popupShield,
+              genericSelectors: [],
+              siteSelectors: [],
+              selectors: []
+            });
+            return;
+          }
+
+          const rulesData = await getCosmeticRules();
+          const genericList = Array.isArray(rulesData?.generic) ? rulesData.generic : [];
+          const domainMap = rulesData?.domains || rulesData || {};
+
+          const siteSelectorsSet = new Set();
+          const checkHosts = [rawHost];
+          if (topHost && topHost !== rawHost) {
+            checkHosts.push(topHost);
+          }
+
+          for (const h of checkHosts) {
+            if (!h) continue;
             // 1. Exact hostname match (e.g. www.netprime.me)
-            if (Array.isArray(rules[rawHost])) {
-              for (const s of rules[rawHost]) selectorsSet.add(s);
+            if (Array.isArray(domainMap[h])) {
+              for (const s of domainMap[h]) siteSelectorsSet.add(s);
             }
             // 2. Root domain match (e.g. www.netprime.me -> netprime.me)
-            const parts = rawHost.split('.');
+            const parts = h.split('.');
             if (parts.length > 2) {
               const rootHost = parts.slice(-2).join('.');
-              if (Array.isArray(rules[rootHost])) {
-                for (const s of rules[rootHost]) selectorsSet.add(s);
+              if (Array.isArray(domainMap[rootHost])) {
+                for (const s of domainMap[rootHost]) siteSelectorsSet.add(s);
               }
             }
           }
 
-          sendResponse({ success: true, selectors: Array.from(selectorsSet) });
+          const siteSelectors = Array.from(siteSelectorsSet);
+          const combined = Array.from(new Set([...genericList, ...siteSelectors]));
+
+          sendResponse({
+            success: true,
+            whitelisted: false,
+            cosmeticFilter,
+            popupShield,
+            genericSelectors: genericList,
+            siteSelectors,
+            selectors: combined
+          });
         } catch (err) {
-          sendResponse({ success: false, error: err.message, selectors: [] });
+          sendResponse({
+            success: false,
+            error: err.message,
+            whitelisted: false,
+            cosmeticFilter: true,
+            popupShield: true,
+            genericSelectors: [],
+            siteSelectors: [],
+            selectors: []
+          });
+        }
+      })();
+      return true;
+    }
+
+    if (message.type === 'GET_FRAME_STATE') {
+      (async () => {
+        try {
+          const { popupShield = true, whitelist = [] } = await chrome.storage.local.get(['popupShield', 'whitelist']);
+          let topHost = '';
+          if (sender.tab?.url) {
+            try {
+              topHost = new URL(sender.tab.url).hostname.toLowerCase();
+            } catch {}
+          }
+          const rawHost = (message.hostname || topHost).toLowerCase();
+          const isTopWhitelisted = topHost ? whitelist.some((w) => topHost === w || topHost.endsWith('.' + w)) : false;
+          const isCurrentWhitelisted = rawHost ? whitelist.some((w) => rawHost === w || rawHost.endsWith('.' + w)) : false;
+          sendResponse({
+            success: true,
+            whitelisted: isTopWhitelisted || isCurrentWhitelisted,
+            popupShield
+          });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message, whitelisted: false, popupShield: true });
         }
       })();
       return true;
