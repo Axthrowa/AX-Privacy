@@ -1,10 +1,10 @@
 /**
- * AX-Privacy Twitch Stream Shield (Manifest V3 - MAIN World - v2.2.3)
+ * AX-Privacy Twitch Stream Shield (Manifest V3 - MAIN World - v2.2.4)
  * Robust SSAI / HLS Video-Swap Architecture for Twitch.tv
  *
  * Key Architecture:
  *   1. Precise GQL PlaybackAccessToken Schema:
- *      - Uses raw GraphQL PlaybackAccessToken_Template query (immune to persistedQuery hash rotation)
+ *      - Uses clean GraphQL PlaybackAccessToken query without unused variables
  *      - Robust response parser handling single object and array responses
  *      - Detailed failure diagnosis (HTTP status, error message, forbiddenReasonCode)
  *   2. Main-Window GQL Header Capture & Worker Synchronization:
@@ -221,8 +221,8 @@
       const DEFAULT_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
       const GQL_QUERY = [
-        'query PlaybackAccessToken_Template($login: String!, $isLive: Boolean!, $vodID: ID!, $isVod: Boolean!, $playerType: String!, $platform: String!) {',
-        '  streamPlaybackAccessToken(channelName: $login, params: {platform: $platform, playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isLive) {',
+        'query PlaybackAccessToken($login: String!, $playerType: String!, $platform: String!) {',
+        '  streamPlaybackAccessToken(channelName: $login, params: {platform: $platform, playerBackend: "mediaplayer", playerType: $playerType}) {',
         '    value',
         '    signature',
         '    authorization { isForbidden forbiddenReasonCode }',
@@ -341,13 +341,10 @@
           method: 'POST',
           headers: reqHeaders,
           body: JSON.stringify({
-            operationName: 'PlaybackAccessToken_Template',
+            operationName: 'PlaybackAccessToken',
             query: GQL_QUERY,
             variables: {
-              isLive: true,
               login: channel,
-              isVod: false,
-              vodID: '',
               playerType: candidate.playerType,
               platform: candidate.platform
             }
