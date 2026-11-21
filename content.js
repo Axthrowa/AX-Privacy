@@ -154,6 +154,16 @@
           }
         }
 
+        // Never touch video players, seekbars, progress bars, sliders, or any player controls
+        if (
+          el.closest &&
+          el.closest(
+            'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"], [class*="control"], [class*="progress"], [class*="timeline"], [class*="seekbar"], [role="slider"], [role="progressbar"], [aria-label*="play" i], [aria-label*="seek" i], [aria-label*="progress" i]'
+          )
+        ) {
+          return true;
+        }
+
         // Never touch video players or interactive input forms
         if (el.querySelector('video, audio, input, select, textarea, button[type="submit"]')) {
           return true;
@@ -170,9 +180,7 @@
           className.includes('player-container') ||
           idName.includes('player')
         ) {
-          if (el.querySelector('video, audio, canvas, object, embed')) {
-            return true;
-          }
+          return true;
         }
 
         // Never touch site navigation or breadcrumbs
@@ -209,8 +217,124 @@
         } catch {}
       }
 
+      function defuseVideoPlayerClickTraps() {
+        try {
+          const videos = document.querySelectorAll('video');
+          if (!videos || videos.length === 0) return;
+
+          for (let v = 0; v < videos.length; v++) {
+            const video = videos[v];
+            const vRect = video.getBoundingClientRect();
+            if (vRect.width < 80 || vRect.height < 80) continue;
+
+            const playerContainer =
+              (video.closest &&
+                video.closest(
+                  '.video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
+                )) ||
+              video.parentElement;
+            if (!playerContainer) continue;
+
+            const overlays = playerContainer.querySelectorAll('div, span, a');
+            for (let o = 0; o < overlays.length; o++) {
+              const el = overlays[o];
+              if (el === video || el.contains(video)) continue;
+
+              // Never touch legitimate controls
+              const isControl = Boolean(
+                (el.matches &&
+                  el.matches(
+                    '[class*="control"], [class*="progress"], [class*="slider"], [class*="rail"], [class*="timeline"], [class*="seekbar"], [role="slider"], [role="progressbar"], button, input, [aria-label*="play" i], [aria-label*="seek" i]'
+                  )) ||
+                  (el.closest &&
+                    el.closest(
+                      '[class*="control"], [class*="progress"], [class*="slider"], [class*="rail"], [class*="timeline"], [class*="seekbar"], [role="slider"], [role="progressbar"], button, input'
+                    ))
+              );
+              if (isControl) continue;
+
+              let style;
+              try {
+                style = window.getComputedStyle(el);
+              } catch {
+                continue;
+              }
+              const pos = style.position;
+              if (pos !== 'absolute' && pos !== 'fixed') continue;
+
+              const zIndex = parseInt(style.zIndex, 10);
+              if (zIndex < 1) continue;
+
+              const oRect = el.getBoundingClientRect();
+              const isCoveringPlayer =
+                oRect.width >= vRect.width * 0.6 && oRect.height >= vRect.height * 0.6;
+
+              if (isCoveringPlayer) {
+                const hasAdOrLink = el.tagName === 'A' || Boolean(el.querySelector('a[href^="http"], a[target="_blank"]'));
+                const opacity = parseFloat(style.opacity);
+                const isTransparent =
+                  opacity < 0.1 ||
+                  style.backgroundColor === 'transparent' ||
+                  style.backgroundColor.includes('rgba(0, 0, 0, 0)');
+                if (hasAdOrLink || isTransparent) {
+                  el.style.setProperty('pointer-events', 'none', 'important');
+                  if (el.tagName === 'A') {
+                    el.removeAttribute('href');
+                    el.removeAttribute('target');
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      function neutralizeAntiAdblockModals() {
+        try {
+          const modals = document.querySelectorAll(
+            'div, section, aside, [role="dialog"], [class*="modal"], [id*="modal"], [class*="overlay"], [id*="overlay"], [class*="blocker"], [id*="blocker"], [class*="adblock"], [id*="adblock"]'
+          );
+          const antiAdblockPhrases = [
+            'reklam engelleyiciyi kapat',
+            'reklam engelleyicinizi kapatın',
+            'lütfen reklam engelleyiciyi devre dışı bırakın',
+            'ad blocker detected',
+            'please disable your ad blocker',
+            'adblock detected',
+            'disable adblock to continue',
+            'reklam engelleyici tespit edildi',
+            'adblocker tespit edildi',
+            'adblocker\'ı kapat',
+            'disable adblock',
+            'turn off your ad blocker',
+            'adblocker has been detected'
+          ];
+          for (let i = 0; i < modals.length; i++) {
+            const el = modals[i];
+            if (!el || el.__ax_antiadblock_scanned || el.id === 'ax-privacy-alert-host') continue;
+            const text = (el.innerText || '').toLowerCase();
+            const hasAntiAdblock = antiAdblockPhrases.some((phrase) => text.includes(phrase));
+            if (hasAntiAdblock) {
+              if (!el.querySelector('input[type="password"]')) {
+                el.style.setProperty('display', 'none', 'important');
+                el.style.setProperty('pointer-events', 'none', 'important');
+                try {
+                  el.remove();
+                } catch {}
+                unlockBodyOverflow();
+                el.__ax_antiadblock_scanned = true;
+                console.info('[AX-AntiAdBlock] Anti-adblocker duvarı başarıyla kaldırıldı.');
+              }
+            }
+          }
+        } catch {}
+      }
+
       function scanForMaliciousOverlaysAndBanners() {
         try {
+          defuseVideoPlayerClickTraps();
+          neutralizeAntiAdblockModals();
+
           const MAJOR_SAFE_PLATFORMS = [
             'x.com',
             'twitter.com',

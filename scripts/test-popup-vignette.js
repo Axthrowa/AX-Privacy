@@ -734,6 +734,32 @@ runTest('LEGITIMATE_HOST_WHITELIST protects major platform destinations', () => 
   assert.strictEqual(LEGITIMATE_HOST_WHITELIST.has('discord.com'), true);
 });
 
+console.log('\n[Group 10: Anti-Adblock Defusers & Surrogates (v3.2.0)]');
+
+runTest('Surrogates exist and do not crash web applications', () => {
+  assert.strictEqual(typeof fullVmContext.window.gtag, 'function');
+  assert.strictEqual(typeof fullVmContext.window.ga, 'function');
+  assert.strictEqual(typeof fullVmContext.window.fbq, 'function');
+  assert.ok(Array.isArray(fullVmContext.window.dataLayer));
+  assert.ok(Array.isArray(fullVmContext.window.adsbygoogle));
+
+  // Verify calling them does not throw
+  assert.doesNotThrow(() => fullVmContext.window.gtag('event', 'test'));
+  assert.doesNotThrow(() => fullVmContext.window.ga('send', 'pageview'));
+  assert.doesNotThrow(() => fullVmContext.window.fbq('track', 'PageView'));
+  assert.doesNotThrow(() => fullVmContext.window.adsbygoogle.push({}));
+});
+
+runTest('Anti-Adblock Defusers neutralize FuckAdBlock, BlockAdBlock and canRunAds checks', () => {
+  assert.strictEqual(fullVmContext.window.canRunAds, true);
+  assert.strictEqual(fullVmContext.window.isAdBlockActive, false);
+  assert.strictEqual(fullVmContext.window.adblock, false);
+  assert.strictEqual(typeof fullVmContext.window.fuckAdBlock, 'object');
+  assert.strictEqual(typeof fullVmContext.window.blockAdBlock, 'object');
+  assert.strictEqual(fullVmContext.window.fuckAdBlock.check(), true);
+  assert.strictEqual(typeof fullVmContext.window.fuckAdBlock.onDetected, 'function');
+});
+
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
 if (passedTests === totalTests) {
   console.log('✓ All Anti-Vignette & Pop-under Classifier tests passed successfully!');

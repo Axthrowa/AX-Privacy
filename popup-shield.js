@@ -491,15 +491,153 @@ function isDevToolsKey(e) {
 
   window.__AX_POPUP_SHIELD_INSTALLED__ = true;
 
-  // Defeat aggressive anti-adblock scripts that check for dummy globals
+  // Defeat anti-adblock detection and provide standard noop surrogates for web analytics/ads
   try {
-    window.canRunAds = true;
-    window.isAdBlockActive = false;
+    // 1. Google Tag Manager / Analytics Surrogates
+    window.dataLayer = window.dataLayer || [];
+    if (!window.gtag) {
+      window.gtag = function () {
+        if (window.dataLayer && Array.isArray(window.dataLayer)) {
+          window.dataLayer.push(arguments);
+        }
+      };
+    }
+    if (!window.ga) {
+      window.ga = function () {};
+      window.ga.create = function () {
+        return { get() {}, set() {}, send() {} };
+      };
+      window.ga.getByName = function () {
+        return null;
+      };
+      window.ga.getAll = function () {
+        return [];
+      };
+      window.ga.remove = function () {};
+    }
+    if (!window._gaq) {
+      window._gaq = { push: function () {} };
+    }
+
+    // 2. Facebook Pixel Surrogate
+    if (!window.fbq) {
+      window.fbq = function () {};
+      window.fbq.push = function () {};
+      window.fbq.loaded = true;
+      window.fbq.version = '2.0';
+      window.fbq.queue = [];
+    }
+
+    // 3. Google AdSense / DFP Surrogates
     if (!window.adsbygoogle) {
       window.adsbygoogle = [];
-      window.adsbygoogle.loaded = true;
     }
-  } catch {}
+    window.adsbygoogle.loaded = true;
+    window.adsbygoogle.push = function (obj) {
+      if (obj && typeof obj === 'object') {
+        try {
+          obj.loaded = true;
+        } catch {}
+      }
+      return 0;
+    };
+    window.google_ad_client = 'ca-pub-0000000000000000';
+    window.google_ad_status = 1;
+
+    // 4. Taboola / Outbrain / Criteo Surrogates
+    window._taboola = window._taboola || [];
+    window.OBR = window.OBR || { extern: { researchWidget() {} } };
+    window.Criteo = window.Criteo || { events: [] };
+
+    // 5. Anti-Adblock Canary Globals
+    window.canRunAds = true;
+    window.isAdBlockActive = false;
+    window.adblock = false;
+    window.adblocker = false;
+    window.hasAdBlocker = false;
+    window.adBlockDetected = false;
+    window._adblock = false;
+
+    // 6. FuckAdBlock & BlockAdBlock Full Stubs
+    function createAdBlockStub() {
+      const stub = {
+        on: function (detected, fn) {
+          if (!detected && typeof fn === 'function') {
+            try {
+              setTimeout(fn, 1);
+            } catch {}
+          }
+          return stub;
+        },
+        onDetected: function () {
+          return stub;
+        },
+        onNotDetected: function (fn) {
+          if (typeof fn === 'function') {
+            try {
+              setTimeout(fn, 1);
+            } catch {}
+          }
+          return stub;
+        },
+        check: function () {
+          return true;
+        },
+        clearEvent: function () {},
+        setOption: function () {
+          return stub;
+        },
+        init: function () {
+          return stub;
+        }
+      };
+      return stub;
+    }
+    window.fuckAdBlock = createAdBlockStub();
+    window.blockAdBlock = createAdBlockStub();
+    window.FuckAdBlock = function () {
+      return createAdBlockStub();
+    };
+    window.BlockAdBlock = function () {
+      return createAdBlockStub();
+    };
+    window.snackBar = window.snackBar || { show() {} };
+
+    // 7. Bait Element Height/Width Defuser (Hooks offsetHeight & clientHeight on bait elements)
+    const BAIT_CLASSES =
+      /^(adsbox|pub_300x250|pub_300x250m|pub_728x90|text-ad|textAd|text_ad|text_ads|text-ads|text-ad-links|ad-banner|adsbygoogle|banner_ad|ad-unit)$/i;
+    const proto = typeof HTMLElement !== 'undefined' ? HTMLElement.prototype : null;
+    if (proto) {
+      const origOffsetH = Object.getOwnPropertyDescriptor(proto, 'offsetHeight')?.get;
+      const origClientH = Object.getOwnPropertyDescriptor(proto, 'clientHeight')?.get;
+      if (origOffsetH) {
+        Object.defineProperty(proto, 'offsetHeight', {
+          get() {
+            const h = origOffsetH.call(this);
+            if (h === 0 && this.className && typeof this.className === 'string' && BAIT_CLASSES.test(this.className)) {
+              return 250;
+            }
+            return h;
+          },
+          configurable: true
+        });
+      }
+      if (origClientH) {
+        Object.defineProperty(proto, 'clientHeight', {
+          get() {
+            const h = origClientH.call(this);
+            if (h === 0 && this.className && typeof this.className === 'string' && BAIT_CLASSES.test(this.className)) {
+              return 250;
+            }
+            return h;
+          },
+          configurable: true
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[AX-Privacy] Surrogates initialization warning:', err);
+  }
 
   // Track newly added cross-site <a> tags injected on mousedown/pointerdown
   const recentLinks = new WeakMap(); // HTMLAnchorElement -> timestamp
@@ -663,6 +801,31 @@ function isDevToolsKey(e) {
         }
       }
 
+      // Never interfere with legitimate video/audio player interactions, seekbars or sliders
+      const isVideoControl = Boolean(
+        (target.closest &&
+          target.closest(
+            'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"], [class*="control"], [class*="progress"], [class*="timeline"], [class*="seekbar"], [role="slider"], [role="progressbar"], button, input, [aria-label*="play" i], [aria-label*="seek" i]'
+          )) ||
+        (target.matches &&
+          target.matches(
+            'video, audio, [role="slider"], [role="progressbar"], [class*="control"], [class*="progress"], [class*="slider"]'
+          ))
+      );
+
+      if (isVideoControl) {
+        const parentAnchor = target.closest('a[href]');
+        if (parentAnchor) {
+          // If anchor wraps the video player, strip the link and don't stop the player click
+          if (parentAnchor.querySelector('video, audio')) {
+            parentAnchor.removeAttribute('href');
+            parentAnchor.removeAttribute('target');
+            parentAnchor.style.setProperty('pointer-events', 'none', 'important');
+          }
+        }
+        return;
+      }
+
       if (e && e.isTrusted === true) {
         const anchor = target.closest('a[href]');
         if (anchor && anchor.href) {
@@ -792,7 +955,13 @@ function isDevToolsKey(e) {
         e.stopImmediatePropagation();
         reportBlocked(anchor.href, 'instant.anchor.trap');
         try {
-          anchor.remove();
+          if (anchor.querySelector('video, audio')) {
+            anchor.removeAttribute('href');
+            anchor.removeAttribute('target');
+            anchor.style.setProperty('pointer-events', 'none', 'important');
+          } else {
+            anchor.remove();
+          }
         } catch {}
       }
     } catch {}
@@ -1253,6 +1422,29 @@ function isDevToolsKey(e) {
             lowerText.includes('giriş yap') ||
             lowerText.includes('sign in')
         };
+
+        const antiAdblockPhrases = [
+          'reklam engelleyiciyi kapat',
+          'reklam engelleyicinizi kapatın',
+          'lütfen reklam engelleyiciyi devre dışı bırakın',
+          'ad blocker detected',
+          'please disable your ad blocker',
+          'adblock detected',
+          'disable adblock to continue',
+          'reklam engelleyici tespit edildi',
+          'adblocker tespit edildi',
+          'adblocker\'ı kapat',
+          'disable adblock',
+          'turn off your ad blocker'
+        ];
+        const isAntiAdblockModal = antiAdblockPhrases.some((p) => lowerText.includes(p));
+        if (isAntiAdblockModal && !candidateData.hasPasswordInput) {
+          el.remove();
+          unlockBodyOverflow();
+          console.info('[AX-AntiAdBlock] Anti-adblocker duvarı temizlendi');
+          reportBlocked('anti-adblock-modal', 'cleanVignettes');
+          continue;
+        }
 
         if (isVignetteCandidate(candidateData)) {
           el.remove();

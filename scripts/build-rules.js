@@ -407,17 +407,10 @@ function parseCosmeticRules(turkishText, baseText = '') {
     '.floating-ad',
     '.floating-banner',
     '.floating_banner',
-    '.video-ad-overlay',
-    '.click-overlay',
-    '#click-overlay',
-    '#pop-overlay',
-    '.pop-overlay',
     '[id*="reklam"]:not(main):not(body):not(header):not(nav)',
     '[class*="reklam-"]:not(main):not(body):not(header):not(nav)',
     '[id*="sponsor-ad"]',
     '[class*="sponsor-ad"]',
-    'a[target="_blank"] > img[src*=".gif"]',
-    'a[target="_blank"] > img[src*=".webp"][src*="banner"]',
     'a[target="_blank"] > img[src*="reklam"]',
     'a[target="_blank"] > img[src*="bahis"]'
   ];
@@ -490,6 +483,31 @@ function parseCosmeticRules(turkishText, baseText = '') {
         if (/^(body|html|main|article|section|nav|header|footer|div|span|p|a)$/i.test(selector)) {
           continue;
         }
+
+        // Discard dangerous layout/content/player selectors that break legitimate websites
+        const lowSel = selector.toLowerCase();
+        if (
+          lowSel.includes('header-text') ||
+          lowSel.includes('features') ||
+          lowSel.includes('table') ||
+          lowSel.includes('wpb_') ||
+          lowSel.includes('click-overlay') ||
+          lowSel.includes('pop-overlay') ||
+          lowSel.includes('video-ad-overlay') ||
+          lowSel.includes('mplayerfd') ||
+          lowSel.includes('playeradv') ||
+          lowSel.includes('playerimiz') ||
+          lowSel.includes('player-ad') ||
+          lowSel.includes('playertext') ||
+          lowSel.includes('film-tab') ||
+          lowSel.includes('.gif') ||
+          lowSel.includes('.webp') ||
+          lowSel.includes('mainholder') ||
+          lowSel.includes('after-video')
+        ) {
+          continue;
+        }
+
         // Only accept safe class/id/attribute selectors for generic rules
         if (
           selector.startsWith('.') ||
