@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleCosmetic = document.getElementById('toggleCosmetic');
   const toggleThreat = document.getElementById('toggleThreat');
   const toggleTwitch = document.getElementById('toggleTwitch');
+  const toggleYouTube = document.getElementById('toggleYouTube');
   const twitchProxyInput = document.getElementById('twitchProxyInput');
   const btnSaveProxy = document.getElementById('btnSaveProxy');
   const proxyFeedback = document.getElementById('proxyFeedback');
@@ -115,6 +116,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       toggleCosmetic.checked = settings.cosmeticFilter !== undefined ? settings.cosmeticFilter : true;
       toggleThreat.checked = settings.threatShield !== undefined ? settings.threatShield : true;
       toggleTwitch.checked = settings.twitchShield !== undefined ? settings.twitchShield : true;
+      toggleYouTube.checked = settings.youtubeShield !== undefined ? settings.youtubeShield : true;
       if (twitchProxyInput && settings.twitchProxyUrl !== undefined) {
         twitchProxyInput.value = settings.twitchProxyUrl;
       }
@@ -236,6 +238,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const isEnabled = toggleTwitch.checked;
     await updateSetting('twitchShield', isEnabled);
     if (currentHostname && currentHostname.includes('twitch.tv') && currentTab?.id) {
+      chrome.tabs.reload(currentTab.id);
+    }
+  });
+
+  toggleYouTube.addEventListener('change', async () => {
+    const isEnabled = toggleYouTube.checked;
+    await updateSetting('youtubeShield', isEnabled);
+    if (currentHostname && currentHostname.includes('youtube.com') && currentTab?.id) {
       chrome.tabs.reload(currentTab.id);
     }
   });

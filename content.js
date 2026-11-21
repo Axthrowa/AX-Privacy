@@ -376,11 +376,44 @@
   // Sync Twitch shield bridge immediately on twitch.tv
   syncTwitchShieldBridge();
 
-  // Listen for storage changes to sync Twitch shield in real time
+  /**
+   * YouTube Shield bridge: synchronizes extension settings with page-level localStorage
+   * for the MAIN world youtube-shield.js script
+   */
+  async function syncYouTubeShieldBridge() {
+    if (!currentHost.includes('youtube.com')) return;
+    try {
+      const data = await chrome.storage.local.get(['youtubeShield', 'whitelist']);
+      const isEnabled = data.youtubeShield !== undefined ? data.youtubeShield : true;
+      const whitelist = data.whitelist || [];
+      const isWhitelisted = whitelist.some(
+        (w) => currentHost === w || currentHost.endsWith('.' + w)
+      );
+
+      const targetValue = !isEnabled || isWhitelisted ? 'disabled' : 'enabled';
+      const prevValue = window.localStorage.getItem('ax_privacy_youtube_shield');
+
+      if (prevValue !== targetValue) {
+        window.localStorage.setItem('ax_privacy_youtube_shield', targetValue);
+      }
+    } catch {
+      // Suppress
+    }
+  }
+
+  // Sync YouTube shield bridge immediately on youtube.com
+  syncYouTubeShieldBridge();
+
+  // Listen for storage changes to sync Twitch & YouTube shields in real time
   if (chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && (changes.twitchShield || changes.whitelist || changes.twitchProxyUrl)) {
-        syncTwitchShieldBridge();
+      if (area === 'local') {
+        if (changes.twitchShield || changes.whitelist || changes.twitchProxyUrl) {
+          syncTwitchShieldBridge();
+        }
+        if (changes.youtubeShield || changes.whitelist) {
+          syncYouTubeShieldBridge();
+        }
       }
     });
   }

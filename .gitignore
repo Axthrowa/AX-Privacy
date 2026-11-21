@@ -5,4 +5,5 @@ playwright-report
 filters-cache
 .env
 *.log
+*.zip
 docs/BRAVE_EXTENSION_AUDIT.md

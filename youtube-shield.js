@@ -1,0 +1,290 @@
+/**
+ * AX-Privacy YouTube Video Stream Shield (Manifest V3 - MAIN World - v2.3.0)
+ * Multi-layer in-stream video ad & anti-adblock enforcement mitigation for YouTube.com
+ *
+ * Architecture:
+ *   1. Layer 1 (Pre-emptive): Pure JSON Response Cleaner:
+ *      - pruneAdData removes adPlacements, playerAds, adSlots, and bkaEnforcementMessageViewModel
+ *      - Protects videoDetails, streamingData, playabilityStatus
+ *      - Hooks window.ytInitialPlayerResponse via Object.defineProperty
+ *      - Hooks window.fetch and XMLHttpRequest for /youtubei/v1/player and /youtubei/v1/next
+ *   2. Layer 2 (Reactive): Fast-Skip Fallback:
+ *      - Detects .ad-showing / .ad-interrupting on player
+ *      - Temporarily mutes video (saving previous mute state)
+ *      - Fast-forwards video.currentTime to duration and clicks visible skip buttons
+ *      - Unmutes once ad classes disappear
+ *   3. Layer 3 (Cosmetic): Non-breaking CSS suppression of ad slots and enforcement modals
+ */
+
+(function () {
+  'use strict';
+
+  if (typeof window === 'undefined') return;
+  if (window.__AX_YOUTUBE_SHIELD_INITIALIZED__) return;
+  window.__AX_YOUTUBE_SHIELD_INITIALIZED__ = true;
+
+  // 1. Synchronously verify module state from localStorage (set by content.js bridge)
+  try {
+    if (window.localStorage.getItem('ax_privacy_youtube_shield') === 'disabled') {
+      return;
+    }
+  } catch {
+    // Proceed safely
+  }
+
+  /**
+   * Cleans ad metadata and anti-adblock warnings from YouTube JSON structures
+   * Preserves streamingData, videoDetails, and playabilityStatus completely
+   */
+  function pruneAdData(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+
+    try {
+      // Remove ad placements, slots, and break parameters
+      delete obj.adPlacements;
+      delete obj.playerAds;
+      delete obj.adSlots;
+      delete obj.adBreakHeartbeatParams;
+
+      // Remove anti-adblock enforcement modal if present
+      if (obj.auxiliaryUi && obj.auxiliaryUi.messageRenderers) {
+        delete obj.auxiliaryUi.messageRenderers.bkaEnforcementMessageViewModel;
+        delete obj.auxiliaryUi.messageRenderers.enforcementMessageViewModel;
+      }
+
+      // Clean nested playerResponse structures if present
+      if (obj.playerResponse && typeof obj.playerResponse === 'object') {
+        delete obj.playerResponse.adPlacements;
+        delete obj.playerResponse.playerAds;
+        delete obj.playerResponse.adSlots;
+        delete obj.playerResponse.adBreakHeartbeatParams;
+
+        if (obj.playerResponse.auxiliaryUi && obj.playerResponse.auxiliaryUi.messageRenderers) {
+          delete obj.playerResponse.auxiliaryUi.messageRenderers.bkaEnforcementMessageViewModel;
+          delete obj.playerResponse.auxiliaryUi.messageRenderers.enforcementMessageViewModel;
+        }
+      }
+    } catch {}
+
+    return obj;
+  }
+
+  // --- Layer 1: JSON Response Cleaner ---
+
+  // Hook window.ytInitialPlayerResponse
+  try {
+    let initialResponse = window.ytInitialPlayerResponse;
+    if (initialResponse) {
+      pruneAdData(initialResponse);
+    }
+
+    Object.defineProperty(window, 'ytInitialPlayerResponse', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return initialResponse;
+      },
+      set(val) {
+        initialResponse = pruneAdData(val);
+      }
+    });
+  } catch {}
+
+  // Hook window.fetch for /youtubei/v1/player and /youtubei/v1/next
+  try {
+    const origFetch = window.fetch;
+    window.fetch = async function (...args) {
+      const req = args[0];
+      let url = '';
+      if (typeof req === 'string') url = req;
+      else if (req && req.url) url = req.url;
+
+      if (url && (url.includes('/youtubei/v1/player') || url.includes('/youtubei/v1/next'))) {
+        try {
+          const response = await origFetch.apply(this, args);
+          if (response && response.ok) {
+            const cloned = response.clone();
+            const json = await cloned.json();
+            pruneAdData(json);
+            return new Response(JSON.stringify(json), {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers
+            });
+          }
+          return response;
+        } catch {
+          return origFetch.apply(this, args);
+        }
+      }
+      return origFetch.apply(this, args);
+    };
+  } catch {}
+
+  // Hook XMLHttpRequest for /youtubei/v1/player and /youtubei/v1/next
+  try {
+    const origOpen = XMLHttpRequest.prototype.open;
+    const origSend = XMLHttpRequest.prototype.send;
+
+    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+      this._ax_url = typeof url === 'string' ? url : '';
+      return origOpen.apply(this, [method, url, ...rest]);
+    };
+
+    XMLHttpRequest.prototype.send = function (...args) {
+      if (
+        this._ax_url &&
+        (this._ax_url.includes('/youtubei/v1/player') || this._ax_url.includes('/youtubei/v1/next'))
+      ) {
+        this.addEventListener('readystatechange', function () {
+          if (this.readyState === 4 && this.status >= 200 && this.status < 300) {
+            try {
+              const parsed = JSON.parse(this.responseText);
+              pruneAdData(parsed);
+              const serialized = JSON.stringify(parsed);
+              Object.defineProperty(this, 'responseText', {
+                configurable: true,
+                value: serialized
+              });
+              Object.defineProperty(this, 'response', {
+                configurable: true,
+                value: serialized
+              });
+            } catch {}
+          }
+        });
+      }
+      return origSend.apply(this, args);
+    };
+  } catch {}
+
+  // --- Layer 2: Fast-Skip Fallback ---
+  let wasMutedByExtension = false;
+
+  function checkAndSkipAds() {
+    try {
+      const player =
+        document.getElementById('movie_player') ||
+        document.querySelector('.html5-video-player');
+      const isAdShowing =
+        player &&
+        (player.classList.contains('ad-showing') ||
+          player.classList.contains('ad-interrupting'));
+      const video =
+        document.querySelector('video.html5-main-video') ||
+        document.querySelector('video');
+
+      if (isAdShowing) {
+        if (video) {
+          // 1. Temporarily mute video
+          if (!video.muted) {
+            wasMutedByExtension = true;
+            video.muted = true;
+          }
+          // 2. Fast forward if duration is finite and positive
+          if (Number.isFinite(video.duration) && video.duration > 0) {
+            video.currentTime = video.duration;
+          }
+          // Accelerate playback speed as secondary bypass
+          try {
+            video.playbackRate = 16.0;
+          } catch {}
+        }
+
+        // 3. Programmatically click skip buttons if visible
+        const skipSelectors = [
+          '.ytp-skip-ad-button',
+          '.ytp-ad-skip-button',
+          '.ytp-ad-skip-button-modern',
+          '.ytp-ad-skip-button-slot button'
+        ];
+        for (const sel of skipSelectors) {
+          const btn = document.querySelector(sel);
+          if (btn && typeof btn.click === 'function') {
+            btn.click();
+            break;
+          }
+        }
+      } else {
+        // Restore sound and playback speed if muted by extension
+        if (wasMutedByExtension) {
+          if (video) {
+            video.muted = false;
+            try {
+              video.playbackRate = 1.0;
+            } catch {}
+          }
+          wasMutedByExtension = false;
+        }
+      }
+    } catch {}
+  }
+
+  // Observe player mutations
+  try {
+    const observer = new MutationObserver(() => {
+      checkAndSkipAds();
+    });
+
+    function initObserver() {
+      try {
+        const target =
+          document.getElementById('movie_player') ||
+          document.querySelector('#player') ||
+          document.body;
+        if (target) {
+          observer.observe(target, {
+            attributes: true,
+            attributeFilter: ['class'],
+            childList: true,
+            subtree: true
+          });
+        }
+      } catch {}
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initObserver);
+    } else {
+      initObserver();
+    }
+
+    // Lightweight 500ms safety interval
+    setInterval(checkAndSkipAds, 500);
+  } catch {}
+
+  // --- Layer 3: Site-Safe Cosmetic Filtering ---
+  try {
+    const style = document.createElement('style');
+    style.id = 'ax-youtube-shield-css';
+    style.textContent = `
+      ytd-ad-slot-renderer,
+      ytd-in-feed-ad-layout-renderer,
+      ytd-promoted-sparkles-web-renderer,
+      ytd-display-ad-renderer,
+      ytd-banner-promo-renderer,
+      ytd-enforcement-message-view-model,
+      #player-ads,
+      .ytp-ad-overlay-container {
+        display: none !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+    `;
+    const target = document.head || document.documentElement;
+    if (target) {
+      target.appendChild(style);
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        (document.head || document.documentElement).appendChild(style);
+      });
+    }
+  } catch {}
+
+  console.info('[AX-YouTube] Video reklam kalkanı aktif');
+
+  // Export for testing
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { pruneAdData };
+  }
+})();

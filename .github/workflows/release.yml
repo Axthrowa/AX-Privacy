@@ -1,0 +1,53 @@
+name: Release Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js LTS (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run verification test suite
+        run: npm test
+
+      - name: Package extension artifact
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ -z "$TAG" ] || [ "$TAG" = "$GITHUB_REF" ]; then
+            TAG="v2.3.0"
+          fi
+          ZIP_NAME="ax-privacy-${TAG}-chrome.zip"
+          zip -r "${ZIP_NAME}" \
+            manifest.json \
+            background.js \
+            content.js \
+            twitch-shield.js \
+            youtube-shield.js \
+            icons \
+            rules \
+            popup
+          echo "PACKAGE_PATH=${ZIP_NAME}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: AX-Privacy ${{ env.RELEASE_TAG }}
+          files: ${{ env.PACKAGE_PATH }}
+          generate_release_notes: true
