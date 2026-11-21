@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AX-Privacy</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Top Bar -->
+    <header class="header">
+      <div class="brand">
+        <span class="brand-icon">🛡️</span>
+        <div class="brand-text">
+          <span class="brand-name">AX-Privacy</span>
+          <span class="brand-version">v2.1.0</span>
+        </div>
+      </div>
+      <div id="securityBadge" class="status-badge status-safe">
+        <span class="status-indicator"></span>
+        <span id="securityStatusText">Güvenli</span>
+      </div>
+    </header>
+
+    <!-- Active Site Card -->
+    <section class="card site-card">
+      <div class="card-meta">
+        <span class="card-label">AKTİF SİTE</span>
+        <span id="siteProtocol" class="protocol-badge">HTTPS</span>
+      </div>
+      <div class="site-info">
+        <div class="site-domain-wrapper">
+          <span id="siteDomain" class="site-domain">Yükleniyor...</span>
+        </div>
+        <button id="siteToggleBtn" class="site-btn btn-active" type="button">
+          <span id="siteBtnIcon" class="btn-icon">✓</span>
+          <span id="siteBtnText">Koruma Açık</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Stats Grid -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon-wrapper blocked-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+          </svg>
+        </div>
+        <div class="stat-content">
+          <span id="statRulesCount" class="stat-number stat-rules">25.000+</span>
+          <span class="stat-label">Aktif Kural Kalkanı</span>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon-wrapper shield-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+          </svg>
+        </div>
+        <div class="stat-content">
+          <span id="statThreatShield" class="stat-number stat-active">Aktif</span>
+          <span class="stat-label">Tehdit Kalkanı</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Real-time DNR Badge Info Banner -->
+    <div class="live-counter-info">
+      <span class="info-dot"></span>
+      <span>Sekme bazlı canlı engelleme sayısı doğrudan <b>eklenti simgesi rozetinde</b> gösterilir.</span>
+    </div>
+
+    <!-- Modules Section -->
+    <section class="modules-section">
+      <div class="section-title">KORUMA MODÜLLERİ</div>
+
+      <!-- Module 1: Ads & Trackers -->
+      <div class="module-item">
+        <div class="module-text">
+          <div class="module-title">Reklam & İzleyici Engelleme</div>
+          <div class="module-desc">25.000+ reklam ve izleyici ağını engeller</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleAdBlock" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- Module 2: URL Cleaner -->
+      <div class="module-item">
+        <div class="module-text">
+          <div class="module-title">URL Veri Temizleyici</div>
+          <div class="module-desc">URL'lerdeki takip parametrelerini siler</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleUrlClean" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- Module 3: Cosmetic Filter -->
+      <div class="module-item">
+        <div class="module-text">
+          <div class="module-title">Kozmetik Filtre</div>
+          <div class="module-desc">Sayfalardaki boş reklam alanlarını gizler</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleCosmetic" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- Module 4: Threat Shield -->
+      <div class="module-item">
+        <div class="module-text">
+          <div class="module-title">Tehlike Uyarı Sistemi</div>
+          <div class="module-desc">Güvensiz HTTP ve phishing sitelerini bildirir</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleThreat" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>AX-Privacy v2.1.0 • %100 Yerel ve Şifresiz Koruma</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
