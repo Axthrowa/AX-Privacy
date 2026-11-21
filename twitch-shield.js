@@ -1,20 +1,19 @@
 /**
- * AX-Privacy Twitch Stream Shield (Manifest V3 - MAIN World - v2.2.2)
+ * AX-Privacy Twitch Stream Shield (Manifest V3 - MAIN World - v2.2.3)
  * Robust SSAI / HLS Video-Swap Architecture for Twitch.tv
  *
  * Key Architecture:
- *   1. Precise Channel Resolution:
- *      - Extracts real channel from usher.ttvnw.net/api/channel/hls/{channel}.m3u8
- *      - Maps variant URLs in master playlist to channel name
- *      - Synchronizes main-window location.pathname to Web Worker via postMessage
- *      - Rejects invalid / token filenames with strict regex ^[a-z0-9_]{2,25}$
- *   2. Per-Channel State & Cache (Eliminates Ad Loop Flapping):
- *      - Only true media playlists (#EXTINF:) update ad state
- *      - Caches clean backupMediaUrl and candidate playerType across the ad break
- *      - 2-poll hysteresis before confirming ad completion
- *   3. Anonymous GQL PlaybackAccessToken:
- *      - Fetches with credentials: 'omit' to bypass user-targeted SSAI ads
- *      - Cleans ad tags from returned playlist to prevent player UI muting/miniplayer
+ *   1. Precise GQL PlaybackAccessToken Schema:
+ *      - Uses raw GraphQL PlaybackAccessToken_Template query (immune to persistedQuery hash rotation)
+ *      - Robust response parser handling single object and array responses
+ *      - Detailed failure diagnosis (HTTP status, error message, forbiddenReasonCode)
+ *   2. Main-Window GQL Header Capture & Worker Synchronization:
+ *      - Captures Client-ID, Device-ID, Client-Version, Client-Session-Id, Client-Integrity
+ *      - Relays headers to Web Worker via postMessage
+ *      - Anonymous by default (credentials: 'omit'); retries with Client-Integrity if needed
+ *   3. Multi-Candidate Matrix:
+ *      - Tries in sequence: embed/web, embed/ios, popout/web, autoplay/web, site/ios, frontpage/web
+ *      - Caches clean backupMediaUrl across the ad break; 2-poll hysteresis before ad end
  */
 
 (function () {
@@ -32,8 +31,7 @@
     // If localStorage read fails, proceed safely
   }
 
-  const CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-  const PLAYER_TYPE_CANDIDATES = ['embed', 'popout', 'autoplay', 'frontpage'];
+  const DEFAULT_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
   const SYSTEM_PATHS = new Set([
     'directory',
@@ -121,6 +119,97 @@
   }
 
   /**
+   * Extracts headers from Headers instance, plain object, or array
+   */
+  function parseHeaders(inputHeaders) {
+    const map = {};
+    if (!inputHeaders) return map;
+    try {
+      if (typeof inputHeaders.forEach === 'function') {
+        inputHeaders.forEach((val, key) => {
+          map[key.toLowerCase()] = val;
+        });
+      } else if (Array.isArray(inputHeaders)) {
+        for (const [k, v] of inputHeaders) {
+          if (k) map[k.toLowerCase()] = v;
+        }
+      } else if (typeof inputHeaders === 'object') {
+        for (const [k, v] of Object.entries(inputHeaders)) {
+          if (k) map[k.toLowerCase()] = v;
+        }
+      }
+    } catch {}
+    return map;
+  }
+
+  // Captured GQL headers state in the main thread
+  const capturedGqlHeaders = {
+    clientId: DEFAULT_CLIENT_ID,
+    deviceId: null,
+    clientVersion: null,
+    clientSessionId: null,
+    clientIntegrity: null
+  };
+
+  const activeWorkers = new Set();
+
+  function broadcastGqlHeadersToWorkers() {
+    for (const worker of activeWorkers) {
+      try {
+        worker.postMessage({ type: 'AX_GQL_HEADERS', headers: capturedGqlHeaders });
+      } catch {
+        activeWorkers.delete(worker);
+      }
+    }
+  }
+
+  function broadcastChannelToWorkers(channel) {
+    if (!isValidChannel(channel)) return;
+    for (const worker of activeWorkers) {
+      try {
+        worker.postMessage({ type: 'AX_SET_CHANNEL', channel });
+      } catch {
+        activeWorkers.delete(worker);
+      }
+    }
+  }
+
+  function updateCapturedGqlHeaders(rawHeaders) {
+    const map = parseHeaders(rawHeaders);
+    let changed = false;
+
+    const cid = map['client-id'];
+    if (cid && cid !== capturedGqlHeaders.clientId) {
+      capturedGqlHeaders.clientId = cid;
+      changed = true;
+    }
+    const did = map['device-id'] || map['x-device-id'];
+    if (did && did !== capturedGqlHeaders.deviceId) {
+      capturedGqlHeaders.deviceId = did;
+      changed = true;
+    }
+    const cv = map['client-version'];
+    if (cv && cv !== capturedGqlHeaders.clientVersion) {
+      capturedGqlHeaders.clientVersion = cv;
+      changed = true;
+    }
+    const csi = map['client-session-id'];
+    if (csi && csi !== capturedGqlHeaders.clientSessionId) {
+      capturedGqlHeaders.clientSessionId = csi;
+      changed = true;
+    }
+    const ci = map['client-integrity'];
+    if (ci && ci !== capturedGqlHeaders.clientIntegrity) {
+      capturedGqlHeaders.clientIntegrity = ci;
+      changed = true;
+    }
+
+    if (changed) {
+      broadcastGqlHeadersToWorkers();
+    }
+  }
+
+  /**
    * Source code string of the in-worker fetch interceptor
    * Injected into the Amazon IVS player Web Worker scope before any IVS code runs
    */
@@ -129,13 +218,38 @@
       if (self.__AX_WORKER_HOOKED__) return;
       self.__AX_WORKER_HOOKED__ = true;
 
-      const CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-      const PLAYER_TYPE_CANDIDATES = ['embed', 'popout', 'autoplay', 'frontpage'];
+      const DEFAULT_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+      const GQL_QUERY = [
+        'query PlaybackAccessToken_Template($login: String!, $isLive: Boolean!, $vodID: ID!, $isVod: Boolean!, $playerType: String!, $platform: String!) {',
+        '  streamPlaybackAccessToken(channelName: $login, params: {platform: $platform, playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isLive) {',
+        '    value',
+        '    signature',
+        '    authorization { isForbidden forbiddenReasonCode }',
+        '    __typename',
+        '  }',
+        '}'
+      ].join('\\n');
+
+      const CANDIDATE_MATRIX = [
+        { playerType: 'embed', platform: 'web' },
+        { playerType: 'embed', platform: 'ios' },
+        { playerType: 'popout', platform: 'web' },
+        { playerType: 'autoplay', platform: 'web' },
+        { playerType: 'site', platform: 'ios' },
+        { playerType: 'frontpage', platform: 'web' }
+      ];
 
       let activeChannel = null;
-      const playlistUrlToChannel = new Map();
+      let workerGqlHeaders = {
+        clientId: DEFAULT_CLIENT_ID,
+        deviceId: null,
+        clientVersion: null,
+        clientSessionId: null,
+        clientIntegrity: null
+      };
 
-      // Per-channel state to prevent ad detection / end flapping
+      const playlistUrlToChannel = new Map();
       const channelState = new Map();
 
       function getOrCreateChannelState(ch) {
@@ -145,7 +259,8 @@
             isAdActive: false,
             cleanStreak: 0,
             backupMediaUrl: null,
-            activePlayerType: null
+            activePlayerType: null,
+            activePlatform: null
           };
           channelState.set(ch, state);
         }
@@ -195,72 +310,104 @@
         }).join('\\n');
       }
 
-      // Synchronize channel name from main thread
+      // Synchronize channel name & GQL headers from main thread
       self.addEventListener('message', (e) => {
-        if (e.data && e.data.type === 'AX_SET_CHANNEL' && e.data.channel) {
-          const ch = e.data.channel.toLowerCase();
-          if (isValidChannel(ch)) {
-            activeChannel = ch;
+        if (e.data) {
+          if (e.data.type === 'AX_SET_CHANNEL' && e.data.channel) {
+            const ch = e.data.channel.toLowerCase();
+            if (isValidChannel(ch)) {
+              activeChannel = ch;
+            }
+          } else if (e.data.type === 'AX_GQL_HEADERS' && e.data.headers) {
+            workerGqlHeaders = Object.assign(workerGqlHeaders, e.data.headers);
           }
         }
       });
 
+      async function requestToken(channel, candidate, withIntegrity, fetchFn) {
+        const reqHeaders = {
+          'Client-Id': workerGqlHeaders.clientId || DEFAULT_CLIENT_ID,
+          'Content-Type': 'application/json'
+        };
+        if (workerGqlHeaders.clientVersion) reqHeaders['Client-Version'] = workerGqlHeaders.clientVersion;
+        if (workerGqlHeaders.clientSessionId) reqHeaders['Client-Session-Id'] = workerGqlHeaders.clientSessionId;
+        if (workerGqlHeaders.deviceId) reqHeaders['X-Device-Id'] = workerGqlHeaders.deviceId;
+
+        if (withIntegrity && workerGqlHeaders.clientIntegrity) {
+          reqHeaders['Client-Integrity'] = workerGqlHeaders.clientIntegrity;
+        }
+
+        const gqlRes = await fetchFn('https://gql.twitch.tv/gql', {
+          method: 'POST',
+          headers: reqHeaders,
+          body: JSON.stringify({
+            operationName: 'PlaybackAccessToken_Template',
+            query: GQL_QUERY,
+            variables: {
+              isLive: true,
+              login: channel,
+              isVod: false,
+              vodID: '',
+              playerType: candidate.playerType,
+              platform: candidate.platform
+            }
+          }),
+          credentials: 'omit'
+        });
+
+        if (!gqlRes.ok) {
+          return { ok: false, error: 'GQL HTTP ' + gqlRes.status };
+        }
+
+        const json = await gqlRes.json();
+        const data = Array.isArray(json) ? json[0]?.data : json?.data;
+        const tokenObj = data?.streamPlaybackAccessToken;
+
+        if (!tokenObj) {
+          const msg = Array.isArray(json) ? json[0]?.errors?.[0]?.message : json?.errors?.[0]?.message;
+          return { ok: false, error: msg || 'Token bulunamadı' };
+        }
+
+        if (tokenObj.authorization && tokenObj.authorization.isForbidden) {
+          const reason = tokenObj.authorization.forbiddenReasonCode || 'Forbidden';
+          return { ok: false, error: 'authorization.isForbidden (' + reason + ')' };
+        }
+
+        if (!tokenObj.value || !tokenObj.signature) {
+          return { ok: false, error: 'value/signature eksik' };
+        }
+
+        return { ok: true, value: tokenObj.value, signature: tokenObj.signature };
+      }
+
       async function findCleanBackupStream(channel, fetchFn) {
         if (!isValidChannel(channel)) return null;
 
-        for (const candidate of PLAYER_TYPE_CANDIDATES) {
+        for (const candidate of CANDIDATE_MATRIX) {
           try {
-            const gqlPayload = {
-              operationName: 'PlaybackAccessToken',
-              extensions: {
-                persistedQuery: {
-                  version: 1,
-                  sha256Hash: '0828119ded1c1343796697d51487b8807adf946112d8a573ec991f8680166299'
-                }
-              },
-              variables: {
-                isLive: true,
-                login: channel,
-                isVod: false,
-                vodID: '',
-                playerType: candidate,
-                platform: 'web',
-                playerBackend: 'mediaplayer'
-              }
-            };
+            // First attempt: anonymous request
+            let tokenResult = await requestToken(channel, candidate, false, fetchFn);
 
-            const gqlRes = await fetchFn('https://gql.twitch.tv/gql', {
-              method: 'POST',
-              headers: {
-                'Client-Id': CLIENT_ID,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(gqlPayload),
-              credentials: 'omit'
-            });
-
-            if (!gqlRes.ok) {
-              console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate + '): GQL HTTP ' + gqlRes.status);
-              continue;
+            // If failed and we have Client-Integrity, retry with integrity header
+            if (!tokenResult.ok && workerGqlHeaders.clientIntegrity) {
+              tokenResult = await requestToken(channel, candidate, true, fetchFn);
             }
 
-            const gqlData = await gqlRes.json();
-            const tokenObj = gqlData?.data?.streamPlaybackAccessToken;
-            if (!tokenObj?.value || !tokenObj?.signature) {
-              console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate + '): Token bulunamadı');
+            if (!tokenResult.ok) {
+              console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): ' + tokenResult.error);
               continue;
             }
 
             const randomP = Math.floor(Math.random() * 999999);
             const usherUrl = 'https://usher.ttvnw.net/api/channel/hls/' + encodeURIComponent(channel) + '.m3u8' +
-              '?client_id=' + encodeURIComponent(CLIENT_ID) +
-              '&token=' + encodeURIComponent(tokenObj.value) +
-              '&sig=' + encodeURIComponent(tokenObj.signature) +
-              '&allow_source=true&allow_audio_only=true&fast_bread=true&p=' + randomP;
+              '?allow_source=true&allow_audio_only=true&fast_bread=true' +
+              '&sig=' + encodeURIComponent(tokenResult.signature) +
+              '&token=' + encodeURIComponent(tokenResult.value) +
+              '&p=' + randomP;
 
             const usherRes = await fetchFn(usherUrl, { credentials: 'omit' });
             if (!usherRes.ok) {
-              console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate + '): Usher HTTP ' + usherRes.status);
+              console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): Usher HTTP ' + usherRes.status);
               continue;
             }
 
@@ -283,23 +430,25 @@
                   if (!isAd(mediaText) && mediaText.includes('#EXTINF:')) {
                     return {
                       mediaUrl: mediaUrl,
-                      playerType: candidate,
+                      playerType: candidate.playerType,
+                      platform: candidate.platform,
                       content: cleanTags(mediaText)
                     };
                   } else {
-                    console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate + '): Reklam içeriyor');
+                    console.warn('[AX-Twitch][Worker] Aday başarısız (' + candidate.playerType + '/' + candidate.platform + '): Reklam içeriyor');
                   }
                 }
               }
             } else if (!isAd(usherText) && usherText.includes('#EXTINF:')) {
               return {
                 mediaUrl: usherUrl,
-                playerType: candidate,
+                playerType: candidate.playerType,
+                platform: candidate.platform,
                 content: cleanTags(usherText)
               };
             }
           } catch (err) {
-            console.warn('[AX-Twitch][Worker] Aday deneme hatası (' + candidate + '): ' + err.message);
+            console.warn('[AX-Twitch][Worker] Aday hatası (' + candidate.playerType + '/' + candidate.platform + '): ' + err.message);
           }
         }
         return null;
@@ -313,7 +462,7 @@
           if (typeof req === 'string') url = req;
           else if (req && req.url) url = req.url;
 
-          // 1. Intercept Usher Master Playlist: Extract channel & map variant URLs
+          // 1. Usher Master Playlist: Extract channel & map variant URLs
           if (url && url.includes('usher.ttvnw.net/api/channel/hls/')) {
             const m = url.match(/\\/channel\\/hls\\/([a-z0-9_]{2,25})/i);
             if (m) {
@@ -344,8 +493,8 @@
             }
           }
 
-          // 2. Intercept M3U8 Media Playlist fetches
-          if (url && (url.includes('.m3u8') || url.includes('tttnw.net') || url.includes('playlist.ttvnw.net'))) {
+          // 2. M3U8 Media Playlist fetches
+          if (url && (url.includes('.m3u8') || url.includes('ttvnw.net') || url.includes('playlist.ttvnw.net'))) {
             try {
               const response = await origFetch.apply(this, args);
               if (response && response.ok) {
@@ -390,9 +539,11 @@
                       // Cached backup is invalid or has ads, clear it
                       state.backupMediaUrl = null;
                       state.activePlayerType = null;
+                      state.activePlatform = null;
                     } catch (e) {
                       state.backupMediaUrl = null;
                       state.activePlayerType = null;
+                      state.activePlatform = null;
                     }
                   }
 
@@ -401,7 +552,8 @@
                   if (backupResult && backupResult.content) {
                     state.backupMediaUrl = backupResult.mediaUrl;
                     state.activePlayerType = backupResult.playerType;
-                    console.info('[AX-Twitch][Worker] Yedek akış aktif (kanal: ' + ch + ', playerType: ' + backupResult.playerType + ')');
+                    state.activePlatform = backupResult.platform;
+                    console.info('[AX-Twitch][Worker] Yedek akış aktif (kanal: ' + ch + ', playerType: ' + backupResult.playerType + '/' + backupResult.platform + ')');
 
                     return new Response(backupResult.content, {
                       status: response.status,
@@ -409,7 +561,7 @@
                       headers: response.headers
                     });
                   } else {
-                    console.warn('[AX-Twitch][Worker] Yedek akış alınamadı, orijinal akışa düşülüyor (kanal: ' + ch + ')');
+                    console.warn('[AX-Twitch][Worker] Tüm adaylar başarısız, orijinal akışa düşülüyor (kanal: ' + ch + ')');
                   }
                 } else {
                   // No ads in this media playlist
@@ -421,6 +573,7 @@
                       state.cleanStreak = 0;
                       state.backupMediaUrl = null;
                       state.activePlayerType = null;
+                      state.activePlatform = null;
                       console.info('[AX-Twitch][Worker] Reklam sona erdi, orijinal akışa dönüldü (kanal: ' + ch + ')');
                       return response;
                     } else if (state.backupMediaUrl) {
@@ -454,21 +607,7 @@
     })();
   `;
 
-  // 2. Track active workers created in the main window
-  const activeWorkers = new Set();
-
-  function broadcastChannelToWorkers(channel) {
-    if (!isValidChannel(channel)) return;
-    for (const worker of activeWorkers) {
-      try {
-        worker.postMessage({ type: 'AX_SET_CHANNEL', channel });
-      } catch {
-        activeWorkers.delete(worker);
-      }
-    }
-  }
-
-  // Monitor SPA navigation (pushState, popstate, hashchange)
+  // 2. Monitor SPA navigation (pushState, replaceState, popstate, hashchange)
   const origPushState = history.pushState;
   history.pushState = function (...args) {
     const res = origPushState.apply(this, args);
@@ -498,7 +637,29 @@
     if (ch) broadcastChannelToWorkers(ch);
   });
 
-  // 3. Hook URL.createObjectURL to capture Blob references
+  // 3. Hook window.fetch on main thread to capture GQL headers & channel info
+  try {
+    const origWindowFetch = window.fetch;
+    window.fetch = async function (...args) {
+      try {
+        const req = args[0];
+        let url = '';
+        if (typeof req === 'string') url = req;
+        else if (req && req.url) url = req.url;
+
+        // Capture GQL headers (Client-ID, Device-ID, Client-Version, Client-Integrity)
+        if (url && url.includes('gql.twitch.tv/gql')) {
+          const init = args[1] || (req && typeof req === 'object' ? req : {});
+          if (init && init.headers) {
+            updateCapturedGqlHeaders(init.headers);
+          }
+        }
+      } catch {}
+      return origWindowFetch.apply(this, args);
+    };
+  } catch {}
+
+  // 4. Hook URL.createObjectURL to capture Blob references
   const origCreateObjectURL = URL.createObjectURL;
   const blobUrlMap = new Map();
 
@@ -512,7 +673,7 @@
     return url;
   };
 
-  // 4. Hook window.Worker to inject WORKER_HOOK_SOURCE before IVS player runs
+  // 5. Hook window.Worker to inject WORKER_HOOK_SOURCE before Amazon IVS player runs
   const OrigWorker = window.Worker;
   window.Worker = function (scriptURL, options) {
     try {
@@ -540,15 +701,16 @@
         const worker = new OrigWorker(hookedUrl, options);
         activeWorkers.add(worker);
 
-        // Send current active channel immediately
-        const initialChannel = getActiveChannelFromLocation();
-        if (initialChannel) {
-          setTimeout(() => {
-            try {
+        // Send current active channel and captured headers immediately
+        setTimeout(() => {
+          try {
+            const initialChannel = getActiveChannelFromLocation();
+            if (initialChannel) {
               worker.postMessage({ type: 'AX_SET_CHANNEL', channel: initialChannel });
-            } catch {}
-          }, 0);
-        }
+            }
+            worker.postMessage({ type: 'AX_GQL_HEADERS', headers: capturedGqlHeaders });
+          } catch {}
+        }, 0);
 
         return worker;
       }
@@ -559,7 +721,7 @@
   };
   window.Worker.prototype = OrigWorker.prototype;
 
-  // 5. Visual suppression of Twitch ad banners & overlay interrupts
+  // 6. Visual suppression of Twitch ad banners & overlay interrupts
   try {
     const style = document.createElement('style');
     style.id = 'ax-twitch-shield-css';
