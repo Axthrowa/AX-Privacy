@@ -1,62 +1,70 @@
 /**
- * AX-Privacy Twitch Stream Shield (Manifest V3 - MAIN World)
- * Server-Side Ad Insertion (SSAI) Video-Swap Shield for Twitch.tv
- * Operates without external dependencies; gracefully falls back to avoid black screens.
+ * AX-Privacy Twitch Stream Shield (Manifest V3 - MAIN World - v2.2.1)
+ * Robust SSAI / HLS Video-Swap Architecture for Twitch.tv
+ * Hooks window.Worker and URL.createObjectURL to intercept Amazon IVS Player HLS Loader,
+ * requests anonymous clean backup streams via GQL, and prevents player blackouts.
  */
 
 (function () {
   'use strict';
 
-  // Prevent multiple executions in the same execution context
   if (window.__AX_TWITCH_SHIELD_INITIALIZED__) return;
   window.__AX_TWITCH_SHIELD_INITIALIZED__ = true;
 
-  // 1. Status Check: Synchronously check if module is disabled by user or whitelist
+  // 1. Synchronously verify module state from localStorage (set by content.js bridge)
   try {
     if (window.localStorage.getItem('ax_privacy_twitch_shield') === 'disabled') {
       return;
     }
   } catch {
-    // If localStorage access fails, continue safely
+    // If localStorage read fails, proceed safely
   }
 
-  const DEFAULT_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-  let capturedClientId = DEFAULT_CLIENT_ID;
-  let capturedAuthToken = null;
-
-  const PLAYER_TYPE_CANDIDATES = ['embed', 'popout', 'autoplay'];
+  const CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+  const PLAYER_TYPE_CANDIDATES = ['embed', 'popout', 'autoplay', 'frontpage'];
 
   /**
-   * Extract channel name from window.location.pathname
+   * Evaluates whether a playlist text contains Server-Side Ad Insertion (SSAI) indicators
    */
-  function getChannelName() {
-    try {
-      const parts = window.location.pathname.split('/').filter(Boolean);
-      if (parts.length > 0) {
-        const candidate = parts[0].toLowerCase();
-        const nonChannels = [
-          'directory',
-          'videos',
-          'settings',
-          'p',
-          'downloads',
-          'jobs',
-          'turbo',
-          'prime',
-          'search'
-        ];
-        if (!nonChannels.includes(candidate)) {
-          return candidate;
+  function isAdPlaylist(text) {
+    if (!text || typeof text !== 'string') return false;
+    return (
+      text.includes('stitched-ad') ||
+      text.includes('twitch-stitched-ad') ||
+      text.includes('X-TV-TWITCH-AD') ||
+      text.includes('amazon-adsystem') ||
+      text.includes('CLASS="twitch-stitched-ad"')
+    );
+  }
+
+  /**
+   * Strips ad metadata and date ranges from playlist text to prevent player ad-UI triggers
+   */
+  function cleanAdTags(text) {
+    if (!text) return text;
+    return text
+      .split(/\r?\n/)
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (
+          trimmed.startsWith('#EXT-X-DATERANGE:') &&
+          (trimmed.includes('stitched-ad') ||
+            trimmed.includes('amazon-adsystem') ||
+            trimmed.includes('twitch-stitched-ad'))
+        ) {
+          return false;
         }
-      }
-    } catch {}
-    return null;
+        if (trimmed.startsWith('#EXT-X-TWITCH-PREVIEWS:AD')) return false;
+        if (trimmed.includes('X-TV-TWITCH-AD')) return false;
+        return true;
+      })
+      .join('\n');
   }
 
   /**
-   * Request an alternative stream playlist without stitched ads via GQL
+   * Fetches an anonymous ad-free backup stream for a channel via GQL + usher
    */
-  async function fetchCleanStream(channel, fetchFn) {
+  async function fetchCleanBackupStream(channel, fetchFn) {
     if (!channel) return null;
 
     for (const playerType of PLAYER_TYPE_CANDIDATES) {
@@ -74,22 +82,20 @@
             login: channel,
             isVod: false,
             vodID: '',
-            playerType: playerType
+            playerType: playerType,
+            platform: 'web',
+            playerBackend: 'mediaplayer'
           }
         };
 
-        const headers = {
-          'Client-Id': capturedClientId,
-          'Content-Type': 'application/json'
-        };
-        if (capturedAuthToken) {
-          headers['Authorization'] = capturedAuthToken;
-        }
-
         const gqlRes = await fetchFn('https://gql.twitch.tv/gql', {
           method: 'POST',
-          headers,
-          body: JSON.stringify(gqlPayload)
+          headers: {
+            'Client-Id': CLIENT_ID,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(gqlPayload),
+          credentials: 'omit' // Anonymous request to avoid user-targeted SSAI ads
         });
 
         if (!gqlRes.ok) continue;
@@ -98,19 +104,20 @@
         const tokenObj = gqlData?.data?.streamPlaybackAccessToken;
         if (!tokenObj?.value || !tokenObj?.signature) continue;
 
+        const randomP = Math.floor(Math.random() * 999999);
         const usherUrl =
           `https://usher.ttvnw.net/api/channel/hls/${encodeURIComponent(channel)}.m3u8` +
-          `?client_id=${encodeURIComponent(capturedClientId)}` +
+          `?client_id=${encodeURIComponent(CLIENT_ID)}` +
           `&token=${encodeURIComponent(tokenObj.value)}` +
           `&sig=${encodeURIComponent(tokenObj.signature)}` +
-          `&allow_source=true&allow_audio_only=true&fast_bread=true`;
+          `&allow_source=true&allow_audio_only=true&fast_bread=true&p=${randomP}`;
 
-        const usherRes = await fetchFn(usherUrl);
+        const usherRes = await fetchFn(usherUrl, { credentials: 'omit' });
         if (!usherRes.ok) continue;
 
         const usherText = await usherRes.text();
 
-        // If master playlist with variants, extract highest stream
+        // If master playlist, extract media playlist URL
         if (usherText.includes('#EXT-X-STREAM-INF')) {
           const lines = usherText.split(/\r?\n/);
           let mediaUrl = null;
@@ -121,22 +128,26 @@
             }
           }
           if (mediaUrl) {
-            const mediaRes = await fetchFn(mediaUrl);
+            const mediaRes = await fetchFn(mediaUrl, { credentials: 'omit' });
             if (mediaRes.ok) {
               const mediaText = await mediaRes.text();
-              if (
-                !mediaText.includes('stitched-ad') &&
-                !mediaText.includes('twitch-stitched-ad')
-              ) {
-                return mediaText;
+              if (!isAdPlaylist(mediaText)) {
+                console.info(
+                  `[AX-Twitch] Yedek akış başarıyla uygulandı (playerType: ${playerType})`
+                );
+                return cleanAdTags(mediaText);
+              } else {
+                console.warn(
+                  `[AX-Twitch] ${playerType} adayı reklam içeriyor, sonraki deneniyor...`
+                );
               }
             }
           }
-        } else if (
-          !usherText.includes('stitched-ad') &&
-          !usherText.includes('twitch-stitched-ad')
-        ) {
-          return usherText;
+        } else if (!isAdPlaylist(usherText)) {
+          console.info(
+            `[AX-Twitch] Yedek akış başarıyla uygulandı (playerType: ${playerType})`
+          );
+          return cleanAdTags(usherText);
         }
       } catch {
         // Try next candidate
@@ -147,128 +158,288 @@
   }
 
   /**
-   * Process and swap HLS M3U8 playlist when stitched ads are detected
+   * Source code string of the in-worker fetch interceptor
+   * Injected into the Amazon IVS player Web Worker scope before any IVS code runs
    */
-  async function processM3u8(originalText, originalUrl, fetchFn) {
-    try {
-      const isAdStitched =
-        originalText.includes('stitched-ad') ||
-        originalText.includes('twitch-stitched-ad') ||
-        originalText.includes('X-TV-TWITCH-AD');
+  const WORKER_HOOK_SOURCE = `
+    (function() {
+      if (self.__AX_WORKER_HOOKED__) return;
+      self.__AX_WORKER_HOOKED__ = true;
 
-      if (!isAdStitched) {
-        return originalText;
+      const CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+      const PLAYER_TYPE_CANDIDATES = ['embed', 'popout', 'autoplay', 'frontpage'];
+
+      let activeChannel = null;
+      let isAdActive = false;
+
+      function isAd(text) {
+        if (!text || typeof text !== 'string') return false;
+        return (
+          text.includes('stitched-ad') ||
+          text.includes('twitch-stitched-ad') ||
+          text.includes('X-TV-TWITCH-AD') ||
+          text.includes('amazon-adsystem') ||
+          text.includes('CLASS="twitch-stitched-ad"')
+        );
       }
 
-      // Ad detected! Attempt clean video swap
-      let channel = getChannelName();
-      if (!channel && originalUrl) {
-        const match = originalUrl.match(/channel[s]?\/hls\/([^.?]+)/i);
-        if (match) channel = match[1];
+      function cleanTags(text) {
+        if (!text) return text;
+        return text.split(/\\r?\\n/).filter(line => {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('#EXT-X-DATERANGE:') && (
+            trimmed.includes('stitched-ad') ||
+            trimmed.includes('amazon-adsystem') ||
+            trimmed.includes('twitch-stitched-ad')
+          )) return false;
+          if (trimmed.startsWith('#EXT-X-TWITCH-PREVIEWS:AD')) return false;
+          if (trimmed.includes('X-TV-TWITCH-AD')) return false;
+          return true;
+        }).join('\\n');
       }
 
-      if (channel) {
-        const cleanPlaylist = await fetchCleanStream(channel, fetchFn);
-        if (cleanPlaylist && cleanPlaylist.length > 50) {
-          return cleanPlaylist;
-        }
-      }
-    } catch {
-      // On any error, return originalText to prevent black screens
-    }
-    return originalText;
-  }
-
-  // 2. Inject Worker fetch wrapper into any JavaScript Blobs created by Twitch (Amazon IVS Player)
-  try {
-    const OrigBlob = window.Blob;
-    const workerHookCode = `
-      (function() {
-        if (self.__AX_WORKER_HOOKED__) return;
-        self.__AX_WORKER_HOOKED__ = true;
-        const origFetch = self.fetch;
-        if (typeof origFetch === 'function') {
-          self.fetch = async function(...args) {
-            const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
-            const response = await origFetch.apply(this, args);
-            if (url && (url.includes('.m3u8') || url.includes('ttvnw.net'))) {
-              try {
-                const text = await response.clone().text();
-                if (text && (text.includes('stitched-ad') || text.includes('twitch-stitched-ad'))) {
-                  // Pass through or sanitize
+      async function getBackupStream(channel, fetchFn) {
+        if (!channel) return null;
+        for (const playerType of PLAYER_TYPE_CANDIDATES) {
+          try {
+            const gqlPayload = {
+              operationName: 'PlaybackAccessToken',
+              extensions: {
+                persistedQuery: {
+                  version: 1,
+                  sha256Hash: '0828119ded1c1343796697d51487b8807adf946112d8a573ec991f8680166299'
                 }
-              } catch (e) {}
+              },
+              variables: {
+                isLive: true,
+                login: channel,
+                isVod: false,
+                vodID: '',
+                playerType: playerType,
+                platform: 'web',
+                playerBackend: 'mediaplayer'
+              }
+            };
+
+            const gqlRes = await fetchFn('https://gql.twitch.tv/gql', {
+              method: 'POST',
+              headers: {
+                'Client-Id': CLIENT_ID,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(gqlPayload),
+              credentials: 'omit'
+            });
+
+            if (!gqlRes.ok) continue;
+            const gqlData = await gqlRes.json();
+            const tokenObj = gqlData?.data?.streamPlaybackAccessToken;
+            if (!tokenObj?.value || !tokenObj?.signature) continue;
+
+            const randomP = Math.floor(Math.random() * 999999);
+            const usherUrl = 'https://usher.ttvnw.net/api/channel/hls/' + encodeURIComponent(channel) + '.m3u8' +
+              '?client_id=' + encodeURIComponent(CLIENT_ID) +
+              '&token=' + encodeURIComponent(tokenObj.value) +
+              '&sig=' + encodeURIComponent(tokenObj.signature) +
+              '&allow_source=true&allow_audio_only=true&fast_bread=true&p=' + randomP;
+
+            const usherRes = await fetchFn(usherUrl, { credentials: 'omit' });
+            if (!usherRes.ok) continue;
+
+            const usherText = await usherRes.text();
+            if (usherText.includes('#EXT-X-STREAM-INF')) {
+              const lines = usherText.split(/\\r?\\n/);
+              let mediaUrl = null;
+              for (let i = 0; i < lines.length; i++) {
+                if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
+                  mediaUrl = lines[i + 1]?.trim();
+                  break;
+                }
+              }
+              if (mediaUrl) {
+                const mediaRes = await fetchFn(mediaUrl, { credentials: 'omit' });
+                if (mediaRes.ok) {
+                  const mediaText = await mediaRes.text();
+                  if (!isAd(mediaText)) {
+                    console.info('[AX-Twitch][Worker] Yedek akış başarıyla uygulandı (playerType: ' + playerType + ')');
+                    return cleanTags(mediaText);
+                  }
+                }
+              }
+            } else if (!isAd(usherText)) {
+              console.info('[AX-Twitch][Worker] Yedek akış başarıyla uygulandı (playerType: ' + playerType + ')');
+              return cleanTags(usherText);
             }
-            return response;
-          };
+          } catch (e) {}
         }
-      })();
-    `;
+        return null;
+      }
 
-    window.Blob = function (parts, options) {
-      try {
-        if (
-          parts &&
-          Array.isArray(parts) &&
-          options &&
-          (options.type === 'application/javascript' || options.type === 'text/javascript')
-        ) {
-          return new OrigBlob([workerHookCode, ...parts], options);
-        }
-      } catch {}
-      return new OrigBlob(parts, options);
-    };
-    window.Blob.prototype = OrigBlob.prototype;
-  } catch {}
+      const origFetch = self.fetch;
+      if (typeof origFetch === 'function') {
+        self.fetch = async function(...args) {
+          const req = args[0];
+          let url = '';
+          if (typeof req === 'string') url = req;
+          else if (req && req.url) url = req.url;
 
-  // 3. Main-thread window.fetch interceptor
+          // Track channel from usher master playlist
+          if (url && url.includes('usher.ttvnw.net/api/channel/hls/')) {
+            const m = url.match(/\\/channel\\/hls\\/([^.?/]+)/i);
+            if (m) activeChannel = m[1].toLowerCase();
+          }
+
+          // Intercept M3U8 playlist fetches
+          if (url && (url.includes('.m3u8') || url.includes('ttvnw.net'))) {
+            try {
+              const response = await origFetch.apply(this, args);
+              if (response && response.ok) {
+                const cloned = response.clone();
+                const text = await cloned.text();
+
+                if (isAd(text)) {
+                  if (!isAdActive) {
+                    isAdActive = true;
+                    console.info('[AX-Twitch][Worker] Reklam algılandı: ' + (activeChannel || url));
+                  }
+
+                  // Find channel if not already detected
+                  if (!activeChannel) {
+                    const match = url.match(/\\/playlist\\/([^.?/]+)/i) || url.match(/\\/channel[s]?\\/hls\\/([^.?/]+)/i);
+                    if (match) activeChannel = match[1].toLowerCase();
+                  }
+
+                  const cleanPlaylist = await getBackupStream(activeChannel, origFetch);
+                  if (cleanPlaylist && cleanPlaylist.length > 50) {
+                    return new Response(cleanPlaylist, {
+                      status: response.status,
+                      statusText: response.statusText,
+                      headers: response.headers
+                    });
+                  }
+                } else if (isAdActive) {
+                  isAdActive = false;
+                  console.info('[AX-Twitch][Worker] Reklam sona erdi, orijinal akışa dönüldü: ' + activeChannel);
+                }
+              }
+              return response;
+            } catch (err) {
+              return origFetch.apply(this, args);
+            }
+          }
+
+          return origFetch.apply(this, args);
+        };
+      }
+    })();
+  `;
+
+  // 2. Hook URL.createObjectURL to map JS Blob URLs for IVS Worker
+  const origCreateObjectURL = URL.createObjectURL;
+  const blobUrlMap = new Map();
+
+  URL.createObjectURL = function (obj) {
+    const url = origCreateObjectURL.call(URL, obj);
+    try {
+      if (obj instanceof Blob) {
+        blobUrlMap.set(url, obj);
+      }
+    } catch {}
+    return url;
+  };
+
+  // 3. Hook window.Worker to inject fetch hook into Amazon IVS player Web Worker
+  const OrigWorker = window.Worker;
+  window.Worker = function (scriptURL, options) {
+    try {
+      const scriptUrlStr =
+        typeof scriptURL === 'string'
+          ? scriptURL
+          : scriptURL && scriptURL.toString
+            ? scriptURL.toString()
+            : '';
+
+      if (scriptUrlStr) {
+        // Prepend WORKER_HOOK_SOURCE before importing the original script
+        const wrappedSource = `
+          ${WORKER_HOOK_SOURCE}
+          try {
+            importScripts(${JSON.stringify(scriptUrlStr)});
+          } catch(e) {
+            console.warn('[AX-Twitch] importScripts hatası:', e);
+          }
+        `;
+
+        const hookedBlob = new Blob([wrappedSource], { type: 'application/javascript' });
+        const hookedUrl = origCreateObjectURL.call(URL, hookedBlob);
+        console.info('[AX-Twitch] IVS Worker hook aktif');
+        return new OrigWorker(hookedUrl, options);
+      }
+    } catch (e) {
+      console.warn('[AX-Twitch] Worker hook oluşturulamadı, orijinal worker başlatılıyor:', e);
+    }
+    return new OrigWorker(scriptURL, options);
+  };
+  window.Worker.prototype = OrigWorker.prototype;
+
+  // 4. Also hook main-thread window.fetch for playlists fetched outside workers
   try {
-    const origFetch = window.fetch;
+    const origWindowFetch = window.fetch;
+    let mainThreadChannel = null;
+    let mainThreadAdActive = false;
+
     window.fetch = async function (...args) {
       try {
         const req = args[0];
         let url = '';
+        if (typeof req === 'string') url = req;
+        else if (req && req.url) url = req.url;
 
-        if (typeof req === 'string') {
-          url = req;
-        } else if (req && req.url) {
-          url = req.url;
+        // Extract channel name from usher master playlist
+        if (url.includes('usher.ttvnw.net/api/channel/hls/')) {
+          const match = url.match(/\/channel\/hls\/([^.?/]+)/i);
+          if (match) mainThreadChannel = match[1].toLowerCase();
         }
 
-        // Capture GQL Client-Id and Authorization headers
-        if (url.includes('gql.twitch.tv/gql')) {
-          const init = args[1] || (req && typeof req === 'object' ? req : {});
-          const headers = init.headers;
-          if (headers) {
-            if (typeof headers.get === 'function') {
-              const cid = headers.get('Client-Id');
-              if (cid) capturedClientId = cid;
-              const auth = headers.get('Authorization');
-              if (auth) capturedAuthToken = auth;
-            } else if (typeof headers === 'object') {
-              const cid = headers['Client-Id'] || headers['client-id'];
-              if (cid) capturedClientId = cid;
-              const auth = headers['Authorization'] || headers['authorization'];
-              if (auth) capturedAuthToken = auth;
-            }
-          }
-        }
-
-        // Intercept M3U8 playlist responses
-        if (url && (url.includes('.m3u8') || url.includes('usher.ttvnw.net'))) {
-          const response = await origFetch.apply(this, args);
+        // Intercept M3U8 responses in the main thread
+        if (url && (url.includes('.m3u8') || url.includes('ttvnw.net'))) {
+          const response = await origWindowFetch.apply(this, args);
           if (response && response.ok) {
             try {
               const cloned = response.clone();
               const text = await cloned.text();
-              const modifiedText = await processM3u8(text, url, origFetch);
 
-              if (modifiedText !== text) {
-                return new Response(modifiedText, {
-                  status: response.status,
-                  statusText: response.statusText,
-                  headers: response.headers
-                });
+              if (isAdPlaylist(text)) {
+                if (!mainThreadAdActive) {
+                  mainThreadAdActive = true;
+                  console.info(
+                    `[AX-Twitch] Reklam algılandı: ${mainThreadChannel || url}`
+                  );
+                }
+
+                if (!mainThreadChannel) {
+                  const match =
+                    url.match(/\/playlist\/([^.?/]+)/i) ||
+                    url.match(/\/channel[s]?\/hls\/([^.?/]+)/i);
+                  if (match) mainThreadChannel = match[1].toLowerCase();
+                }
+
+                const cleanPlaylist = await fetchCleanBackupStream(
+                  mainThreadChannel,
+                  origWindowFetch
+                );
+                if (cleanPlaylist && cleanPlaylist.length > 50) {
+                  return new Response(cleanPlaylist, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: response.headers
+                  });
+                }
+              } else if (mainThreadAdActive) {
+                mainThreadAdActive = false;
+                console.info(
+                  `[AX-Twitch] Reklam sona erdi, orijinal akışa dönüldü: ${mainThreadChannel}`
+                );
               }
             } catch {
               // Return original response
@@ -279,11 +450,11 @@
       } catch {
         // Fall back to original fetch
       }
-      return origFetch.apply(this, args);
+      return origWindowFetch.apply(this, args);
     };
   } catch {}
 
-  // 4. Visual suppression of lingering Twitch video ad banners
+  // 5. Visual suppression of Twitch ad banners & overlay interrupts
   try {
     const style = document.createElement('style');
     style.id = 'ax-twitch-shield-css';
@@ -292,7 +463,8 @@
       [data-test-selector="ad-banner-default-text"],
       [data-a-target="video-ad-label"],
       [data-a-target="video-ad-countdown"],
-      .video-player__overlay [data-a-target*="ad-"] {
+      .video-player__overlay [data-a-target*="ad-"],
+      .video-player__overlay [data-test-selector*="ad-"] {
         display: none !important;
         opacity: 0 !important;
         pointer-events: none !important;
