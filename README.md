@@ -1,7 +1,7 @@
 # AX-Privacy 🛡️
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-2.9.0-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-3.0.0-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
@@ -45,7 +45,10 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 - **Kısmi Hata Toleransı:** Bir liste hata verse bile diğer sağlam listeler ve EasyList kesintisiz uygulanmaya devam eder.
 - **Öncelikli Delta Motoru:** Statik 25.000 kuralla çakışan alan adları çıkarılır; kullanıcı listeleri dinamik DNR kotasında en yüksek önceliği alır (ID izolasyonu: 10000+).
 
-### 7. Sıfır Gecikmeli Pre-Open, Anti-Vignette & Kırılmaz Sekme Kalkanı (v2.9.0)
+### 7. Sıfır Gecikmeli Pre-Open, Anti-DevTools Yönlendirme, Anti-Vignette & Kırılmaz Sekme Kalkanı (v3.0.0)
+- **Anti-DevTools Yönlendirme Kalkanı (`google.com`, `bing.com` vb.):** Sitelerin `F12` veya DevTools açıldığını algılayarak sayfayı zorla harici bir arama motoruna (`google.com`, `bing.com`, `about:blank`) yönlendirmesini (`Location.prototype.assign`, `replace`, `href` ve `window.open(..., '_self')`) yakalayıp engeller; kullanıcının geliştirici araçlarını özgürce kullanmasını sağlar.
+- **Tıklama Tuzağı & Dinamik Href-Swap Nötralizasyonu:** Tıklama anında (`pointerdown`/`mousedown`) `<a>` etiketinin `href` adresini gizlice harici reklam alan adına değiştiren betikleri tespit eder; orijinal hedefi geri yükleyerek ve reklam URL'sini etkisiz kılarak sahte pop-up'ları önler.
+- **Form Üzerinden Pop-up Engelleme:** Reklam betiklerinin görünmez veya dinamik `<form target="_blank">` oluşturup `form.submit()` veya `form.requestSubmit()` ile yeni sekmeye reklam fırlatmasını engeller.
 - **Sıfır Gecikmeli Pre-Open Sert Engel (Sekmenin Hiç Açılmaması):** Reklam sekmesinin açılıp sonradan kapatılması yerine **tarayıcıda hiç açılmamasını** garanti eder:
   - **Senkron Niyet Takibi (`setTrustedIntent` / `hasTrustedIntent`):** Kullanıcı görünür, şeffaf olmayan bir bağlantıya (`target="_blank"`, orta tık veya `Ctrl/Meta+Tık`) kasten basmadıkça `sessionStorage` ve `window.name` JSON zarfında doğrulanmış niyet bulunmaz.
   - **`window.open` Sert Engel:** İzinsiz veya cross-site `window.open` çağrıları yerel tarayıcı API'sine hiç iletilmez; doğrudan zararsız sahte `Window` nesnesi döndürülerek sekme açılışı sayfa içinde durdurulur.
@@ -80,7 +83,7 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v2.9.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v3.0.0-chrome.zip` paketini indirin ve bir klasöre çıkartın.
 2. Tarayıcınızda eklentiler sayfasına gidin:
    - Google Chrome: `chrome://extensions`
    - Microsoft Edge: `edge://extensions`

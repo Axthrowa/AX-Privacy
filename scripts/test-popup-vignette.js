@@ -120,11 +120,13 @@ vm.runInNewContext(popupShieldSource, fullVmContext);
 const {
   setTrustedIntent: shieldSetTrustedIntent,
   hasTrustedIntent: shieldHasTrustedIntent,
-  isAllowedDestination: shieldIsAllowedDestination
+  isAllowedDestination: shieldIsAllowedDestination,
+  isAllowedNavigation: shieldIsAllowedNavigation
 } = fullVmContext.module.exports;
 assert.strictEqual(typeof shieldSetTrustedIntent, 'function');
 assert.strictEqual(typeof shieldHasTrustedIntent, 'function');
 assert.strictEqual(typeof shieldIsAllowedDestination, 'function');
+assert.strictEqual(typeof shieldIsAllowedNavigation, 'function');
 
 let passedTests = 0;
 let totalTests = 0;
@@ -555,6 +557,51 @@ runTest('isAllowedDestination permits all destinations if popupShield is disable
   mockSessionStorage.set('ax_privacy_popup_shield', 'disabled');
   assert.strictEqual(shieldIsAllowedDestination('https://random-ad-9921.xyz/go'), true);
   mockSessionStorage.delete('ax_privacy_popup_shield');
+});
+
+// ---------------------------------------------------------------------------
+// 7. Anti-DevTools Redirect & Navigation Shield (v3.0.0)
+// ---------------------------------------------------------------------------
+console.log('\n[Group 7: Anti-DevTools Redirect & Navigation Shield (v3.0.0)]');
+
+runTest('isAllowedNavigation blocks unsolicited redirect to google.com (Anti-DevTools)', () => {
+  shieldSetTrustedIntent(null);
+  assert.strictEqual(shieldIsAllowedNavigation('https://www.google.com'), false);
+  assert.strictEqual(shieldIsAllowedNavigation('https://google.com/'), false);
+});
+
+runTest('isAllowedNavigation blocks unsolicited redirect to bing.com or about:blank', () => {
+  shieldSetTrustedIntent(null);
+  assert.strictEqual(shieldIsAllowedNavigation('https://bing.com'), false);
+  assert.strictEqual(shieldIsAllowedNavigation('about:blank'), false);
+});
+
+runTest('isAllowedNavigation permits same-site and relative navigations', () => {
+  assert.strictEqual(shieldIsAllowedNavigation('https://mysite.com/login'), true);
+  assert.strictEqual(shieldIsAllowedNavigation('https://sub.mysite.com/dashboard'), true);
+  assert.strictEqual(shieldIsAllowedNavigation('/relative/path'), true);
+  assert.strictEqual(shieldIsAllowedNavigation('#anchor-link'), true);
+});
+
+runTest('isAllowedNavigation permits cross-site redirect when explicit trusted intent exists', () => {
+  shieldSetTrustedIntent('https://accounts.google.com/oauth');
+  assert.strictEqual(shieldIsAllowedNavigation('https://accounts.google.com/oauth'), true);
+  shieldSetTrustedIntent(null);
+});
+
+runTest('isAllowedNavigation permits navigation when popupShield is disabled in sessionStorage', () => {
+  mockSessionStorage.set('ax_privacy_popup_shield', 'disabled');
+  assert.strictEqual(shieldIsAllowedNavigation('https://www.google.com'), true);
+  mockSessionStorage.delete('ax_privacy_popup_shield');
+});
+
+runTest('recordTrustedIntent provides 2500ms validity in background.js', () => {
+  const testStore = new Map();
+  recordTrustedIntent(101, 'target-service.com', 'https://target-service.com/api', testStore);
+  const entries = testStore.get(101);
+  assert.ok(entries && entries.length === 1);
+  const now = Date.now();
+  assert.ok(entries[0].expiresAt >= now + 2400 && entries[0].expiresAt <= now + 2600);
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
