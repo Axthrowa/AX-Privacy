@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = {
   cosmeticFilter: true,
   threatShield: true,
   twitchShield: true,
+  twitchProxyUrl: '',
   whitelist: [],
   totalBlocked: 0
 };
