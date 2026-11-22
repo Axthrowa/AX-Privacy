@@ -12,6 +12,293 @@
 
   const currentHost = window.location.hostname.toLowerCase();
 
+  function getRootDomain(hostname) {
+    if (!hostname || typeof hostname !== 'string') return '';
+    const clean = hostname.trim().toLowerCase();
+    const parts = clean.split('.');
+    if (parts.length <= 2) return clean;
+    const secondToLast = parts[parts.length - 2];
+    if (['com', 'co', 'gov', 'org', 'edu', 'net'].includes(secondToLast) && parts.length >= 3) {
+      return parts.slice(-3).join('.');
+    }
+    return parts.slice(-2).join('.');
+  }
+
+  function evaluateElementAdScore(el, computedStyle, rect, hostName = '') {
+    if (!el) return { score: 0, reasons: ['null-element'], excluded: true, reason: 'null-element', shouldHide: false };
+    if (el.id === 'ax-privacy-alert-host') {
+      return { score: 0, reasons: ['alert-host'], excluded: true, reason: 'alert-host', shouldHide: false };
+    }
+
+    const tag = (el.tagName || '').toLowerCase();
+    const SAFE_TAGS = new Set(['html', 'body', 'main', 'article', 'header', 'nav', 'footer']);
+    if (SAFE_TAGS.has(tag)) return { score: 0, reasons: ['safe-tag'], excluded: true, reason: 'safe-tag', shouldHide: false };
+
+    // 1. Safe Exclusions Check (Never hide inputs, passwords, video/audio, form controls)
+    if (el.querySelector) {
+      if (el.querySelector('video, audio')) {
+        return { score: 0, reasons: ['media'], excluded: true, reason: 'media', shouldHide: false };
+      }
+      if (el.querySelector('input[type="password"], input[type="email"], textarea')) {
+        return { score: 0, reasons: ['auth-input'], excluded: true, reason: 'auth-input', shouldHide: false };
+      }
+      const realInputs = el.querySelectorAll('input, select, textarea');
+      if (realInputs && realInputs.length >= 3) {
+        return { score: 0, reasons: ['form-fields'], excluded: true, reason: 'form-fields', shouldHide: false };
+      }
+      const canvas = el.querySelector('canvas');
+      if (canvas && canvas.getBoundingClientRect) {
+        const cr = canvas.getBoundingClientRect();
+        if (cr.width >= 300 && cr.height >= 150) {
+          return { score: 0, reasons: ['game-canvas'], excluded: true, reason: 'game-canvas', shouldHide: false };
+        }
+      }
+    }
+
+    // Never hide long readable content (> 450 chars) without ad iframes
+    const textContent = (el.textContent || el.innerText || '').trim();
+    if (textContent.length > 450) {
+      const hasAdIframe =
+        el.querySelector &&
+        el.querySelector(
+          'iframe[src*="doubleclick"], iframe[src*="adservice"], iframe[src*="googlesyndication"]'
+        );
+      if (!hasAdIframe) {
+        return { score: 0, reasons: ['long-readable-content'], excluded: true, reason: 'long-readable-content', shouldHide: false };
+      }
+    }
+
+    // Never touch YouTube / Twitch UI
+    const curH =
+      hostName ||
+      (typeof window !== 'undefined' && window.location ? window.location.hostname.toLowerCase() : '');
+    if (curH.includes('youtube.com') || curH.includes('twitch.tv')) {
+      if (
+        el.closest &&
+        el.closest(
+          'ytd-app, ytd-masthead, #player, #movie_player, .video-player, [data-a-target="player-overlay-click-handler"], tp-yt-app-drawer, #guide'
+        )
+      ) {
+        return { score: 0, reasons: ['platform-player'], excluded: true, reason: 'platform-player', shouldHide: false };
+      }
+    }
+
+    // Never touch player controls or containers
+    if (
+      el.closest &&
+      el.closest(
+        'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
+      )
+    ) {
+      return { score: 0, reasons: ['player-controls'], excluded: true, reason: 'player-controls', shouldHide: false };
+    }
+
+    let score = 0;
+    const reasons = [];
+
+    const style =
+      computedStyle ||
+      (typeof window !== 'undefined' && window.getComputedStyle
+        ? window.getComputedStyle(el)
+        : el.style || {});
+    const pos = style.position || '';
+    const isFixed = pos === 'fixed';
+    const isSticky = pos === 'sticky';
+    const isAbsolute = pos === 'absolute';
+    const zIndex = parseInt(style.zIndex || '0', 10) || 0;
+    const opacity = parseFloat(style.opacity !== undefined ? style.opacity : '1');
+
+    const r =
+      rect ||
+      (el.getBoundingClientRect
+        ? el.getBoundingClientRect()
+        : { width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 });
+    const w = r.width || 0;
+    const h = r.height || 0;
+
+    // Signal 1: Floating / Fixed Positioning (+2 or +3)
+    if (isFixed || isSticky) {
+      score += 2;
+      reasons.push('fixed-or-sticky');
+      if (zIndex >= 99999) {
+        score += 1;
+        reasons.push('max-z-index');
+      }
+    } else if (zIndex >= 999) {
+      score += 2;
+      reasons.push('high-z-index');
+      if (zIndex >= 99999) {
+        score += 1;
+        reasons.push('max-z-index');
+      }
+    }
+
+    // Signal 2: External / Suspicious Target (+3)
+    let hasCrossSiteOrAdTarget = false;
+    if (el.querySelectorAll) {
+      const links = el.querySelectorAll('a[href]');
+      for (let i = 0; i < links.length; i++) {
+        const a = links[i];
+        const href = a.href || '';
+        try {
+          const u = new URL(
+            href,
+            typeof window !== 'undefined' && window.location ? window.location.href : 'http://localhost'
+          );
+          if (u.protocol.startsWith('http')) {
+            const targetHost = u.hostname.toLowerCase();
+            const targetRoot = getRootDomain(targetHost);
+            const curRoot = getRootDomain(curH);
+            if (curRoot && targetRoot && curRoot !== targetRoot) {
+              hasCrossSiteOrAdTarget = true;
+              break;
+            }
+            if (
+              /[?&](?:ref|aff|clickid|bannerid|ad_id|out|goto)=/i.test(href) ||
+              /\/(?:afu\.php|click\/)/i.test(href)
+            ) {
+              hasCrossSiteOrAdTarget = true;
+              break;
+            }
+          }
+        } catch {}
+      }
+      if (!hasCrossSiteOrAdTarget) {
+        const ifr = el.querySelector('iframe');
+        if (ifr) {
+          const src = (ifr.src || '').toLowerCase();
+          if (
+            src.includes('doubleclick') ||
+            src.includes('googlesyndication') ||
+            src.includes('adservice') ||
+            src.includes('popads') ||
+            src.includes('propeller') ||
+            src.includes('exoclick') ||
+            src.includes('adsterra') ||
+            src.includes('monetag')
+          ) {
+            hasCrossSiteOrAdTarget = true;
+          }
+        }
+      }
+    }
+    if (hasCrossSiteOrAdTarget) {
+      score += 3;
+      reasons.push('cross-site-or-ad-target');
+    }
+
+    // Signal 3: GIF / WebP / Standard IAB Dimension (+3)
+    const hasExternalImage = Boolean(
+      el.querySelector &&
+        el.querySelector('img[src*=".gif"], img[src*=".webp"], [style*=".gif"], [style*=".webp"]')
+    );
+    const IAB_SIZES = [
+      { w: 728, h: 90 },
+      { w: 970, h: 90 },
+      { w: 970, h: 250 },
+      { w: 300, h: 250 },
+      { w: 300, h: 600 },
+      { w: 160, h: 600 },
+      { w: 120, h: 600 },
+      { w: 468, h: 60 },
+      { w: 320, h: 50 },
+      { w: 320, h: 100 }
+    ];
+    const isIABSize =
+      w > 0 && h > 0 && IAB_SIZES.some((s) => Math.abs(w - s.w) <= 8 && Math.abs(h - s.h) <= 8);
+
+    if ((hasExternalImage && (hasCrossSiteOrAdTarget || isFixed || isSticky)) || isIABSize) {
+      score += 3;
+      reasons.push(isIABSize ? 'iab-dimension' : 'external-image');
+    }
+
+    // Signal 4: Pageskin / Wallpaper Sidebar Geometry (+3)
+    const winW = (typeof window !== 'undefined' ? window.innerWidth : 1200) || 1200;
+    const isAtSideEdge = r.left <= 30 || r.right >= winW - 30;
+    const isPageskinGeometry = (isFixed || isAbsolute) && w > 0 && w <= 280 && h >= 380 && isAtSideEdge;
+    if (isPageskinGeometry && (hasCrossSiteOrAdTarget || hasExternalImage)) {
+      score += 3;
+      reasons.push('pageskin-geometry');
+    }
+
+    // Signal 5: Fake Progress / Verification / Push / Close Card (+4)
+    const lowerText = textContent.toLowerCase();
+    const fakeBaitWords = [
+      'robot',
+      'doğrula',
+      'devam et',
+      'dokun',
+      'yükleniyor',
+      'bildirim',
+      'izin ver',
+      'verify',
+      'continue',
+      'tap to',
+      'loading',
+      'allow',
+      'update'
+    ];
+    const hasBaitWord = fakeBaitWords.some((bw) => lowerText.includes(bw));
+    const hasProgressPercent = /\d{1,3}\s*%/i.test(lowerText);
+    const hasCloseButton = Boolean(
+      el.querySelector &&
+        el.querySelector('[class*="close" i], [id*="close" i], [aria-label*="close" i], button')
+    );
+    const isCornerPushCard =
+      (isFixed || isAbsolute) &&
+      zIndex >= 1000 &&
+      w > 0 &&
+      w <= 420 &&
+      h > 0 &&
+      h <= 260 &&
+      (hasBaitWord || hasCrossSiteOrAdTarget);
+
+    if ((hasBaitWord || hasProgressPercent) && (hasCloseButton || isFixed || zIndex >= 999)) {
+      score += 4;
+      reasons.push('fake-progress-or-bait');
+    } else if (isCornerPushCard) {
+      score += 4;
+      reasons.push('corner-push-card');
+    }
+
+    // Signal 6: Invisible Click Curtain (+5)
+    const isBigArea = w >= 250 && h >= 150;
+    const isTransparent =
+      opacity < 0.15 ||
+      style.backgroundColor === 'transparent' ||
+      style.backgroundColor === 'rgba(0, 0, 0, 0)';
+    const isMinimalText = textContent.length < 10;
+    if ((isFixed || isAbsolute) && zIndex >= 999 && isBigArea && isMinimalText && isTransparent) {
+      score += 5;
+      reasons.push('invisible-click-curtain');
+    }
+
+    // Signal 7: Obvious Ad Identifier (+3)
+    const idStr = (el.id || '').toLowerCase();
+    const classStr = (el.className || '').toString().toLowerCase();
+    const dataAd = el.getAttribute
+      ? el.getAttribute('data-ad') || el.getAttribute('data-adslot') || el.getAttribute('data-ad-client') || ''
+      : '';
+    const combinedIdent = `${idStr} ${classStr} ${dataAd}`;
+
+    const adWordRegex =
+      /\b(reklam|ad-?(slot|box|banner|container|wrap|wrapper|zone|space|placement)?|banner-ad|sponsor-ad|pageskin|popunder|vignette|interstitial|adsbox|adslot)\b/i;
+    if (adWordRegex.test(combinedIdent)) {
+      const fpRegex = /\b(upload|download|header|loading|shadow|radio|badge|avatar)\b/i;
+      if (!fpRegex.test(combinedIdent) || adWordRegex.test(idStr)) {
+        score += 3;
+        reasons.push('ad-identifier');
+      }
+    }
+
+    return {
+      score,
+      reasons,
+      excluded: false,
+      shouldHide: score >= 5
+    };
+  }
+
   /**
    * Safe 3-layer cosmetic filter:
    *   Layer 1: Site-specific CSS selectors from AdGuard Turkish & curated database
@@ -305,169 +592,56 @@
           }
 
           neutralizeAntiAdblockModals();
-          const candidates = document.querySelectorAll(
-            'div, section, aside, span, a, [id*="overlay"], [class*="overlay"], [id*="banner"], [class*="banner"], [id*="reklam"], [class*="reklam"]'
-          );
 
           let blockedCount = 0;
+
+          // 1. Gather candidates from main document
+          const candidates = document.querySelectorAll(
+            'div, section, aside, span, a, [id*="overlay"], [class*="overlay"], [id*="banner"], [class*="banner"], [id*="reklam"], [class*="reklam"], [data-ad], [data-adslot], ins, article'
+          );
 
           for (let i = 0; i < candidates.length; i++) {
             const el = candidates[i];
             if (!el || el.__ax_scanned_hidden) continue;
 
-            if (isMediaOrLegitimateContent(el)) continue;
-
-            let styleObj;
-            try {
-              styleObj = window.getComputedStyle(el);
-            } catch {
-              continue;
-            }
-
-            if (!styleObj || styleObj.display === 'none' || styleObj.visibility === 'hidden') {
-              continue;
-            }
-
-            const position = styleObj.position;
-            const isFixedOrSticky = position === 'fixed' || position === 'sticky';
-            const isAbsoluteOrFixed = position === 'fixed' || position === 'absolute';
-
-            const adMeta = (el.id + ' ' + (el.className || '')).toLowerCase();
-            const hasAdKeywords =
-              adMeta.includes('reklam') ||
-              adMeta.includes('banner') ||
-              adMeta.includes('bahis') ||
-              adMeta.includes('bet') ||
-              adMeta.includes('casino') ||
-              adMeta.includes('sponsor');
-
-            // Determine if the element links to an actual external domain (exclude same-site and relative URLs)
-            let hasActualExternalLink = false;
-            const linkList = el.querySelectorAll('a[href]');
-            for (let aIdx = 0; aIdx < linkList.length; aIdx++) {
-              try {
-                const u = new URL(linkList[aIdx].href, window.location.href);
-                if (u.protocol.startsWith('http')) {
-                  const targetHost = u.hostname.replace(/^www\./, '');
-                  const curHost = window.location.hostname.replace(/^www\./, '');
-                  if (targetHost && targetHost !== curHost && !targetHost.endsWith('.' + curHost) && !curHost.endsWith('.' + targetHost)) {
-                    hasActualExternalLink = true;
-                    break;
-                  }
-                }
-              } catch {}
-            }
-
-            // Only animated GIFs count as potential ad banners; WebP is a standard modern image format
-            const hasGifBanner = Boolean(
-              el.querySelector('img[src*=".gif"], [style*=".gif"]')
-            );
-
-            // Never hide elements that contain article headings or series titles (legitimate content cards)
-            const hasHeadingOrTitle = Boolean(
-              el.querySelector('h1, h2, h3, h4, h5, h6, time, [class*="title" i], [class*="episode" i], [class*="season" i]')
-            );
-            if (hasHeadingOrTitle) {
-              continue;
-            }
-
-            // Pattern 1: Fixed / Sticky Floating GIF & Betting Banners
-            if (isFixedOrSticky && (hasActualExternalLink || hasAdKeywords) && (hasGifBanner || hasAdKeywords)) {
+            const evalResult = evaluateElementAdScore(el, null, null, currentHost);
+            if (evalResult.shouldHide) {
               el.style.setProperty('display', 'none', 'important');
+              el.style.setProperty('visibility', 'hidden', 'important');
               el.style.setProperty('pointer-events', 'none', 'important');
               el.__ax_scanned_hidden = true;
               blockedCount++;
-              continue;
+              unlockBodyOverflow();
             }
+          }
 
-            const rect = el.getBoundingClientRect();
-
-            // Pattern 2: Standard IAB Ad Dimensions (Must be an actual ad, not a regular content card!)
-            if (rect.width > 0 && rect.height > 0 && (hasAdKeywords || (hasActualExternalLink && hasGifBanner) || el.querySelector('iframe[src*="ad"]'))) {
-              const matchesIAB = IAB_SIZES.some(
-                (size) => Math.abs(rect.width - size.w) <= 4 && Math.abs(rect.height - size.h) <= 4
-              );
-              if (matchesIAB) {
-                el.style.setProperty('display', 'none', 'important');
-                el.style.setProperty('pointer-events', 'none', 'important');
-                el.__ax_scanned_hidden = true;
-                blockedCount++;
-                continue;
-              }
-            }
-
-            // Pattern 3: Pageskin / Wallpaper Sidebars
-            if (isAbsoluteOrFixed && rect.width > 40 && rect.width <= 260 && rect.height >= 400) {
-              const isAtEdge = rect.left <= 25 || rect.right >= (window.innerWidth || 1200) - 25;
-              if (isAtEdge && (hasAdKeywords || (hasActualExternalLink && hasGifBanner))) {
-                el.style.setProperty('display', 'none', 'important');
-                el.style.setProperty('pointer-events', 'none', 'important');
-                el.__ax_scanned_hidden = true;
-                blockedCount++;
-                continue;
-              }
-            }
-
-            // Pattern 4: Vignette / Interstitial / Fake Loading Trap
-            if (isAbsoluteOrFixed) {
-              const zIndex = parseInt(styleObj.zIndex, 10);
-              if (zIndex >= 99999 || zIndex >= 2147483000) {
-                const baitPhrases = [
-                  'devam etmek için dokunun',
-                  'devam etmek için tıklayın',
-                  'tap to continue',
-                  'click to continue',
-                  'press allow',
-                  'bildirimlere izin ver'
-                ];
-                const text = (el.innerText || '').trim();
-                const lowerText = text.toLowerCase();
-                const hasBait = baitPhrases.some((b) => lowerText.includes(b));
-                const hasProgress =
-                  /\d{1,3}\s*%/i.test(text) &&
-                  (lowerText.includes('yükleniyor') || lowerText.includes('loading') || lowerText.includes('dokunun') || lowerText.includes('continue'));
-
-                if ((hasBait || hasProgress) && !el.querySelector('input, select, textarea, video')) {
-                  el.remove();
-                  unlockBodyOverflow();
-                  console.info('[AX-Vignette] Reklam katmanı temizlendi');
-                  blockedCount++;
-                  continue;
-                }
-              }
-
-              // Pattern 5: Floating Corner Badges / Fake Corner Widgets (<= 90x90px)
-              if (zIndex >= 1000 && rect.width >= 10 && rect.width <= 90 && rect.height >= 10 && rect.height <= 90) {
-                const winW = window.innerWidth || 1000;
-                const winH = window.innerHeight || 800;
-                const isTopEdge = rect.top <= 40;
-                const isBottomEdge = rect.bottom >= winH - 40;
-                const isLeftEdge = rect.left <= 40;
-                const isRightEdge = rect.right >= winW - 40;
-                const isCorner = (isTopEdge || isBottomEdge) && (isLeftEdge || isRightEdge);
-
-                if (isCorner) {
-                  const isSafeControl =
-                    (el.closest && el.closest('nav, header, footer, aside, .chat, [role="navigation"]')) ||
-                    (el.matches &&
-                      el.matches(
-                        '[aria-label*="chat" i], [aria-label*="scroll" i], [class*="scroll-to-top" i], [class*="back-to-top" i], [id*="scroll-to-top" i], [id*="back-to-top" i]'
-                      )) ||
-                    el.querySelector('input, select, textarea, video, audio, form');
-
-                  if (!isSafeControl && (hasAdKeywords || (hasActualExternalLink && (hasGifBanner || el.querySelector('iframe'))))) {
-                    el.style.setProperty('display', 'none', 'important');
-                    el.style.setProperty('pointer-events', 'none', 'important');
-                    el.__ax_scanned_hidden = true;
-                    blockedCount++;
-                    continue;
+          // 2. Scan open Shadow DOMs and custom closed shadow hosts
+          try {
+            const shadowHosts = document.querySelectorAll('[data-ax-shadow-host="1"], *');
+            for (let shIdx = 0; shIdx < shadowHosts.length; shIdx++) {
+              const sh = shadowHosts[shIdx];
+              const root = sh.shadowRoot || sh.__axShadowRoot;
+              if (root && root.querySelectorAll) {
+                const shadowCandidates = root.querySelectorAll('div, section, aside, span, a, iframe');
+                for (let scIdx = 0; scIdx < shadowCandidates.length; scIdx++) {
+                  const scEl = shadowCandidates[scIdx];
+                  if (scEl && !scEl.__ax_scanned_hidden) {
+                    const res = evaluateElementAdScore(scEl, null, null, currentHost);
+                    if (res.shouldHide) {
+                      scEl.style.setProperty('display', 'none', 'important');
+                      scEl.style.setProperty('visibility', 'hidden', 'important');
+                      scEl.style.setProperty('pointer-events', 'none', 'important');
+                      scEl.__ax_scanned_hidden = true;
+                      blockedCount++;
+                      unlockBodyOverflow();
+                    }
                   }
                 }
               }
             }
-          }
+          } catch {}
 
-          // Collapse empty / blocked ad iframes
+          // 3. Collapse empty / blocked ad iframes and empty wrappers
           const iframes = document.querySelectorAll('iframe');
           for (let i = 0; i < iframes.length; i++) {
             const ifr = iframes[i];
@@ -486,20 +660,43 @@
             ) {
               continue;
             }
-            if (
+            const isAdSrc =
               src.includes('doubleclick') ||
               src.includes('googlesyndication') ||
               src.includes('adservice') ||
               src.includes('popads') ||
               src.includes('propeller') ||
               src.includes('exoclick') ||
-              src.includes('adsterra')
+              src.includes('adsterra') ||
+              src.includes('monetag') ||
+              src.includes('hilltop') ||
+              src.includes('clickadu');
+
+            const isBlockedOrEmpty = !src || src === 'about:blank' || isAdSrc;
+
+            if (
+              isAdSrc ||
+              (isBlockedOrEmpty &&
+                ifr.closest &&
+                ifr.closest('[class*="ad" i], [id*="ad" i], [class*="banner" i], [class*="reklam" i]'))
             ) {
               ifr.style.setProperty('display', 'none', 'important');
               ifr.style.setProperty('height', '0', 'important');
               ifr.style.setProperty('min-height', '0', 'important');
+              ifr.style.setProperty('margin', '0', 'important');
+              ifr.style.setProperty('padding', '0', 'important');
               ifr.__ax_scanned_hidden = true;
               blockedCount++;
+
+              // Also collapse empty parent wrapper if it only contained this ad iframe
+              const parent = ifr.parentElement;
+              if (parent && parent.children.length === 1 && !isMediaOrLegitimateContent(parent)) {
+                parent.style.setProperty('display', 'none', 'important');
+                parent.style.setProperty('height', '0', 'important');
+                parent.style.setProperty('min-height', '0', 'important');
+                parent.style.setProperty('margin', '0', 'important');
+                parent.style.setProperty('padding', '0', 'important');
+              }
             }
           }
 
@@ -518,7 +715,7 @@
       let scanTimer = null;
       const debouncedScan = () => {
         if (scanTimer) clearTimeout(scanTimer);
-        scanTimer = setTimeout(scanForMaliciousOverlaysAndBanners, 200);
+        scanTimer = setTimeout(scanForMaliciousOverlaysAndBanners, 150);
       };
 
       const observer = new MutationObserver(debouncedScan);
@@ -533,11 +730,15 @@
         });
       }
 
-      // Initial scanning runs
+      // Initial scanning runs (immediate + 400ms + 1.5s delayed scan)
       if (document.readyState === 'complete') {
         setTimeout(scanForMaliciousOverlaysAndBanners, 400);
+        setTimeout(scanForMaliciousOverlaysAndBanners, 1500);
       } else {
-        window.addEventListener('load', () => setTimeout(scanForMaliciousOverlaysAndBanners, 400));
+        window.addEventListener('load', () => {
+          setTimeout(scanForMaliciousOverlaysAndBanners, 400);
+          setTimeout(scanForMaliciousOverlaysAndBanners, 1500);
+        });
       }
     } catch {
       // Storage access or context invalidated
@@ -889,18 +1090,6 @@
     }
   } catch {}
 
-  function getRootDomain(hostname) {
-    if (!hostname || typeof hostname !== 'string') return '';
-    const clean = hostname.trim().toLowerCase();
-    const parts = clean.split('.');
-    if (parts.length <= 2) return clean;
-    const secondToLast = parts[parts.length - 2];
-    if (['com', 'co', 'gov', 'org', 'edu', 'net'].includes(secondToLast) && parts.length >= 3) {
-      return parts.slice(-3).join('.');
-    }
-    return parts.slice(-2).join('.');
-  }
-
   function handleTrustedPointerOrClick(e) {
     if (!e || e.isTrusted !== true) return;
     try {
@@ -1063,5 +1252,13 @@
         }
       }
     });
+  }
+
+  // Export for unit tests
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      evaluateElementAdScore,
+      getRootDomain
+    };
   }
 })();

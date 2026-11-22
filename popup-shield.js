@@ -389,7 +389,7 @@ function isAllowedDestination(targetUrl) {
 
   try {
     if (typeof window === 'undefined' || !window.location) return false;
-    const currentOrigin = window.location.origin.toLowerCase();
+    const currentOrigin = (window.location.origin || (window.location.href ? new URL(window.location.href).origin : '')).toLowerCase();
     const resolved = new URL(targetUrl, window.location.href);
     const targetOrigin = resolved.origin.toLowerCase();
     const targetHost = resolved.hostname.toLowerCase();
@@ -478,7 +478,7 @@ function isAllowedNavigation(targetUrl) {
 
   try {
     if (typeof window === 'undefined' || !window.location) return true;
-    const currentOrigin = window.location.origin.toLowerCase();
+    const currentOrigin = (window.location.origin || (window.location.href ? new URL(window.location.href).origin : '')).toLowerCase();
     const resolved = new URL(targetUrl, window.location.href);
     const targetOrigin = resolved.origin.toLowerCase();
     const targetHost = resolved.hostname.toLowerCase();
@@ -1555,14 +1555,30 @@ function isDevToolsKey(e) {
     } catch {}
   }
 
-  // Hook Element.prototype.attachShadow for closed Shadow DOM vignette overlays
+  // Hook Element.prototype.attachShadow for closed Shadow DOM vignette & push overlays
   try {
     const nativeAttachShadow = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function (init) {
       if (this.id === 'ax-privacy-alert-host') {
         return nativeAttachShadow.apply(this, arguments);
       }
+      if (typeof window !== 'undefined' && window.location) {
+        const curH = (window.location.hostname || '').toLowerCase();
+        if (curH.includes('youtube.com') || curH.includes('twitch.tv')) {
+          return nativeAttachShadow.apply(this, arguments);
+        }
+      }
+
+      // Mark host element for universal scoring scanner in content script
+      try {
+        this.setAttribute('data-ax-shadow-host', '1');
+      } catch {}
+
       const shadowRoot = nativeAttachShadow.apply(this, arguments);
+      try {
+        this.__axShadowRoot = shadowRoot;
+      } catch {}
+
       try {
         const host = this;
         setTimeout(() => {
@@ -1571,14 +1587,35 @@ function isDevToolsKey(e) {
             const style = window.getComputedStyle(host);
             const pos = style.position;
             const z = parseInt(style.zIndex, 10);
-            if (pos === 'fixed' && (z >= 999999 || z >= 2147483000)) {
-              const rect = host.getBoundingClientRect();
+            const isFloating = pos === 'fixed' || pos === 'absolute';
+            const rect = host.getBoundingClientRect();
+            const text = (host.innerText || '').toLowerCase();
+
+            // Check if it's a fullscreen vignette overlay
+            if (isFloating && (z >= 99999 || z >= 2147483000)) {
               if (rect.width >= window.innerWidth * 0.75 && rect.height >= window.innerHeight * 0.75) {
                 host.remove();
                 unlockBodyOverflow();
                 console.info('[AX-Vignette] Shadow DOM reklam katmanı temizlendi');
                 reportBlocked('shadow-dom-vignette', 'attachShadow');
+                return;
               }
+            }
+
+            // Check if it carries ad overlay/push signatures
+            const idClass = ((host.id || '') + ' ' + (host.className || '')).toLowerCase();
+            const hasAdIdent = /\b(reklam|ad-?|banner|vignette|interstitial|popunder|push)\b/i.test(idClass);
+            const hasBait =
+              text.includes('devam etmek için') ||
+              text.includes('dokunun') ||
+              text.includes('robot') ||
+              text.includes('yükleniyor') ||
+              text.includes('tap to continue');
+            if (isFloating && z >= 9999 && (hasAdIdent || hasBait)) {
+              host.remove();
+              unlockBodyOverflow();
+              console.info('[AX-Shield] Shadow DOM reklam/push katmanı temizlendi');
+              reportBlocked('shadow-dom-ad-overlay', 'attachShadow');
             }
           } catch {}
         }, 15);
@@ -1587,6 +1624,102 @@ function isDevToolsKey(e) {
     };
   } catch (err) {
     console.warn('[AX-Privacy popup-shield] Could not hook attachShadow:', err);
+  }
+
+  // Hook Notification.requestPermission to silently deny unsolicited auto-push permission traps
+  try {
+    if (typeof Notification !== 'undefined' && Notification.requestPermission) {
+      const nativeRequestPermission = Notification.requestPermission;
+      Notification.requestPermission = function () {
+        try {
+          if (
+            typeof window !== 'undefined' &&
+            window.sessionStorage?.getItem('ax_privacy_popup_shield') === 'disabled'
+          ) {
+            return nativeRequestPermission.apply(this, arguments);
+          }
+          const curHost =
+            typeof window !== 'undefined' && window.location?.hostname
+              ? window.location.hostname.toLowerCase()
+              : '';
+          const TRUSTED_NOTIFICATION_HOSTS = [
+            'chat.google.com',
+            'mail.google.com',
+            'discord.com',
+            'web.whatsapp.com',
+            'web.telegram.org',
+            'slack.com',
+            'teams.microsoft.com',
+            'twitter.com',
+            'x.com',
+            'facebook.com',
+            'instagram.com'
+          ];
+          const isTrustedHost = TRUSTED_NOTIFICATION_HOSTS.some(
+            (h) => curHost === h || curHost.endsWith('.' + h)
+          );
+          const now = Date.now();
+          const isUserInitiated =
+            trustedClickUntil > now || (lastTrustedLink && now - lastTrustedLink.time <= 1500);
+
+          if (!isTrustedHost && !isUserInitiated) {
+            console.info('[AX-Shield] İzinsiz otomatik push bildirim isteği engellendi');
+            reportBlocked('push-notification-trap', 'Notification.requestPermission');
+            if (typeof arguments[0] === 'function') {
+              try {
+                arguments[0]('denied');
+              } catch {}
+            }
+            return Promise.resolve('denied');
+          }
+        } catch {}
+        return nativeRequestPermission.apply(this, arguments);
+      };
+    }
+  } catch (err) {
+    console.warn('[AX-Privacy popup-shield] Could not hook Notification.requestPermission:', err);
+  }
+
+  // Hook navigator.serviceWorker.register to block known ad/push notification service workers
+  try {
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.serviceWorker &&
+      navigator.serviceWorker.register
+    ) {
+      const nativeSWRegister = navigator.serviceWorker.register;
+      navigator.serviceWorker.register = function (scriptURL, options) {
+        try {
+          if (
+            typeof window !== 'undefined' &&
+            window.sessionStorage?.getItem('ax_privacy_popup_shield') === 'disabled'
+          ) {
+            return nativeSWRegister.apply(this, arguments);
+          }
+          const strUrl = String(scriptURL || '').toLowerCase();
+          const AD_SW_PATTERNS = [
+            'push-sw',
+            'ntfc',
+            'monetag',
+            'propeller',
+            'adsterra',
+            'inpage',
+            'onesignal-ad',
+            'ad-worker',
+            'ad-sw',
+            'afu.php'
+          ];
+          if (AD_SW_PATTERNS.some((p) => strUrl.includes(p))) {
+            console.info('[AX-Shield] İzinsiz reklam service worker kaydı engellendi:', strUrl);
+            reportBlocked('ad-service-worker', strUrl);
+            return Promise.reject(new Error('[AX-Shield] Ad service worker blocked'));
+          }
+        } catch {}
+        return nativeSWRegister.apply(this, arguments);
+      };
+    }
+  } catch (err) {
+    console.warn('[AX-Privacy popup-shield] Could not hook serviceWorker.register:', err);
   }
 
   // Universal In-Page Vignette / Fake Loading Modal Cleaner

@@ -186,6 +186,18 @@ const SOURCES = {
   adguard_base: {
     name: 'AdGuard Base Filter',
     url: 'https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_2_Base/filter.txt'
+  },
+  ublock_filters: {
+    name: 'uBlock Filters (Badware / Popups / Ads)',
+    url: 'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt'
+  },
+  ublock_quick_fixes: {
+    name: 'uBlock Quick Fixes',
+    url: 'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/quick-fixes.txt'
+  },
+  adguard_annoyances: {
+    name: 'AdGuard Annoyances (Popups & Overlays)',
+    url: 'https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_14_Annoyances/filter.txt'
   }
 };
 
@@ -269,6 +281,9 @@ function cleanDomain(raw) {
     'ytimg.com',
     'ggpht.com',
     'youtubei.googleapis.com',
+    'twitch.tv',
+    'ttvnw.net',
+    'jtvnw.net',
     'storage.googleapis.com',
     'googleusercontent.com',
     'blogger.googleusercontent.com',
@@ -405,11 +420,31 @@ function parseDomains(text) {
   return set;
 }
 
+const POPUP_URL_PATTERNS = [
+  '*afu.php*',
+  '*ntfc.php*',
+  '*pfe/current/tag.min.js*',
+  '*in-page-push*',
+  '*vignette.min.js*',
+  '*popunder.js*',
+  '*popads*',
+  '*adsterra*',
+  '*propellerads*',
+  '*monetag*',
+  '*hilltopads*',
+  '*clickadu*',
+  '*exoclick*',
+  '*juicyads*',
+  '*mgid*',
+  '*adskeeper*',
+  '*tsyndicate*'
+];
+
 /**
  * Generates dedicated pop-under and ad-redirect blocking rules
  * Range: IDs 30001..30500 (max 500 rules)
  */
-function generatePopupsRedirectsRules(extraDomains = []) {
+function generatePopupsRedirectsRules(extraDomains = [], extraPatterns = []) {
   const domainsSet = new Set();
 
   for (const d of POPUP_REDIRECT_DOMAINS) {
@@ -424,9 +459,9 @@ function generatePopupsRedirectsRules(extraDomains = []) {
     }
   }
 
-  const sorted = Array.from(domainsSet).sort().slice(0, 500);
+  const sorted = Array.from(domainsSet).sort().slice(0, 450);
 
-  return sorted.map((domain, index) => ({
+  const rules = sorted.map((domain, index) => ({
     id: 30001 + index,
     priority: 1,
     action: {
@@ -437,16 +472,37 @@ function generatePopupsRedirectsRules(extraDomains = []) {
       resourceTypes: ['main_frame', 'sub_frame', 'script', 'xmlhttprequest']
     }
   }));
+
+  let nextId = 30001 + rules.length;
+  const patternList = [...POPUP_URL_PATTERNS, ...(Array.isArray(extraPatterns) ? extraPatterns : [])];
+  for (const pat of patternList) {
+    if (nextId > 30500) break;
+    rules.push({
+      id: nextId++,
+      priority: 1,
+      action: {
+        type: 'block'
+      },
+      condition: {
+        urlFilter: pat,
+        domainType: 'thirdParty',
+        resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image']
+      }
+    });
+  }
+
+  return rules;
 }
 
 /**
  * Parses two-layer CSS cosmetic rules:
- *   1. generic: Array of universal, safe ad container selectors (max 400)
+ *   1. generic: Array of universal, safe ad container selectors (max 600)
  *   2. domains: Mapping of domain -> site-specific selectors
  */
-function parseCosmeticRules(turkishText, baseText = '') {
+function parseCosmeticRules(turkishText, baseText = '', ...extraSources) {
   // Baseline curated universal selectors (safe, low-false-positive, high impact)
   const CURATED_GENERIC_SELECTORS = [
+    // Google & DFP
     'ins.adsbygoogle',
     '[data-ad-slot]',
     '[data-ad-client]',
@@ -461,6 +517,34 @@ function parseCosmeticRules(turkishText, baseText = '') {
     'iframe[src*="doubleclick.net"]',
     'iframe[src*="googlesyndication.com"]',
     'iframe[src*="adservice.google."]',
+    // Prebid & Header Bidding
+    '[id^="prebid-"]',
+    '[class*="prebid-"]',
+    'div[id^="ad-header-bidding"]',
+    // Taboola & Outbrain
+    'div[id^="taboola-"]',
+    'div[class*="trc_rbox_div"]',
+    'div[class*="trc_related_container"]',
+    '.taboola-ad',
+    '.outbrain-ad',
+    '.OUTBRAIN',
+    'div[id^="outbrain_widget"]',
+    // MGID & Criteo
+    'div[id^="MarketGid"]',
+    'div[id^="mgid_"]',
+    '.mgid-container',
+    'div[id^="criteo-"]',
+    '.criteo-ad',
+    // Amazon Advertising
+    'iframe[src*="amazon-adsystem.com"]',
+    'div[id^="amzn-assoc-ad"]',
+    // Adsterra, Monetag, Propeller & Popunder containers
+    '.adsterra-banner',
+    'div[id^="monetag-"]',
+    '.propeller-ad',
+    '.popunder-wrapper',
+    '.in-page-push-wrapper',
+    // Standard Ad Placement Containers
     '.ad-placement',
     '.ad-container',
     '.ad-banner',
@@ -483,12 +567,17 @@ function parseCosmeticRules(turkishText, baseText = '') {
     '.floating-ad',
     '.floating-banner',
     '.floating_banner',
+    // Turkish Betting & Ad Selectors
     '[id*="reklam"]:not(main):not(body):not(header):not(nav)',
     '[class*="reklam-"]:not(main):not(body):not(header):not(nav)',
     '[id*="sponsor-ad"]',
     '[class*="sponsor-ad"]',
     'a[target="_blank"] > img[src*="reklam"]',
-    'a[target="_blank"] > img[src*="bahis"]'
+    'a[target="_blank"] > img[src*="bahis"]',
+    'a[target="_blank"] > img[src*="casino"]',
+    'a[target="_blank"] > img[src*="slot"]',
+    'div[class*="bahis-banner"]',
+    'div[id*="bahis-reklam"]'
   ];
 
   const CURATED_SITE_RULES = {
@@ -513,7 +602,7 @@ function parseCosmeticRules(turkishText, baseText = '') {
     domainMap[domain] = new Set(selectors);
   }
 
-  const rawSources = [turkishText, baseText].filter(Boolean);
+  const rawSources = [turkishText, baseText, ...extraSources].filter(Boolean);
 
   for (const text of rawSources) {
     if (typeof text !== 'string') continue;
@@ -591,7 +680,7 @@ function parseCosmeticRules(turkishText, baseText = '') {
           selector.startsWith('[') ||
           selector.startsWith('ins.')
         ) {
-          if (genericSet.size < 350) {
+          if (genericSet.size < 600) {
             genericSet.add(selector);
           }
         }
@@ -629,14 +718,26 @@ function parseCosmeticRules(turkishText, baseText = '') {
 }
 
 async function main() {
-  console.log('=== AX-Privacy Rule Compiler Starting (v2.6.0) ===');
+  console.log('=== AX-Privacy Rule Compiler Starting (v3.4.0) ===');
 
-  const [easylistText, oisdText, easyprivacyText, turkishText, baseText] = await Promise.all([
+  const [
+    easylistText,
+    oisdText,
+    easyprivacyText,
+    turkishText,
+    baseText,
+    ublockFiltersText,
+    ublockQuickFixesText,
+    adguardAnnoyancesText
+  ] = await Promise.all([
     fetchSource(SOURCES.easylist),
     fetchSource(SOURCES.oisd),
     fetchSource(SOURCES.easyprivacy),
     fetchSource(SOURCES.adguard_turkish),
-    fetchSource(SOURCES.adguard_base)
+    fetchSource(SOURCES.adguard_base),
+    fetchSource(SOURCES.ublock_filters),
+    fetchSource(SOURCES.ublock_quick_fixes),
+    fetchSource(SOURCES.adguard_annoyances)
   ]);
 
   const easylistSet = parseDomains(easylistText);
@@ -644,15 +745,28 @@ async function main() {
   const easyprivacySet = parseDomains(easyprivacyText);
   const turkishNetSet = parseDomains(turkishText);
   const baseNetSet = parseDomains(baseText);
+  const ublockFiltersSet = parseDomains(ublockFiltersText);
+  const ublockQuickFixesSet = parseDomains(ublockQuickFixesText);
+  const adguardAnnoyancesSet = parseDomains(adguardAnnoyancesText);
 
   console.log(`[build-rules] Parsed EasyList: ${easylistSet.size} domains`);
   console.log(`[build-rules] Parsed OISD: ${oisdSet.size} domains`);
   console.log(`[build-rules] Parsed EasyPrivacy: ${easyprivacySet.size} domains`);
   console.log(`[build-rules] Parsed AdGuard Turkish: ${turkishNetSet.size} network domains`);
   console.log(`[build-rules] Parsed AdGuard Base: ${baseNetSet.size} network domains`);
+  console.log(`[build-rules] Parsed uBlock Filters: ${ublockFiltersSet.size} network domains`);
+  console.log(`[build-rules] Parsed uBlock Quick Fixes: ${ublockQuickFixesSet.size} network domains`);
+  console.log(`[build-rules] Parsed AdGuard Annoyances: ${adguardAnnoyancesSet.size} network domains`);
 
   const totalRawCount =
-    easylistSet.size + oisdSet.size + easyprivacySet.size + turkishNetSet.size + baseNetSet.size;
+    easylistSet.size +
+    oisdSet.size +
+    easyprivacySet.size +
+    turkishNetSet.size +
+    baseNetSet.size +
+    ublockFiltersSet.size +
+    ublockQuickFixesSet.size +
+    adguardAnnoyancesSet.size;
   if (totalRawCount < MIN_RULE_THRESHOLD) {
     console.error(
       `[build-rules] ERROR: Total parsed domains (${totalRawCount}) is below minimum threshold (${MIN_RULE_THRESHOLD}). Aborting.`
@@ -673,7 +787,7 @@ async function main() {
   }
   console.log(`[build-rules] Tier 1 - Core guaranteed domains added: ${guaranteedCount}`);
 
-  // Tier 1.5: AdGuard Turkish Network Rules + Pop-up/Betting Networks
+  // Tier 1.5: AdGuard Turkish Network Rules + Pop-up/Betting Networks + uBlock Quick Fixes
   let turkishCount = 0;
   for (const domain of turkishNetSet) {
     if (selectedDomains.size >= MAX_RULE_LIMIT) break;
@@ -687,6 +801,13 @@ async function main() {
     const cleaned = cleanDomain(domain);
     if (cleaned && !selectedDomains.has(cleaned)) {
       selectedDomains.add(cleaned);
+      turkishCount++;
+    }
+  }
+  for (const domain of ublockQuickFixesSet) {
+    if (selectedDomains.size >= MAX_RULE_LIMIT) break;
+    if (!selectedDomains.has(domain)) {
+      selectedDomains.add(domain);
       turkishCount++;
     }
   }
@@ -707,9 +828,23 @@ async function main() {
     `[build-rules] Tier 2 - EasyList & OISD intersection domains added: ${intersectionCount}`
   );
 
-  // Tier 3: AdGuard Base Filter & EasyPrivacy domains
+  // Tier 3: AdGuard Base Filter, uBlock Filters, AdGuard Annoyances & EasyPrivacy domains
   let baseCount = 0;
   for (const domain of baseNetSet) {
+    if (selectedDomains.size >= MAX_RULE_LIMIT) break;
+    if (!selectedDomains.has(domain)) {
+      selectedDomains.add(domain);
+      baseCount++;
+    }
+  }
+  for (const domain of ublockFiltersSet) {
+    if (selectedDomains.size >= MAX_RULE_LIMIT) break;
+    if (!selectedDomains.has(domain)) {
+      selectedDomains.add(domain);
+      baseCount++;
+    }
+  }
+  for (const domain of adguardAnnoyancesSet) {
     if (selectedDomains.size >= MAX_RULE_LIMIT) break;
     if (!selectedDomains.has(domain)) {
       selectedDomains.add(domain);
@@ -723,7 +858,7 @@ async function main() {
       baseCount++;
     }
   }
-  console.log(`[build-rules] Tier 3 - AdGuard Base & EasyPrivacy domains added: ${baseCount}`);
+  console.log(`[build-rules] Tier 3 - AdGuard Base, uBlock, Annoyances & EasyPrivacy domains added: ${baseCount}`);
 
   // Tier 4: Remaining EasyList & OISD domains (if quota remains)
   let remainingCount = 0;
@@ -785,7 +920,12 @@ async function main() {
   console.log(`[build-rules] Successfully wrote ${popupRules.length} popup rules to ${POPUPS_OUTPUT_FILE}`);
 
   // Compile and atomic write rules/cosmetic_rules.json
-  const cosmeticResult = parseCosmeticRules(turkishText, baseText);
+  const cosmeticResult = parseCosmeticRules(
+    turkishText,
+    baseText,
+    ublockFiltersText,
+    adguardAnnoyancesText
+  );
   const cosmeticJson = JSON.stringify(cosmeticResult, null, 2);
   await fs.writeFile(COSMETIC_TMP_FILE, cosmeticJson, 'utf8');
 
@@ -802,7 +942,7 @@ async function main() {
     `[build-rules] Successfully wrote ${verifyCosmetic.generic.length} generic and ${Object.keys(verifyCosmetic.domains).length} domain cosmetic rules to ${COSMETIC_OUTPUT_FILE}`
   );
 
-  console.log('=== AX-Privacy Rule Compiler Finished (v2.6.0) ===');
+  console.log('=== AX-Privacy Rule Compiler Finished (v3.4.0) ===');
 }
 
 export {

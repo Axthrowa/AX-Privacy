@@ -162,6 +162,9 @@ async function validateAdsRules() {
     '||ytimg.com^',
     '||ggpht.com^',
     '||youtubei.googleapis.com^',
+    '||twitch.tv^',
+    '||ttvnw.net^',
+    '||jtvnw.net^',
     '||twimg.com^',
     '||video.twimg.com^',
     '||twitter.com^',
@@ -222,13 +225,26 @@ async function validatePopupsRules() {
       throw new Error(`Rule ${r.id} action type must be "block"`);
     }
 
-    if (!r.condition?.urlFilter || !r.condition.urlFilter.startsWith('||') || !r.condition.urlFilter.endsWith('^')) {
+    if (!r.condition?.urlFilter || typeof r.condition.urlFilter !== 'string') {
       throw new Error(`Rule ${r.id} has invalid urlFilter: ${r.condition?.urlFilter}`);
     }
 
     const types = r.condition.resourceTypes;
-    if (!Array.isArray(types) || !types.includes('main_frame')) {
-      throw new Error(`Rule ${r.id} must include "main_frame" in resourceTypes`);
+    if (!Array.isArray(types) || types.length === 0) {
+      throw new Error(`Rule ${r.id} must include non-empty resourceTypes`);
+    }
+
+    if (r.condition.domainType === 'thirdParty') {
+      if (!types.includes('script') && !types.includes('sub_frame')) {
+        throw new Error(`Pattern rule ${r.id} must include script or sub_frame`);
+      }
+    } else {
+      if (!r.condition.urlFilter.startsWith('||') || !r.condition.urlFilter.endsWith('^')) {
+        throw new Error(`Domain rule ${r.id} has invalid urlFilter: ${r.condition.urlFilter}`);
+      }
+      if (!types.includes('main_frame')) {
+        throw new Error(`Domain rule ${r.id} must include "main_frame" in resourceTypes`);
+      }
     }
 
     for (const t of types) {

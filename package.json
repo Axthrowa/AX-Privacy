@@ -1,6 +1,6 @@
 {
   "name": "ax-privacy",
-  "version": "3.3.5",
+  "version": "3.4.0",
   "description": "Gelişmiş reklam engelleme, URL izleyici temizleyici, yerel tehdit kalkanı, pop-up kalkanı, anti-vignette ve kırılmaz pop-under engelleyicisi.",
   "private": true,
   "license": "GPL-3.0-or-later",
@@ -16,8 +16,9 @@
     "test:filter-updater": "node scripts/test-filter-updater.js",
     "test:cosmetic-compiler": "node scripts/test-cosmetic-compiler.js",
     "test:popup-vignette": "node scripts/test-popup-vignette.js",
-    "test": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater && npm run test:cosmetic-compiler && npm run test:popup-vignette",
-    "check": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater && npm run test:cosmetic-compiler && npm run test:popup-vignette"
+    "test:universal-ad-scorer": "node scripts/test-universal-ad-scorer.js",
+    "test": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater && npm run test:cosmetic-compiler && npm run test:popup-vignette && npm run test:universal-ad-scorer",
+    "check": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater && npm run test:cosmetic-compiler && npm run test:popup-vignette && npm run test:universal-ad-scorer"
   },
   "dependencies": {
     "@duckduckgo/autoconsent": "^17.2.0",

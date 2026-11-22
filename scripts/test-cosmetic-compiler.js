@@ -183,9 +183,14 @@ runTest('generatePopupsRedirectsRules creates valid rules in 30001..30500 range'
   for (const r of rules) {
     assert.ok(r.id >= 30001 && r.id <= 30500);
     assert.strictEqual(r.action.type, 'block');
-    assert.ok(r.condition.urlFilter.startsWith('||') && r.condition.urlFilter.endsWith('^'));
-    assert.ok(r.condition.resourceTypes.includes('main_frame'));
-    assert.ok(r.condition.resourceTypes.includes('sub_frame'));
+    if (r.condition.domainType === 'thirdParty') {
+      assert.ok(r.condition.resourceTypes.includes('script'));
+      assert.ok(r.condition.resourceTypes.includes('sub_frame'));
+    } else {
+      assert.ok(r.condition.urlFilter.startsWith('||') && r.condition.urlFilter.endsWith('^'));
+      assert.ok(r.condition.resourceTypes.includes('main_frame'));
+      assert.ok(r.condition.resourceTypes.includes('sub_frame'));
+    }
   }
 
   const filters = rules.map((r) => r.condition.urlFilter);
@@ -193,6 +198,9 @@ runTest('generatePopupsRedirectsRules creates valid rules in 30001..30500 range'
   assert.ok(filters.includes('||propellerads.com^'));
   assert.ok(filters.includes('||testpopup.com^'));
   assert.ok(filters.includes('||extraredirect.org^'));
+  assert.ok(filters.includes('*afu.php*'));
+  assert.ok(filters.includes('*ntfc.php*'));
+  assert.ok(filters.includes('*monetag*'));
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
