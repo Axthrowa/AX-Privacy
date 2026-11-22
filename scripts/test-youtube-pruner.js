@@ -83,26 +83,26 @@ const result = pruneAdData(JSON.parse(JSON.stringify(mockPlayerResponse)));
 // Assertions
 let failed = false;
 
-// 1. Ads removed
-if (result.adPlacements !== undefined) {
-  console.error('[FAIL] adPlacements was not deleted');
+// 1. Ads neutralized into empty arrays to prevent TypeError in YouTube SPA
+if (!Array.isArray(result.adPlacements) || result.adPlacements.length !== 0) {
+  console.error('[FAIL] adPlacements was not sanitized to empty array');
   failed = true;
 } else {
-  console.log('[PASS] adPlacements successfully deleted');
+  console.log('[PASS] adPlacements successfully sanitized to empty array');
 }
 
-if (result.playerAds !== undefined) {
-  console.error('[FAIL] playerAds was not deleted');
+if (!Array.isArray(result.playerAds) || result.playerAds.length !== 0) {
+  console.error('[FAIL] playerAds was not sanitized to empty array');
   failed = true;
 } else {
-  console.log('[PASS] playerAds successfully deleted');
+  console.log('[PASS] playerAds successfully sanitized to empty array');
 }
 
-if (result.adSlots !== undefined) {
-  console.error('[FAIL] adSlots was not deleted');
+if (!Array.isArray(result.adSlots) || result.adSlots.length !== 0) {
+  console.error('[FAIL] adSlots was not sanitized to empty array');
   failed = true;
 } else {
-  console.log('[PASS] adSlots successfully deleted');
+  console.log('[PASS] adSlots successfully sanitized to empty array');
 }
 
 if (result.adBreakHeartbeatParams !== undefined) {
@@ -165,10 +165,11 @@ const mockNextResponse = {
 
 const nextResult = pruneAdData(JSON.parse(JSON.stringify(mockNextResponse)));
 if (
-  nextResult.playerResponse?.adPlacements !== undefined ||
+  !Array.isArray(nextResult.playerResponse?.adPlacements) ||
+  nextResult.playerResponse?.adPlacements.length !== 0 ||
   nextResult.playerResponse?.auxiliaryUi?.messageRenderers?.bkaEnforcementMessageViewModel !== undefined
 ) {
-  console.error('[FAIL] Nested playerResponse ad structures were not deleted');
+  console.error('[FAIL] Nested playerResponse ad structures were not sanitized');
   failed = true;
 } else if (nextResult.playerResponse?.videoDetails?.videoId !== 'abc-123') {
   console.error('[FAIL] Nested videoDetails was damaged');

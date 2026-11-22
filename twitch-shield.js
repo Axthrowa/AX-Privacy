@@ -721,7 +721,7 @@
                   for (let i = 0; i < lines.length; i++) {
                     const line = lines[i];
                     if (line.startsWith('#EXTINF:') && i < lines.length - 1) {
-                      const isAdSeg = !line.includes(',live') || /amazon/i.test(line) || /stitched/i.test(line);
+                      const isAdSeg = Boolean(/amazon/i.test(line) || /stitched/i.test(line) || /preview/i.test(line));
                       if (isAdSeg) {
                         const segUrl = lines[i + 1].trim();
                         if (segUrl && !segUrl.startsWith('#')) {
@@ -1178,45 +1178,19 @@
       }
 
       /* Guarantee that Twitch player controls, seekbars, settings, and buttons are ALWAYS interactive */
-      .video-player__default-player,
-      .video-player__default-player *,
       .player-controls,
-      .player-controls *,
       [data-a-target="player-controls"],
-      [data-a-target="player-controls"] *,
       [data-a-target="player-play-pause-button"],
       [data-a-target="player-fullscreen-button"],
       [data-a-target="player-settings-button"],
       [data-a-target="player-theatre-mode-button"],
       [data-a-target="player-volume-slider"],
       [data-a-target="player-settings-menu"],
-      [data-a-target="player-settings-menu"] *,
       .player-settings-menu,
-      .player-settings-menu *,
       .video-player button,
       .video-player [role="button"],
-      .video-player [role="slider"],
-      .video-player [role="menu"],
-      .video-player [role="menuitem"],
-      .video-player [role="menuitemradio"],
-      .video-player [role="menuitemcheckbox"] {
+      .video-player [role="slider"] {
         pointer-events: auto !important;
-        cursor: pointer;
-      }
-
-      .video-player__default-player,
-      .player-controls,
-      [data-a-target="player-controls"] {
-        z-index: 50 !important;
-        position: relative !important;
-      }
-
-      [data-a-target="player-settings-menu"],
-      .player-settings-menu,
-      .video-player [role="menu"] {
-        z-index: 99999 !important;
-        pointer-events: auto !important;
-        display: block !important;
       }
     `;
     const target = document.head || document.documentElement;

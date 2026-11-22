@@ -500,6 +500,15 @@ function isDevToolsKey(e) {
 
   window.__AX_POPUP_SHIELD_INSTALLED__ = true;
 
+  // Zero-overhead early return for trusted major platforms (YouTube, Twitch, Netflix, X, etc.)
+  const curHost =
+    typeof window !== 'undefined' && window.location
+      ? (window.location.hostname || '').toLowerCase()
+      : '';
+  if (curHost && MAJOR_SAFE_PLATFORMS.some((p) => curHost === p || curHost.endsWith('.' + p))) {
+    return;
+  }
+
   // Defeat anti-adblock detection and provide standard noop surrogates for web analytics/ads
   try {
     // 1. Google Tag Manager / Analytics Surrogates
@@ -824,22 +833,11 @@ function isDevToolsKey(e) {
 
       if (isVideoControl) {
         const parentAnchor = target.closest('a[href]');
-        if (parentAnchor) {
-          // If anchor wraps the video player, neutralize the link navigation without blocking player clicks
+        if (parentAnchor && isCrossSite(parentAnchor.href)) {
+          // If a cross-site ad anchor wraps the video player, neutralize navigation without breaking player clicks
           parentAnchor.removeAttribute('href');
           parentAnchor.removeAttribute('target');
           parentAnchor.setAttribute('data-ax-defused-trap', 'true');
-          parentAnchor.onclick = function (ev) {
-            ev.preventDefault();
-            ev.stopPropagation();
-          };
-          // Explicitly ensure player elements inside remain interactive
-          const controls = parentAnchor.querySelectorAll(
-            'video, audio, button, [role="button"], [role="slider"], [class*="control"], [class*="progress"], [class*="seekbar"]'
-          );
-          for (let c = 0; c < controls.length; c++) {
-            controls[c].style.setProperty('pointer-events', 'auto', 'important');
-          }
         }
         return;
       }
@@ -977,10 +975,6 @@ function isDevToolsKey(e) {
             anchor.removeAttribute('href');
             anchor.removeAttribute('target');
             anchor.setAttribute('data-ax-defused-trap', 'true');
-            anchor.onclick = function (ev) {
-              ev.preventDefault();
-              ev.stopPropagation();
-            };
             const controls = anchor.querySelectorAll(
               'video, audio, button, [role="button"], [role="slider"], [class*="control"], [class*="progress"], [class*="seekbar"]'
             );
@@ -1038,20 +1032,6 @@ function isDevToolsKey(e) {
       }
     } catch {}
   }
-
-  try {
-    const nativeAppendChild = Node.prototype.appendChild;
-    Node.prototype.appendChild = function (child) {
-      markAnchorNode(child);
-      return nativeAppendChild.apply(this, arguments);
-    };
-
-    const nativeInsertBefore = Node.prototype.insertBefore;
-    Node.prototype.insertBefore = function (newNode, refNode) {
-      markAnchorNode(newNode);
-      return nativeInsertBefore.apply(this, arguments);
-    };
-  } catch {}
 
   try {
     const nodeObserver = new MutationObserver((mutations) => {

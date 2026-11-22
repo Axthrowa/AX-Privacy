@@ -40,10 +40,10 @@
     if (!obj || typeof obj !== 'object') return obj;
 
     try {
-      // Remove ad placements, slots, and break parameters
-      delete obj.adPlacements;
-      delete obj.playerAds;
-      delete obj.adSlots;
+      // Safely neutralize ad placements, slots, and break parameters to empty arrays (prevents TypeError in YouTube player)
+      if (obj.adPlacements !== undefined) obj.adPlacements = [];
+      if (obj.playerAds !== undefined) obj.playerAds = [];
+      if (obj.adSlots !== undefined) obj.adSlots = [];
       delete obj.adBreakHeartbeatParams;
 
       // Remove anti-adblock enforcement modal if present
@@ -54,9 +54,9 @@
 
       // Clean nested playerResponse structures if present
       if (obj.playerResponse && typeof obj.playerResponse === 'object') {
-        delete obj.playerResponse.adPlacements;
-        delete obj.playerResponse.playerAds;
-        delete obj.playerResponse.adSlots;
+        if (obj.playerResponse.adPlacements !== undefined) obj.playerResponse.adPlacements = [];
+        if (obj.playerResponse.playerAds !== undefined) obj.playerResponse.playerAds = [];
+        if (obj.playerResponse.adSlots !== undefined) obj.playerResponse.adSlots = [];
         delete obj.playerResponse.adBreakHeartbeatParams;
 
         if (obj.playerResponse.auxiliaryUi && obj.playerResponse.auxiliaryUi.messageRenderers) {
@@ -140,10 +140,15 @@
             const json = JSON.parse(text);
             pruneAdData(json);
 
+            // Strip content-encoding and content-length so browser doesn't try to gunzip plain text or truncate stream
+            const newHeaders = new Headers(response.headers);
+            newHeaders.delete('content-encoding');
+            newHeaders.delete('content-length');
+
             return new Response(JSON.stringify(json), {
               status: response.status,
               statusText: response.statusText,
-              headers: response.headers
+              headers: newHeaders
             });
           } catch {
             // In case of any cloning, text reading or JSON parsing error, ALWAYS return original response
@@ -186,19 +191,25 @@
               function () {
                 try {
                   if (this.readyState === 4 && this.status >= 200 && this.status < 300) {
-                    const responseText = this.responseText;
-                    if (responseText && typeof responseText === 'string') {
-                      const parsed = JSON.parse(responseText);
-                      pruneAdData(parsed);
-                      const serialized = JSON.stringify(parsed);
-                      Object.defineProperty(this, 'responseText', {
-                        configurable: true,
-                        value: serialized
-                      });
-                      Object.defineProperty(this, 'response', {
-                        configurable: true,
-                        value: serialized
-                      });
+                    if (this.responseType === '' || this.responseType === 'text') {
+                      const responseText = this.responseText;
+                      if (responseText && typeof responseText === 'string') {
+                        const parsed = JSON.parse(responseText);
+                        pruneAdData(parsed);
+                        const serialized = JSON.stringify(parsed);
+                        Object.defineProperty(this, 'responseText', {
+                          configurable: true,
+                          value: serialized
+                        });
+                        Object.defineProperty(this, 'response', {
+                          configurable: true,
+                          value: serialized
+                        });
+                      }
+                    } else if (this.responseType === 'json') {
+                      if (this.response && typeof this.response === 'object') {
+                        pruneAdData(this.response);
+                      }
                     }
                   }
                 } catch {}
@@ -231,81 +242,61 @@
         player.classList.contains('ad-showing') ||
         player.classList.contains('ad-interrupting');
 
-      const hasAdBadge = Boolean(
-        document.querySelector(
-          '.ytp-ad-text, .ytp-ad-preview-text, .ytp-ad-simple-ad-badge, .ytp-ad-player-overlay, .ytp-ad-module'
-        )
-      );
+      // 1. Programmatically click skip buttons if visible
+      const skipSelectors = [
+        '.ytp-skip-ad-button',
+        '.ytp-ad-skip-button',
+        '.ytp-ad-skip-button-modern',
+        '.ytp-ad-skip-button-slot button',
+        'button.ytp-ad-skip-button-text',
+        '.ytp-ad-skip-button-container button'
+      ];
+      let skipClicked = false;
+      for (const sel of skipSelectors) {
+        const btn = document.querySelector(sel);
+        if (btn && typeof btn.click === 'function') {
+          btn.click();
+          skipClicked = true;
+          break;
+        }
+      }
 
-      if (isAdShowing || hasAdBadge) {
+      if (isAdShowing) {
         adSkipAttempts++;
 
-        // 1. Programmatically click skip buttons if visible
-        const skipSelectors = [
-          '.ytp-skip-ad-button',
-          '.ytp-ad-skip-button',
-          '.ytp-ad-skip-button-modern',
-          '.ytp-ad-skip-button-slot button',
-          'button.ytp-ad-skip-button-text',
-          '.ytp-ad-skip-button-container button'
-        ];
-        let skipClicked = false;
-        for (const sel of skipSelectors) {
-          const btn = document.querySelector(sel);
-          if (btn && typeof btn.click === 'function') {
-            btn.click();
-            skipClicked = true;
-            break;
-          }
+        // Fast-forward ad safely to avoid freezing the player
+        if (video && Number.isFinite(video.duration) && video.duration > 0 && video.duration < 180) {
+          try {
+            video.playbackRate = 16.0;
+            if (video.currentTime < video.duration - 0.2) {
+              video.currentTime = Math.max(0, video.duration - 0.1);
+            }
+          } catch {}
         }
 
-        if (video) {
-          // Temporarily mute during active ad playback only if not already muted by user
-          if (!video.muted && !wasMutedByExtension) {
-            wasMutedByExtension = true;
-            video.muted = true;
-          }
-
-          // If ad is short or has ad badge, fast-forward safely to avoid freezing the player
-          if (Number.isFinite(video.duration) && video.duration > 0 && video.duration < 180) {
-            try {
-              video.playbackRate = 16.0;
-              // Avoid exact duration which can hang YouTube's state machine; seek to near-end
-              if (video.currentTime < video.duration - 0.2) {
-                video.currentTime = Math.max(0, video.duration - 0.1);
-              }
-            } catch {}
-          }
-        }
-
-        // If ad skip was clicked or video reached near end, or ad has lingered > 3s, clear ad classes immediately
+        // If ad skip was clicked or ad reached near end, or ad has lingered > 2s, clear ad classes immediately
         if (
           skipClicked ||
           (video && Number.isFinite(video.duration) && video.currentTime >= video.duration - 0.5) ||
-          adSkipAttempts >= 6
+          adSkipAttempts >= 4
         ) {
           player.classList.remove('ad-showing', 'ad-interrupting');
           adSkipAttempts = 0;
-          if (wasMutedByExtension && video) {
-            video.muted = false;
-            try {
-              video.playbackRate = 1.0;
-            } catch {}
-            wasMutedByExtension = false;
-          }
-        }
-      } else {
-        adSkipAttempts = 0;
-        // Restore sound and normal playback speed if muted by extension
-        if (wasMutedByExtension) {
           if (video) {
-            video.muted = false;
             try {
               video.playbackRate = 1.0;
             } catch {}
           }
           wasMutedByExtension = false;
         }
+      } else {
+        adSkipAttempts = 0;
+        if (video && video.playbackRate === 16.0) {
+          try {
+            video.playbackRate = 1.0;
+          } catch {}
+        }
+        wasMutedByExtension = false;
       }
     } catch {}
   }
@@ -385,10 +376,7 @@
       .ytp-progress-bar-container,
       .ytp-progress-bar,
       .ytp-progress-bar * {
-        opacity: 1 !important;
         pointer-events: auto !important;
-        visibility: visible !important;
-        cursor: pointer !important;
       }
 
       /* Protect YouTube HTML5 video element interactivity */

@@ -372,19 +372,11 @@
                   if (el.tagName === 'A') {
                     el.removeAttribute('href');
                     el.removeAttribute('target');
-                    el.onclick = (ev) => {
-                      ev.preventDefault();
-                      ev.stopPropagation();
-                    };
                   }
                   const innerLinks = el.querySelectorAll('a[href]');
                   for (let l = 0; l < innerLinks.length; l++) {
                     innerLinks[l].removeAttribute('href');
                     innerLinks[l].removeAttribute('target');
-                    innerLinks[l].onclick = (ev) => {
-                      ev.preventDefault();
-                      ev.stopPropagation();
-                    };
                   }
                 }
               }
