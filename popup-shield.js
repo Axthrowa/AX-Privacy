@@ -87,11 +87,68 @@ function isVignetteCandidate(el) {
 
 // Track synchronous trusted user intents
 let lastTrustedIntent = null; // { host: string, root: string, href: string, exp: number }
-let lastTrustedLink = null; // { time: number, origin: string, href: string }
+let lastTrustedLink = null; // { time: number, origin: string, root: string, href: string }
 let trustedClickUntil = 0;
 
-function hasTrustedClick() {
-  return Date.now() <= trustedClickUntil;
+function hasTrustedClick(targetUrl = '') {
+  const now = Date.now();
+  if (now > trustedClickUntil) return false;
+
+  // If no targetUrl or about:blank, verify we have a valid trusted link or intent
+  if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
+    return Boolean(
+      (lastTrustedIntent && lastTrustedIntent.exp > now) ||
+      (lastTrustedLink && now - lastTrustedLink.time <= 2500)
+    );
+  }
+
+  try {
+    const resolved = new URL(
+      targetUrl,
+      typeof window !== 'undefined' && window.location ? window.location.href : 'http://localhost'
+    );
+    const targetHost = resolved.hostname.toLowerCase();
+    const targetRoot = getRootDomain(targetHost);
+
+    // If target has the same root domain as the current page, it's allowed
+    if (typeof window !== 'undefined' && window.location) {
+      const curRoot = getRootDomain(window.location.hostname);
+      if (curRoot && targetRoot && curRoot === targetRoot) {
+        return true;
+      }
+    }
+
+    // Check if target matches lastTrustedLink
+    if (lastTrustedLink && now - lastTrustedLink.time <= 2500) {
+      const linkRoot =
+        lastTrustedLink.root ||
+        getRootDomain(
+          new URL(
+            lastTrustedLink.href,
+            typeof window !== 'undefined' && window.location ? window.location.href : 'http://localhost'
+          ).hostname
+        );
+      if (linkRoot && targetRoot && linkRoot === targetRoot) {
+        return true;
+      }
+      if (
+        lastTrustedLink.href === targetUrl ||
+        (lastTrustedLink.origin && lastTrustedLink.origin === resolved.origin.toLowerCase())
+      ) {
+        return true;
+      }
+    }
+
+    // Check if target matches lastTrustedIntent
+    if (lastTrustedIntent && lastTrustedIntent.exp > now) {
+      const intentRoot = lastTrustedIntent.root || getRootDomain(lastTrustedIntent.host || '');
+      if (intentRoot && targetRoot && intentRoot === targetRoot) {
+        return true;
+      }
+    }
+  } catch {}
+
+  return false;
 }
 
 function setTrustedIntent(targetUrl) {
@@ -324,7 +381,7 @@ function isAllowedDestination(targetUrl) {
   }
 
   if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
-    if (hasTrustedIntent(targetUrl) || hasTrustedClick()) {
+    if (hasTrustedIntent(targetUrl) || hasTrustedClick(targetUrl)) {
       return true;
     }
     return false;
@@ -374,8 +431,8 @@ function isAllowedDestination(targetUrl) {
       return true;
     }
 
-    // Check if user recently performed a trusted interaction / click
-    if (hasTrustedClick()) {
+    // Check if user recently performed a trusted interaction / click matching this destination
+    if (hasTrustedClick(targetUrl)) {
       return true;
     }
 
@@ -411,7 +468,7 @@ function isAllowedNavigation(targetUrl) {
   }
 
   if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
-    return hasTrustedIntent(targetUrl) || hasTrustedClick();
+    return hasTrustedIntent(targetUrl) || hasTrustedClick(targetUrl);
   }
 
   try {
@@ -438,8 +495,33 @@ function isAllowedNavigation(targetUrl) {
       return true;
     }
 
-    // 3. User genuinely clicked a link with navigation/new-tab intent or recent trusted click (within 2500ms)
-    if (hasTrustedIntent(targetUrl) || hasTrustedClick()) {
+    // 3. Legitimate auth/payment callbacks
+    const isAuthHost = TRUSTED_AUTH_HOSTS.some(
+      (h) => targetHost === h || targetHost.endsWith('.' + h) || targetRoot === h
+    );
+    if (
+      isAuthHost ||
+      targetHost.includes('oauth') ||
+      targetHost.includes('3dsecure') ||
+      targetHost.includes('3d-secure') ||
+      targetHost.includes('banka') ||
+      targetHost.includes('odeme')
+    ) {
+      return true;
+    }
+
+    const fullPath = (resolved.pathname + resolved.search).toLowerCase();
+    if (
+      fullPath.includes('/oauth') ||
+      fullPath.includes('/3dsecure') ||
+      fullPath.includes('/3d-secure') ||
+      fullPath.includes('response_type=code')
+    ) {
+      return true;
+    }
+
+    // 4. User genuinely clicked a link with navigation/new-tab intent matching this destination
+    if (hasTrustedIntent(targetUrl) || hasTrustedClick(targetUrl)) {
       return true;
     }
 
@@ -451,17 +533,6 @@ function isAllowedNavigation(targetUrl) {
       ) {
         return true;
       }
-    }
-
-    // 4. Legitimate auth/payment callbacks
-    const fullPath = (resolved.pathname + resolved.search).toLowerCase();
-    if (
-      fullPath.includes('/oauth') ||
-      fullPath.includes('/3dsecure') ||
-      fullPath.includes('/3d-secure') ||
-      fullPath.includes('response_type=code')
-    ) {
-      return true;
     }
 
     // Otherwise, unsolicited external redirect (e.g. anti-devtools jumping to google.com/bing.com) is blocked!
@@ -748,7 +819,6 @@ function isDevToolsKey(e) {
 
   function onUserPointer(e) {
     if (!e || e.isTrusted !== true) return;
-    trustedClickUntil = Date.now() + 2500;
     try {
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
@@ -794,6 +864,11 @@ function isDevToolsKey(e) {
             const hasContent = (rect.width > 0 && rect.height > 0) || textLen > 0 || hasMedia;
 
             if (hasContent && isVisible && opacity >= 0.15) {
+              const u = new URL(href, window.location.href);
+              const host = u.hostname.toLowerCase();
+              const root = getRootDomain(host);
+
+              trustedClickUntil = Date.now() + 2500;
               const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
               const isNewTabIntent = targetAttr === '_blank' || e.button === 1 || e.ctrlKey || e.metaKey;
               if (isNewTabIntent) {
@@ -801,8 +876,9 @@ function isDevToolsKey(e) {
               }
               lastTrustedLink = {
                 time: Date.now(),
-                origin: new URL(href, window.location.href).origin.toLowerCase(),
-                href: href
+                origin: u.origin.toLowerCase(),
+                root,
+                href
               };
               return;
             }
@@ -813,15 +889,13 @@ function isDevToolsKey(e) {
       // Any click on document space or background that is not a visible anchor
       lastTrustedIntent = null;
       lastTrustedLink = null;
+      trustedClickUntil = 0;
     } catch {}
   }
 
   // Intercept instantaneous transparent <a> traps injected on mousedown/pointerdown
   function onCaptureClickOrUp(e) {
     try {
-      if (e && e.isTrusted === true) {
-        trustedClickUntil = Date.now() + 2500;
-      }
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
 
@@ -865,26 +939,37 @@ function isDevToolsKey(e) {
         if (anchor && anchor.href) {
           const href = anchor.href.trim();
           if (href.startsWith('http://') || href.startsWith('https://')) {
-            const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
-            const isNewTabIntent = targetAttr === '_blank' || e.button === 1 || e.ctrlKey || e.metaKey;
-            if (isNewTabIntent) {
-              let rect = anchor.getBoundingClientRect();
-              if ((rect.width <= 0 || rect.height <= 0) && target.getBoundingClientRect) {
-                rect = target.getBoundingClientRect();
-              }
-              let style;
-              try {
-                style = window.getComputedStyle(anchor);
-              } catch {}
-              const opacity = style ? parseFloat(style.opacity) : 1;
-              const isVisible = style ? style.display !== 'none' && style.visibility !== 'hidden' : true;
-              const textLen = (anchor.innerText || '').trim().length;
-              const hasMedia = Boolean(anchor.querySelector('img, svg, canvas, video'));
-              const hasContent = (rect.width > 0 && rect.height > 0) || textLen > 0 || hasMedia;
+            let rect = anchor.getBoundingClientRect();
+            if ((rect.width <= 0 || rect.height <= 0) && target.getBoundingClientRect) {
+              rect = target.getBoundingClientRect();
+            }
+            let style;
+            try {
+              style = window.getComputedStyle(anchor);
+            } catch {}
+            const opacity = style ? parseFloat(style.opacity) : 1;
+            const isVisible = style ? style.display !== 'none' && style.visibility !== 'hidden' : true;
+            const textLen = (anchor.innerText || '').trim().length;
+            const hasMedia = Boolean(anchor.querySelector('img, svg, canvas, video'));
+            const hasContent = (rect.width > 0 && rect.height > 0) || textLen > 0 || hasMedia;
 
-              if (hasContent && isVisible && opacity >= 0.15) {
+            if (hasContent && isVisible && opacity >= 0.15) {
+              const u = new URL(href, window.location.href);
+              const host = u.hostname.toLowerCase();
+              const root = getRootDomain(host);
+
+              trustedClickUntil = Date.now() + 2500;
+              const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
+              const isNewTabIntent = targetAttr === '_blank' || e.button === 1 || e.ctrlKey || e.metaKey;
+              if (isNewTabIntent) {
                 setTrustedIntent(href);
               }
+              lastTrustedLink = {
+                time: Date.now(),
+                origin: u.origin.toLowerCase(),
+                root,
+                href
+              };
             }
           }
         }
@@ -1087,6 +1172,27 @@ function isDevToolsKey(e) {
             }
           } catch {}
           return nativeWinOpen.apply(this, arguments);
+        };
+      }
+
+      // 1b. Wrap win.close to prevent malicious scripts from closing the user's active/main tab
+      if (typeof win.close === 'function') {
+        const nativeWinClose = win.close;
+        win.close = function () {
+          try {
+            if (typeof window !== 'undefined' && window.sessionStorage?.getItem('ax_privacy_popup_shield') === 'disabled') {
+              return nativeWinClose.apply(this, arguments);
+            }
+            // Protect main tabs or tabs with navigation history
+            const hasHistory = Boolean(win.history && win.history.length > 1);
+            const isMainTab = Boolean(!win.opener || win.opener === win);
+            if (hasHistory || isMainTab) {
+              console.info('[AX-Shield] İzinsiz window.close engellendi');
+              reportBlocked(win.location?.href || '', 'window.close');
+              return;
+            }
+          } catch {}
+          return nativeWinClose.apply(this, arguments);
         };
       }
 
@@ -1499,6 +1605,25 @@ function isDevToolsKey(e) {
 
   // Anti-DevTools & Right-Click Protector (Defeats site-level inspection & contextmenu blocks)
   try {
+    window.addEventListener(
+      'beforeunload',
+      (e) => {
+        try {
+          if (typeof window !== 'undefined' && window.sessionStorage?.getItem('ax_privacy_popup_shield') === 'disabled') {
+            return;
+          }
+          const hasRealLinkClick =
+            Boolean(lastTrustedIntent && lastTrustedIntent.exp > Date.now()) ||
+            Boolean(lastTrustedLink && Date.now() - lastTrustedLink.time <= 2500);
+          if (!hasRealLinkClick) {
+            e.preventDefault();
+            e.returnValue = '';
+          }
+        } catch {}
+      },
+      true
+    );
+
     window.addEventListener(
       'keydown',
       (e) => {

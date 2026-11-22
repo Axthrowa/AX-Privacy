@@ -60,6 +60,8 @@ const {
   getRootDomain,
   isVignetteCandidate,
   shouldBlockNewTab,
+  shouldBlockTabNavigation,
+  lastKnownTabUrls,
   recordTrustedIntent,
   hasValidTrustedIntent,
   evaluateUrlThreat,
@@ -103,7 +105,9 @@ const mockWindow = {
     setItem: (k, v) => mockSessionStorage.set(k, String(v)),
     removeItem: (k) => mockSessionStorage.delete(k)
   },
+  history: { length: 2 },
   name: '',
+  close: () => {},
   addEventListener: () => {},
   postMessage: () => {}
 };
@@ -918,6 +922,70 @@ runTest('popup-shield hasTrustedClick allows about:blank and legitimate destinat
     shieldIsAllowedDestination('https://twitch.tv/'),
     true
   );
+});
+
+console.log('\n[Group 13: Netprime Unrequested Redirect & Close Protection (v3.3.3)]');
+
+runTest('Unrequested redirect to google.com on netprime without <a href> link click is BLOCKED', () => {
+  const result = shouldBlockTabNavigation({
+    previousUrl: 'https://netprime.me/watch?v=123',
+    newUrl: 'https://google.com/',
+    tabId: 10,
+    whitelist: [],
+    popupShield: true,
+    userClickedNavMap: new Map() // Empty, no <a> click
+  });
+  assert.strictEqual(result.block, true);
+  assert.strictEqual(result.reason, 'unsolicited_cross_site_redirect');
+});
+
+runTest('Verified <a href="https://example.com"> click allows navigation to example.com', () => {
+  const clicks = new Map();
+  clicks.set(10, {
+    timestamp: Date.now() - 300,
+    targetHost: 'example.com',
+    targetRoot: 'example.com',
+    href: 'https://example.com/movie'
+  });
+
+  const result = shouldBlockTabNavigation({
+    previousUrl: 'https://netprime.me/watch?v=123',
+    newUrl: 'https://example.com/movie',
+    tabId: 10,
+    whitelist: [],
+    popupShield: true,
+    userClickedNavMap: clicks
+  });
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'user_clicked_link');
+});
+
+runTest('Blank space / video click on netprime does NOT permit unprompted pop-up to google.com', () => {
+  const interactions = new Map();
+  const result = shouldBlockNewTab({
+    openerTabId: 50,
+    openerUrl: 'https://netprime.me/watch',
+    tabUrl: 'https://google.com/',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true,
+    interactionsStore: interactions
+  });
+  assert.strictEqual(result.block, true);
+  assert.strictEqual(result.reason, 'unsolicited_cross_site_tab');
+});
+
+runTest('popup-shield blocks location redirect to google.com without trusted link click', () => {
+  shieldSetTrustedIntent(null);
+  fullVmContext.trustedClickUntil = 0;
+
+  assert.strictEqual(shieldIsAllowedNavigation('https://google.com'), false);
+  assert.strictEqual(shieldIsAllowedDestination('https://google.com'), false);
+});
+
+runTest('popup-shield intercepts unauthorized window.close on tabs with history', () => {
+  assert.strictEqual(typeof fullVmContext.window.close, 'function');
+  assert.doesNotThrow(() => fullVmContext.window.close());
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);

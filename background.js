@@ -1309,21 +1309,47 @@ const trustedIntents = new Map();
 // Track recent user new-tab clicks (middle-click, ctrl-click, target=_blank) per openerTabId
 const lastUserNewTabClicks = new Map(); // openerTabId -> { timestamp: number, targetHost: string, targetRoot: string, href: string, isMiddleClick: boolean }
 
-// Track recent trusted user interactions per tabId (within 3000ms)
-const lastUserInteractionMap = new Map(); // tabId -> timestamp
+// Track confirmed current URLs per tab to intercept unrequested top-level redirects
+const lastKnownTabUrls = new Map(); // tabId -> { url: string, rootDomain: string, timestamp: number }
 
-function recordUserInteraction(tabId, timestamp = Date.now()) {
+// Track recent trusted user interactions per tabId (within 3000ms)
+const lastUserInteractionMap = new Map(); // tabId -> { timestamp: number, targetHost: string, targetRoot: string, sourceHost: string }
+
+function recordUserInteraction(tabId, data = Date.now()) {
   if (!tabId || typeof tabId !== 'number') return;
-  lastUserInteractionMap.set(tabId, timestamp);
+  const entry =
+    typeof data === 'number'
+      ? { timestamp: data, targetHost: '', targetRoot: '' }
+      : {
+          timestamp: data?.timestamp || Date.now(),
+          targetHost: (data?.targetHost || '').toLowerCase().trim(),
+          targetRoot: data?.targetRoot || (data?.targetHost ? getRootDomain(data.targetHost) : ''),
+          sourceHost: (data?.sourceHost || '').toLowerCase().trim()
+        };
+  lastUserInteractionMap.set(tabId, entry);
 }
 
-function hasRecentUserInteraction(tabId, store = lastUserInteractionMap, maxAgeMs = 3000) {
+function hasRecentUserInteraction(tabId, targetHost = '', store = lastUserInteractionMap, maxAgeMs = 3000) {
   if (!tabId || !store) return false;
   const now = Date.now();
   if (store.has(tabId)) {
-    const ts = store.get(tabId);
-    if (now - ts <= maxAgeMs) {
-      return true;
+    const raw = store.get(tabId);
+    const ts = typeof raw === 'number' ? raw : raw?.timestamp;
+    if (ts && now - ts <= maxAgeMs) {
+      if (typeof raw === 'object' && raw.targetRoot) {
+        if (!targetHost) return true;
+        const cleanTarget = targetHost.toLowerCase().trim();
+        const targetRoot = getRootDomain(cleanTarget);
+        if (
+          cleanTarget === raw.targetHost ||
+          cleanTarget.endsWith('.' + raw.targetHost) ||
+          (targetRoot && raw.targetRoot && targetRoot === raw.targetRoot)
+        ) {
+          return true;
+        }
+        return false;
+      }
+      return true; // Backward compatibility for legacy tests passing plain timestamp
     }
   }
   return false;
@@ -1344,8 +1370,9 @@ function cleanStaleTrustedIntents(store = trustedIntents) {
       lastUserNewTabClicks.delete(tabId);
     }
   }
-  for (const [tabId, ts] of lastUserInteractionMap.entries()) {
-    if (now - ts > 4000) {
+  for (const [tabId, data] of lastUserInteractionMap.entries()) {
+    const ts = typeof data === 'number' ? data : data?.timestamp;
+    if (!ts || now - ts > 4000) {
       lastUserInteractionMap.delete(tabId);
     }
   }
@@ -1522,8 +1549,6 @@ const POPUNDER_AD_NETWORKS = [
 
 const LEGITIMATE_HOST_WHITELIST = new Set([
   'github.com',
-  'google.com',
-  'www.google.com',
   'youtube.com',
   'www.youtube.com',
   'wikipedia.org',
@@ -1785,6 +1810,98 @@ function isVignetteCandidate(el) {
   return false;
 }
 
+function shouldBlockTabNavigation({
+  previousUrl = '',
+  newUrl = '',
+  tabId = 0,
+  whitelist = [],
+  popupShield = true,
+  userClickedNavMap = lastUserNewTabClicks
+}) {
+  if (!popupShield) {
+    return { block: false, reason: 'shield_disabled' };
+  }
+  if (!previousUrl || !newUrl) {
+    return { block: false, reason: 'missing_url' };
+  }
+
+  const prevTrimmed = previousUrl.trim();
+  const newTrimmed = newUrl.trim();
+
+  // Only handle http / https navigations
+  if (!prevTrimmed.startsWith('http://') && !prevTrimmed.startsWith('https://')) {
+    return { block: false, reason: 'non_http_previous' };
+  }
+  if (!newTrimmed.startsWith('http://') && !newTrimmed.startsWith('https://')) {
+    return { block: false, reason: 'non_http_new' };
+  }
+
+  let prevHost = '';
+  let newHost = '';
+  try {
+    prevHost = new URL(prevTrimmed).hostname.toLowerCase();
+    newHost = new URL(newTrimmed).hostname.toLowerCase();
+  } catch {
+    return { block: false, reason: 'invalid_url' };
+  }
+
+  const prevRoot = getRootDomain(prevHost);
+  const newRoot = getRootDomain(newHost);
+
+  // 1. Same root domain navigation is legitimate (e.g. netprime.me/movie -> netprime.me/watch)
+  if (prevRoot && newRoot && prevRoot === newRoot) {
+    return { block: false, reason: 'same_site' };
+  }
+
+  // 2. User whitelisted domains
+  if (
+    whitelist.some(
+      (w) => prevHost === w || prevHost.endsWith('.' + w) || newHost === w || newHost.endsWith('.' + w)
+    )
+  ) {
+    return { block: false, reason: 'whitelisted' };
+  }
+
+  // 3. Search engines and feed openers legitimately navigate to outbound links
+  if (isTrustedFeedOpener(prevHost)) {
+    return { block: false, reason: 'trusted_feed_opener' };
+  }
+
+  // 4. Legitimate authentication or payment flows are allowed
+  const isAuthOrPayment =
+    TRUSTED_AUTH_PAYMENT_DOMAINS.some(
+      (d) => newHost === d || newHost.endsWith('.' + d) || newRoot === d
+    ) ||
+    newHost.includes('oauth') ||
+    newHost.includes('3dsecure') ||
+    newHost.includes('3d-secure') ||
+    newHost.includes('banka') ||
+    newHost.includes('odeme');
+
+  if (isAuthOrPayment) {
+    return { block: false, reason: 'auth_or_payment' };
+  }
+
+  // 5. Check if user clicked an <a href> link targeting this destination within the last 3000ms
+  const now = Date.now();
+  if (userClickedNavMap && tabId && userClickedNavMap.has(tabId)) {
+    const click = userClickedNavMap.get(tabId);
+    if (click && now - click.timestamp <= 3000) {
+      const clickRoot = click.targetRoot || getRootDomain(click.targetHost || '');
+      if (
+        click.targetHost === newHost ||
+        newHost.endsWith('.' + click.targetHost) ||
+        (clickRoot && newRoot && clickRoot === newRoot)
+      ) {
+        return { block: false, reason: 'user_clicked_link' };
+      }
+    }
+  }
+
+  // Unsolicited cross-site redirect (e.g. netprime.me redirecting tab to google.com or ad network)
+  return { block: true, reason: 'unsolicited_cross_site_redirect' };
+}
+
 function shouldBlockNewTab({
   openerTabId,
   openerUrl = '',
@@ -1862,19 +1979,23 @@ function shouldBlockNewTab({
   }
 
   // Global platform whitelist (Google, GitHub, etc.)
-  if (LEGITIMATE_HOST_WHITELIST.has(targetRoot) || LEGITIMATE_HOST_WHITELIST.has(targetHost)) {
+  // Note: unprompted pop-ups to google.com are NOT allowed without user intent
+  if (
+    (LEGITIMATE_HOST_WHITELIST.has(targetRoot) || LEGITIMATE_HOST_WHITELIST.has(targetHost)) &&
+    targetRoot !== 'google.com'
+  ) {
     return { block: false, reason: 'legitimate_platform_whitelist' };
   }
 
-  // Check recent trusted user interaction in opener tab (within 3000ms)
-  const hasRecentTrustedAction = hasRecentUserInteraction(openerTabId, interactionsStore, 3000);
+  // Check recent trusted user interaction in opener tab (within 3000ms) specifically for this target
+  const hasRecentTrustedAction = hasRecentUserInteraction(openerTabId, targetHost, interactionsStore, 3000);
 
   // Known pop-under / malvertising signatures are blocked immediately
   if (isPopunderAdUrl(trimmedTab, openerHost)) {
     return { block: true, reason: 'known_popunder_ad_signature' };
   }
 
-  // If user interacted recently on the opener tab, preserve the tab!
+  // If user interacted recently on the opener tab specifically targeting this domain, preserve the tab!
   if (hasRecentTrustedAction) {
     return { block: false, reason: 'recent_user_interaction' };
   }
@@ -2031,7 +2152,14 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated?.addListener) {
       resetTabBadgeToDefault(tabId);
     }
     const urlToCheck = changeInfo.url || tab?.url;
-    if (urlToCheck) {
+    if (urlToCheck && (urlToCheck.startsWith('http://') || urlToCheck.startsWith('https://'))) {
+      try {
+        lastKnownTabUrls.set(tabId, {
+          url: urlToCheck,
+          rootDomain: getRootDomain(new URL(urlToCheck).hostname),
+          timestamp: Date.now()
+        });
+      } catch {}
       analyzeTab(tabId, urlToCheck);
     }
     if (monitoredTabs.has(tabId) && urlToCheck && urlToCheck !== 'about:blank') {
@@ -2047,18 +2175,56 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated?.addListener) {
 
 // Ultra-early navigation interception (fires before page response or DOM initialization)
 if (typeof chrome !== 'undefined' && chrome.webNavigation?.onBeforeNavigate?.addListener) {
-  chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+  chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     try {
       if (details && details.frameId === 0 && details.tabId && details.url && details.url !== 'about:blank') {
         tabBlockedCounts.delete(details.tabId);
         resetTabBadgeToDefault(details.tabId);
+
         if (monitoredTabs.has(details.tabId)) {
           const data = monitoredTabs.get(details.tabId);
           if (Date.now() - data.createdAt <= 1200) {
             checkAndNeutralizeTab(details.tabId, details.url, data.openerTabId);
+            return;
           } else {
             monitoredTabs.delete(details.tabId);
           }
+        }
+
+        // Check for unsolicited main-tab redirection (e.g. netprime.me -> google.com)
+        const previousData = lastKnownTabUrls.get(details.tabId);
+        if (previousData && previousData.url) {
+          const { popupShield = true, whitelist = [] } =
+            await chrome.storage.local.get(['popupShield', 'whitelist']).catch(() => ({}));
+
+          const navDecision = shouldBlockTabNavigation({
+            previousUrl: previousData.url,
+            newUrl: details.url,
+            tabId: details.tabId,
+            whitelist,
+            popupShield,
+            userClickedNavMap: lastUserNewTabClicks
+          });
+
+          if (navDecision.block) {
+            console.warn(
+              `[AX-Background] İzinsiz ana sekme yönlendirmesi engellendi (${details.tabId}, reason: ${navDecision.reason}):`,
+              `${previousData.url} -> ${details.url}`
+            );
+            await chrome.tabs.update(details.tabId, { url: previousData.url }).catch(() => {});
+            return;
+          }
+        }
+
+        // Update known URL for this tab
+        if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+          try {
+            lastKnownTabUrls.set(details.tabId, {
+              url: details.url,
+              rootDomain: getRootDomain(new URL(details.url).hostname),
+              timestamp: Date.now()
+            });
+          } catch {}
         }
       }
     } catch (err) {
@@ -2072,7 +2238,14 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onActivated?.addListener) {
     try {
       monitoredTabs.delete(activeInfo.tabId);
       const tab = await chrome.tabs.get(activeInfo.tabId);
-      if (tab?.url) {
+      if (tab?.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+        try {
+          lastKnownTabUrls.set(activeInfo.tabId, {
+            url: tab.url,
+            rootDomain: getRootDomain(new URL(tab.url).hostname),
+            timestamp: Date.now()
+          });
+        } catch {}
         analyzeTab(activeInfo.tabId, tab.url);
       }
     } catch {}
@@ -2087,6 +2260,7 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
     trustedIntents.delete(tabId);
     lastUserNewTabClicks.delete(tabId);
     lastUserInteractionMap.delete(tabId);
+    lastKnownTabUrls.delete(tabId);
     await clearTabAlerted(tabId);
   });
 }
@@ -2429,23 +2603,25 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
     }
 
     if (message.type === 'AX_USER_INTERACTION') {
-      const tabId = sender.tab?.id;
-      if (tabId) {
-        recordUserInteraction(tabId, message.ts || Date.now());
-        sendResponse({ success: true });
-      } else {
-        sendResponse({ success: false });
-      }
+      sendResponse({ success: true });
       return false;
     }
 
-    if (message.type === 'AX_TRUSTED_NEW_TAB') {
-      const openerTabId = sender.tab?.id;
-      if (openerTabId && message.targetHost) {
-        recordUserInteraction(openerTabId, message.ts || Date.now());
-        recordTrustedIntent(openerTabId, message.targetHost, message.href, trustedIntents, {
+    if (message.type === 'AX_TRUSTED_NEW_TAB' || message.type === 'AX_TRUSTED_NAV') {
+      const tabId = sender.tab?.id;
+      if (tabId && message.targetHost) {
+        const cleanHost = message.targetHost.toLowerCase().trim();
+        const targetRoot = getRootDomain(cleanHost);
+        recordUserInteraction(tabId, {
+          timestamp: message.ts || Date.now(),
+          targetHost: cleanHost,
+          targetRoot,
+          sourceHost: message.sourceHost || ''
+        });
+        recordTrustedIntent(tabId, message.targetHost, message.href, trustedIntents, {
           isMiddleClick: message.isMiddleClick,
-          button: message.button
+          button: message.button,
+          sourceHost: message.sourceHost || ''
         });
         sendResponse({ success: true });
       } else {
@@ -2481,6 +2657,8 @@ export {
   isVignetteCandidate,
   evaluateUrlThreat,
   shouldBlockNewTab,
+  shouldBlockTabNavigation,
+  lastKnownTabUrls,
   recordTrustedIntent,
   hasValidTrustedIntent,
   lastUserNewTabClicks,

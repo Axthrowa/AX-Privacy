@@ -889,20 +889,9 @@
     }
   } catch {}
 
-  let lastUserInteractionSent = 0;
   function handleTrustedNewTabIntent(e) {
     if (!e || e.isTrusted !== true) return;
     try {
-      const now = Date.now();
-      if (now - lastUserInteractionSent > 200) {
-        lastUserInteractionSent = now;
-        chrome.runtime.sendMessage({
-          type: 'AX_USER_INTERACTION',
-          sourceHost: window.location.hostname,
-          ts: now
-        }).catch(() => {});
-      }
-
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
 
@@ -912,13 +901,11 @@
       const href = anchor.href.trim();
       if (!href.startsWith('http://') && !href.startsWith('https://')) return;
 
-      // Check intent to open a new tab
+      // Check intent to open a new tab vs same-tab navigation
       const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
       const isMiddleClick = e.button === 1;
       const hasModifier = Boolean(e.ctrlKey || e.metaKey);
       const isNewTabIntent = targetAttr === '_blank' || isMiddleClick || hasModifier;
-
-      if (!isNewTabIntent) return;
 
       // Physical visibility & dimension check (supports inline elements and display: contents)
       let rect = anchor.getBoundingClientRect();
@@ -965,13 +952,15 @@
         return;
       }
 
+      const now = Date.now();
       chrome.runtime.sendMessage({
-        type: 'AX_TRUSTED_NEW_TAB',
+        type: isNewTabIntent ? 'AX_TRUSTED_NEW_TAB' : 'AX_TRUSTED_NAV',
         targetHost,
         sourceHost: window.location.hostname,
         href,
         button: e.button,
         isMiddleClick,
+        isNewTabIntent,
         time: now,
         ts: now
       }).catch(() => {});

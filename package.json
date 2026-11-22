@@ -1,6 +1,6 @@
 {
   "name": "ax-privacy",
-  "version": "3.3.2",
+  "version": "3.3.3",
   "description": "Gelişmiş reklam engelleme, URL izleyici temizleyici, yerel tehdit kalkanı, pop-up kalkanı, anti-vignette ve kırılmaz pop-under engelleyicisi.",
   "private": true,
   "license": "GPL-3.0-or-later",
