@@ -1297,7 +1297,7 @@ const monitoredTabs = new Map();
 function cleanStaleMonitoredTabs() {
   const now = Date.now();
   for (const [id, data] of monitoredTabs.entries()) {
-    if (now - data.createdAt > 1200) {
+    if (now - data.createdAt > 4500) {
       monitoredTabs.delete(id);
     }
   }
@@ -1369,7 +1369,7 @@ function cleanStaleTrustedIntents(store = trustedIntents) {
     }
   }
   for (const [tabId, clickData] of lastUserNewTabClicks.entries()) {
-    if (now - clickData.timestamp > 4000) {
+    if (now - clickData.timestamp > 4500) {
       lastUserNewTabClicks.delete(tabId);
     }
   }
@@ -1380,7 +1380,7 @@ function cleanStaleTrustedIntents(store = trustedIntents) {
   }
   for (const [tabId, data] of lastUserInteractionMap.entries()) {
     const ts = typeof data === 'number' ? data : data?.timestamp;
-    if (!ts || now - ts > 4000) {
+    if (!ts || now - ts > 4500) {
       lastUserInteractionMap.delete(tabId);
     }
   }
@@ -2042,10 +2042,10 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
       return;
     }
 
-    // Never close tabs older than 1200ms
+    // Never close tabs older than 4500ms
     if (monitoredTabs.has(tabId)) {
       const data = monitoredTabs.get(tabId);
-      if (Date.now() - data.createdAt > 1200) {
+      if (Date.now() - data.createdAt > 4500) {
         monitoredTabs.delete(tabId);
         return;
       }
@@ -2232,7 +2232,7 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated?.addListener) {
     }
     if (monitoredTabs.has(tabId) && urlToCheck && urlToCheck !== 'about:blank') {
       const data = monitoredTabs.get(tabId);
-      if (Date.now() - data.createdAt <= 1200) {
+      if (Date.now() - data.createdAt <= 4500) {
         checkAndNeutralizeTab(tabId, urlToCheck, data.openerTabId);
       } else {
         monitoredTabs.delete(tabId);
@@ -2251,7 +2251,7 @@ if (typeof chrome !== 'undefined' && chrome.webNavigation?.onBeforeNavigate?.add
 
         if (monitoredTabs.has(details.tabId)) {
           const data = monitoredTabs.get(details.tabId);
-          if (Date.now() - data.createdAt <= 1200) {
+          if (Date.now() - data.createdAt <= 4500) {
             checkAndNeutralizeTab(details.tabId, details.url, data.openerTabId);
             return;
           } else {

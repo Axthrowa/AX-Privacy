@@ -356,11 +356,8 @@ const TRUSTED_AUTH_HOSTS = [
   'github.com',
   'gitlab.com',
   'discord.com',
-  'facebook.com',
-  'twitter.com',
-  'x.com',
-  'youtube.com',
   'twitch.tv',
+  'id.twitch.tv',
   'stripe.com',
   'checkout.stripe.com',
   'paypal.com',
@@ -380,11 +377,14 @@ function isAllowedDestination(targetUrl) {
     } catch {}
   }
 
+  const now = Date.now();
+
+  // 1. Empty or about:blank destinations: strictly require active new tab intent from recent link click
   if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
-    if (hasTrustedIntent(targetUrl) || hasTrustedClick(targetUrl)) {
-      return true;
-    }
-    return false;
+    return Boolean(
+      (lastTrustedIntent && lastTrustedIntent.exp > now) ||
+      (lastTrustedLink && now - lastTrustedLink.time <= 2500)
+    );
   }
 
   try {
@@ -394,24 +394,24 @@ function isAllowedDestination(targetUrl) {
     const targetOrigin = resolved.origin.toLowerCase();
     const targetHost = resolved.hostname.toLowerCase();
 
-    // Same-origin navigation or relative paths are always allowed
+    // 2. Same-origin navigation or relative paths are always allowed
     if (targetOrigin === currentOrigin) {
       return true;
     }
 
-    // Same root domain navigation is allowed
+    // 3. Same root domain navigation is allowed (e.g. netprime.me opening netprime.me/watch)
     const currentRoot = getRootDomain(window.location.hostname);
     const targetRoot = getRootDomain(targetHost);
     if (currentRoot && targetRoot && currentRoot === targetRoot) {
       return true;
     }
 
-    // Feeds, search engines and social platforms legitimately open user-clicked links
+    // 4. Feeds and search engines legitimately open user-clicked links
     if (isTrustedFeedOpener(window.location.hostname)) {
       return true;
     }
 
-    // Legitimate authentication, payment gateways, and banking portals
+    // 5. Legitimate authentication, payment gateways, and banking portals
     const isAuthHost = TRUSTED_AUTH_HOSTS.some(
       (h) => targetHost === h || targetHost.endsWith('.' + h) || targetRoot === h
     );
@@ -426,27 +426,32 @@ function isAllowedDestination(targetUrl) {
       return true;
     }
 
-    // Check synchronous user intent (set on user click with new tab intent)
-    if (hasTrustedIntent(targetUrl)) {
-      return true;
-    }
-
-    // Check if user recently performed a trusted interaction / click matching this destination
-    if (hasTrustedClick(targetUrl)) {
-      return true;
-    }
-
-    // Fallback: Check if user genuinely clicked a visible anchor to this target origin within 2500ms
-    if (lastTrustedLink && Date.now() - lastTrustedLink.time <= 2500) {
-      if (
-        lastTrustedLink.origin === targetOrigin ||
-        lastTrustedLink.href === targetUrl ||
-        getRootDomain(new URL(lastTrustedLink.href, window.location.href).hostname) === targetRoot
-      ) {
+    // 6. Cross-site window.open: ONLY allowed if user clicked a link matching target root domain within 2500ms
+    if (lastTrustedIntent && lastTrustedIntent.exp > now) {
+      const intentRoot = lastTrustedIntent.root || getRootDomain(lastTrustedIntent.host || '');
+      if (intentRoot && targetRoot && intentRoot === targetRoot) {
         return true;
       }
     }
 
+    if (lastTrustedLink && now - lastTrustedLink.time <= 2500) {
+      const linkRoot =
+        lastTrustedLink.root ||
+        getRootDomain(
+          new URL(
+            lastTrustedLink.href,
+            typeof window !== 'undefined' && window.location ? window.location.href : 'http://localhost'
+          ).hostname
+        );
+      if (linkRoot && targetRoot && linkRoot === targetRoot) {
+        return true;
+      }
+      if (lastTrustedLink.origin === targetOrigin || lastTrustedLink.href === targetUrl) {
+        return true;
+      }
+    }
+
+    // All other unsolicited cross-site window.open calls are strictly blocked!
     return false;
   } catch {
     return false;
@@ -863,6 +868,28 @@ function isDevToolsKey(e) {
             const hasMedia = Boolean(anchor.querySelector('img, svg, canvas, video'));
             const hasContent = (rect.width > 0 && rect.height > 0) || textLen > 0 || hasMedia;
 
+            // Strict popup trap filter: Never treat dynamically injected or player-clickjack links as trusted on left-click
+            const isPlainLeftClick = e.button === 0 && !e.ctrlKey && !e.metaKey;
+            const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
+            const isBlank = targetAttr === '_blank';
+            const isCross = isCrossSite(href);
+            const now = Date.now();
+            const isRecentlyAdded = recentLinks.has(anchor) && now - recentLinks.get(anchor) < 400;
+            const isPlayerOrBodyTrap = Boolean(
+              target.closest(
+                'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
+              ) ||
+              target === document.body ||
+              target === document.documentElement
+            );
+
+            if (isPlainLeftClick && isBlank && isCross && (isRecentlyAdded || isPlayerOrBodyTrap)) {
+              lastTrustedIntent = null;
+              lastTrustedLink = null;
+              trustedClickUntil = 0;
+              return;
+            }
+
             if (hasContent && isVisible && opacity >= 0.15) {
               const u = new URL(href, window.location.href);
               const host = u.hostname.toLowerCase();
@@ -936,9 +963,18 @@ function isDevToolsKey(e) {
         const parentAnchor = target.closest('a[href]');
         if (parentAnchor && isCrossSite(parentAnchor.href)) {
           // If a cross-site ad anchor wraps the video player, neutralize navigation without breaking player clicks
-          parentAnchor.removeAttribute('href');
-          parentAnchor.removeAttribute('target');
-          parentAnchor.setAttribute('data-ax-defused-trap', 'true');
+          const trapUrl = parentAnchor.href;
+          if (parentAnchor.removeAttribute) {
+            parentAnchor.removeAttribute('href');
+            parentAnchor.removeAttribute('target');
+          }
+          if (parentAnchor.setAttribute) {
+            parentAnchor.setAttribute('data-ax-defused-trap', 'true');
+          }
+          if (e.preventDefault) e.preventDefault();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          reportBlocked(trapUrl, 'video-wrap-ad-trap');
+          console.info('[AX-Popup] Video oynatıcısını saran izinsiz reklam linki engellendi:', trapUrl);
         }
         return;
       }
@@ -965,6 +1001,28 @@ function isDevToolsKey(e) {
             const textLen = (anchor.innerText || '').trim().length;
             const hasMedia = Boolean(anchor.querySelector('img, svg, canvas, video'));
             const hasContent = (rect.width > 0 && rect.height > 0) || textLen > 0 || hasMedia;
+
+            // Strict popup trap filter: Never treat dynamically injected or player-clickjack links as trusted on left-click
+            const isPlainLeftClick = e.button === 0 && !e.ctrlKey && !e.metaKey;
+            const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
+            const isBlank = targetAttr === '_blank';
+            const isCross = isCrossSite(href);
+            const now = Date.now();
+            const isRecentlyAdded = recentLinks.has(anchor) && now - recentLinks.get(anchor) < 400;
+            const isPlayerOrBodyTrap = Boolean(
+              target.closest(
+                'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
+              ) ||
+              target === document.body ||
+              target === document.documentElement
+            );
+
+            if (isPlainLeftClick && isBlank && isCross && (isRecentlyAdded || isPlayerOrBodyTrap)) {
+              lastTrustedIntent = null;
+              lastTrustedLink = null;
+              trustedClickUntil = 0;
+              return;
+            }
 
             if (hasContent && isVisible && opacity >= 0.15) {
               const u = new URL(href, window.location.href);
@@ -1023,6 +1081,28 @@ function isDevToolsKey(e) {
 
       let isTrap = false;
       const now = Date.now();
+
+      // Brave-style strict popup trap defense:
+      // If user performs a normal left-click on a cross-site target="_blank" link:
+      // Stop it if it was injected into the DOM within the last 400ms, or captured on body/player
+      const isPlainLeftClick = e.button === 0 && !e.ctrlKey && !e.metaKey;
+      const targetAttr = (anchor.getAttribute('target') || '').toLowerCase().trim();
+      const isBlank = targetAttr === '_blank';
+
+      if (isPlainLeftClick && isBlank) {
+        const isRecentlyAdded = recentLinks.has(anchor) && now - recentLinks.get(anchor) < 400;
+        const isPlayerOrBodyTrap = Boolean(
+          target.closest(
+            'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
+          ) ||
+          target === document.body ||
+          target === document.documentElement
+        );
+
+        if (isRecentlyAdded || isPlayerOrBodyTrap) {
+          isTrap = true;
+        }
+      }
 
       // Sign 1: Added to DOM within the last 600ms without visible text/media (mousedown injection trap)
       const textLen = (anchor.innerText || '').trim().length;
@@ -1171,6 +1251,7 @@ function isDevToolsKey(e) {
     if (!win || protectedWindows.has(win)) return;
     try {
       protectedWindows.add(win);
+      win.__axMarkAnchorNode = markAnchorNode;
 
       // 1. Wrap win.open
       if (typeof win.open === 'function') {

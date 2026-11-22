@@ -109,6 +109,7 @@ const mockWindow = {
   },
   history: { length: 2 },
   name: '',
+  open: () => ({}),
   close: () => {},
   addEventListener: (type, listener) => {
     registeredListeners.set(type, listener);
@@ -1113,6 +1114,122 @@ runTest('popup-shield preserves trustedClickUntil and intent on anchor middle cl
   const until = shieldGetTrustedClickUntil();
   assert.ok(until > Date.now() + 3000);
   assert.strictEqual(shieldHasTrustedClick('https://github.com/google'), true);
+});
+
+console.log('\n[Group 15: Brave-Style Strict Window.open & Pop-up Lock (v3.3.5)]');
+
+runTest('Unsolicited cross-site window.open is blocked and returns dummy window proxy', () => {
+  // Clear any leftover intent
+  shieldSetTrustedIntent(null);
+
+  assert.strictEqual(shieldIsAllowedDestination('https://netprime-ads.xyz/click'), false);
+  assert.strictEqual(shieldIsAllowedDestination('https://monetag-zone-12345.com/afu.php'), false);
+
+  const dummyWin = fullVmContext.window.open('https://netprime-ads.xyz/click', '_blank');
+  assert.ok(dummyWin, 'Dummy window object must be returned');
+  assert.strictEqual(typeof dummyWin.focus, 'function');
+  assert.strictEqual(dummyWin.closed, false);
+  dummyWin.close();
+  assert.strictEqual(dummyWin.closed, true);
+});
+
+runTest('window.open to empty or about:blank is blocked without active link intent', () => {
+  shieldSetTrustedIntent(null);
+  assert.strictEqual(shieldIsAllowedDestination(''), false);
+  assert.strictEqual(shieldIsAllowedDestination('about:blank'), false);
+});
+
+runTest('window.open to legitimate auth provider is allowed without prior click', () => {
+  assert.strictEqual(shieldIsAllowedDestination('https://accounts.google.com/o/oauth2/v2/auth'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://appleid.apple.com/auth/authorize'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://login.microsoftonline.com/common/oauth2'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://github.com/login/oauth/authorize'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://discord.com/oauth2/authorize'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://checkout.stripe.com/pay/cs_live'), true);
+  assert.strictEqual(shieldIsAllowedDestination('https://www.paypal.com/checkoutnow'), true);
+});
+
+runTest('Left-click on newly-added cross-site target="_blank" trap link is intercepted', () => {
+  const clickHandler = registeredListeners.get('click');
+  assert.strictEqual(typeof clickHandler, 'function');
+
+  let prevented = false;
+  let stopped = false;
+
+  const trapAnchor = {
+    nodeType: 1,
+    tagName: 'A',
+    href: 'https://monetag-ad-network.com/banner',
+    getAttribute: (attr) => (attr === 'target' ? '_blank' : null),
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    hasAttribute: () => false,
+    getBoundingClientRect: () => ({ width: 100, height: 100 }),
+    innerText: '',
+    querySelector: () => null
+  };
+
+  if (typeof fullVmContext.window.__axMarkAnchorNode === 'function') {
+    fullVmContext.window.__axMarkAnchorNode(trapAnchor);
+  }
+
+  const leftClickEvent = {
+    isTrusted: true,
+    button: 0,
+    ctrlKey: false,
+    metaKey: false,
+    preventDefault: () => {
+      prevented = true;
+    },
+    stopImmediatePropagation: () => {
+      stopped = true;
+    },
+    target: {
+      closest: (sel) => (sel === 'a[href]' ? trapAnchor : sel.includes('player') ? true : null),
+      matches: () => false
+    }
+  };
+
+  clickHandler(leftClickEvent);
+  assert.strictEqual(prevented, true, 'Left-click trap should be prevented');
+  assert.strictEqual(stopped, true, 'Left-click trap propagation should be stopped');
+});
+
+runTest('Middle-click (button === 1) on cross-site target="_blank" is NOT intercepted as a trap', () => {
+  const clickHandler = registeredListeners.get('click');
+  assert.strictEqual(typeof clickHandler, 'function');
+
+  let prevented = false;
+
+  const validAnchor = {
+    tagName: 'A',
+    href: 'https://news.ycombinator.com/item?id=123',
+    getAttribute: (attr) => (attr === 'target' ? '_blank' : null),
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    hasAttribute: () => false,
+    getBoundingClientRect: () => ({ width: 200, height: 30 }),
+    innerText: 'Discussion',
+    querySelector: () => null
+  };
+
+  const middleClickEvent = {
+    isTrusted: true,
+    button: 1,
+    ctrlKey: false,
+    metaKey: false,
+    preventDefault: () => {
+      prevented = true;
+    },
+    stopImmediatePropagation: () => {},
+    target: {
+      closest: (sel) => (sel === 'a[href]' ? validAnchor : null),
+      matches: () => false
+    }
+  };
+
+  clickHandler(middleClickEvent);
+  assert.strictEqual(prevented, false, 'Middle-click on legitimate link must NOT be prevented');
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);

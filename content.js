@@ -963,6 +963,25 @@
         if (!textLen && !hasMedia) return;
       }
 
+      // Brave-style strict popup trap defense in content.js:
+      const isPlainLeftClick = e.button === 0 && !hasModifier;
+      const isBlank = targetAttr === '_blank';
+      const isCrossSite = sourceRoot && targetRoot && sourceRoot !== targetRoot;
+      if (isPlainLeftClick && isBlank && isCrossSite) {
+        const now = Date.now();
+        if (recentContentAnchors.has(anchor) && now - recentContentAnchors.get(anchor) < 400) {
+          return;
+        }
+        if (
+          target.closest &&
+          target.closest(
+            'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
+          )
+        ) {
+          return;
+        }
+      }
+
       // Trap protection: Only reject dynamic injection if element has NO visible text/media
       if (recentContentAnchors.has(anchor)) {
         const addedAt = recentContentAnchors.get(anchor);

@@ -1,7 +1,7 @@
 # AX-Privacy 🛡️
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-3.3.4-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-3.3.5-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
@@ -83,7 +83,7 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v3.3.4-chrome.zip` veya `ax-privacy-v3.3.4-firefox.zip` paketini indirin.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v3.3.5-chrome.zip` veya `ax-privacy-v3.3.5-firefox.zip` paketini indirin.
 2. **Chrome / Brave / Edge:**
    - Eklentiler sayfasına gidin (`chrome://extensions`, `brave://extensions` veya `edge://extensions`).
    - **Geliştirici Modu (Developer mode)** anahtarını açın.
