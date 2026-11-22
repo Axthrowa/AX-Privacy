@@ -1464,6 +1464,54 @@ runTest('v4.1.0: middle-click and Ctrl+click on a cross-site _blank link are nev
   }
 });
 
+// ---------------------------------------------------------------------------
+// v4.1.1 Regression: directory / redirect-page outbound links must open
+// ---------------------------------------------------------------------------
+console.log('\n[Group v4.1.1: Directory Outbound Links]');
+
+runTest('v4.1.1: redirect page hop to the listed site is allowed in the same tab (no click recorded)', () => {
+  const r = shouldBlockTabNavigation({
+    previousUrl: 'https://directory.example/visit/123',
+    newUrl: 'https://listed-site.example.org/',
+    tabId: 77,
+    whitelist: [],
+    popupShield: true,
+    userClickedNavMap: new Map()
+  });
+  assert.strictEqual(r.block, false);
+});
+
+runTest('v4.1.1: same-tab jumps to google.com or ad networks without a click are still bounced', () => {
+  const base = { previousUrl: 'https://stream.example/watch', tabId: 78, whitelist: [], popupShield: true, userClickedNavMap: new Map() };
+  assert.strictEqual(shouldBlockTabNavigation({ ...base, newUrl: 'https://www.google.com/' }).block, true);
+  assert.strictEqual(shouldBlockTabNavigation({ ...base, newUrl: 'https://x.example.net/afu.php?zoneid=1' }).block, true);
+});
+
+runTest('v4.1.1: popup-shield lets JS redirect pages reach normal sites but stops ad / search bounces', () => {
+  const sb = loadShieldSandbox();
+  const nav = sb.ctx.module.exports.isAllowedNavigation;
+  assert.strictEqual(nav('https://listed-site.example.org/'), true);
+  assert.strictEqual(nav('https://cdn.example.net/afu.php?zoneid=3'), false);
+  assert.strictEqual(nav('https://www.bing.com/'), false);
+});
+
+runTest('v4.1.1: a link card containing a <button> keeps its href when clicked', () => {
+  const sb = loadShieldSandbox();
+  const a = new sb.HTMLAnchorElement();
+  a.href = 'https://listed-site.example.org/';
+  a.setAttribute('href', a.href);
+  a.querySelector = () => null;
+  const button = {
+    closest: (sel) => (sel === 'a[href]' ? a : sel.includes('button') ? button : null),
+    matches: () => false
+  };
+  let prevented = false;
+  const e = { type: 'click', button: 0, isTrusted: true, target: button, preventDefault: () => (prevented = true), stopImmediatePropagation: () => (prevented = true) };
+  (sb.listeners.click || []).forEach((fn) => fn(e));
+  assert.strictEqual(prevented, false);
+  assert.strictEqual(a.getAttribute('href'), 'https://listed-site.example.org/');
+});
+
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
 if (passedTests === totalTests) {
   console.log('✓ All Anti-Vignette & Pop-under Classifier tests passed successfully!');

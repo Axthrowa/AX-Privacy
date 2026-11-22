@@ -2187,9 +2187,20 @@ function shouldBlockTabNavigation({
     }
   }
 
-  // Unsolicited cross-site redirect (e.g. netprime.me redirecting tab to google.com or ad network)
-  return { block: true, reason: 'unsolicited_cross_site_redirect' };
+  // Default-allow: directories and link shorteners hop through redirect pages to the real site.
+  // Only bounce unsolicited jumps to search-engine roots (anti-DevTools) or ad networks.
+  if (
+    SAME_TAB_BOUNCE_ROOTS.has(newRoot) ||
+    hostInSet(newHost, knownPopupAdDomains) ||
+    isPopunderAdUrl(newTrimmed, prevHost)
+  ) {
+    return { block: true, reason: 'unsolicited_cross_site_redirect' };
+  }
+  return { block: false, reason: 'default_allow' };
 }
+
+// Roots anti-DevTools / exit scripts jump to when they hijack the current tab
+const SAME_TAB_BOUNCE_ROOTS = new Set(['google.com', 'bing.com', 'yandex.com', 'yandex.ru', 'duckduckgo.com', 'yahoo.com']);
 
 // Known pop-up ad hosts: popups_redirects.json "||host^" rules + AX-Brain promoted domains.
 const knownPopupAdDomains = new Set();

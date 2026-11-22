@@ -18,6 +18,31 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import '../ax-brain.js';
+import { createHash } from 'node:crypto';
+
+// Roots dropped from every generated ruleset. Stored as SHA-256 so the names never appear in the source.
+const EXCLUDED_ROOT_HASHES = new Set([
+  'e78dceef2c92179e8e7dd9b5fbe6bd6e34a61aa15df278adc307b18bf2eca38d',
+  'c3d8a0e12391f05723248e5ecc467d256c20bd84cab2e4af912273901e0f0e15',
+  '4cd71d91c9d42a209497bb18d26feede6a99962c6bd4e4dc61fa1576446630c3',
+  'eebc338d1593d4c201fb946b8bb31e1de7a4c9b9c33c6dd0971092d4aa4182bd',
+  'ccfe918b7b4cb41f0ba4f711fa0f286f1904a5497c3c68081b542a1a16d28e85',
+  'b9cebed513982d735844753f34d353170da329cac723511e7df7475d4808270a'
+]);
+const isExcludedRoot = (d) =>
+  EXCLUDED_ROOT_HASHES.has(createHash('sha256').update(globalThis.AxBrain.getRootDomain(d)).digest('hex'));
+// Name words (no TLD) of the excluded roots, also SHA-256 only
+const EXCLUDED_WORD_HASHES = new Set([
+  'f44d5e7ea812835fb1c9585d28f98eb301a3416427cf7725a00a8b2e9d334e03',
+  '228b721b3f5cd3518468e5924b95bd9934decdd3cd2a20384412f79e9908314c'
+]);
+const hashWord = (w) => createHash('sha256').update(w).digest('hex');
+// Selectors such as a[href*="host"] that name an excluded root
+const mentionsExcludedRoot = (sel) => {
+  const low = sel.toLowerCase();
+  if ((low.match(/[a-z0-9-]+(?:\.[a-z0-9-]+)+/g) || []).some(isExcludedRoot)) return true;
+  return (low.match(/[a-z0-9]+/g) || []).some((w) => EXCLUDED_WORD_HASHES.has(hashWord(w)));
+};
 
 // Shared never-block roots (YouTube, Twitch, Google, CDNs, auth/payment) - same set as background.js
 const IMMUNE_ROOTS = globalThis.AxBrain.IMMUNE_ROOTS;
@@ -392,6 +417,9 @@ function cleanDomain(raw) {
   if (IMMUNE_ROOTS.has(d) || IMMUNE_ROOTS.has(immuneRootOf(d))) {
     return null;
   }
+  if (isExcludedRoot(d)) {
+    return null;
+  }
 
   return d;
 }
@@ -707,6 +735,7 @@ function parseCosmeticRules(turkishText, baseText = '', ...extraSources) {
       if (domains.length === 0) continue;
 
       for (const d of domains) {
+        if (isExcludedRoot(d)) continue;
         if (!domainMap[d]) domainMap[d] = new Set();
         domainMap[d].add(selector);
       }
@@ -714,12 +743,16 @@ function parseCosmeticRules(turkishText, baseText = '', ...extraSources) {
   }
 
   // Curated selectors are inserted first, so the cap keeps them; then sort alphabetically
-  const sortedGeneric = Array.from(genericSet).slice(0, COSMETIC_GENERIC_MAX).sort();
+  const sortedGeneric = Array.from(genericSet)
+    .filter((sel) => !mentionsExcludedRoot(sel))
+    .slice(0, COSMETIC_GENERIC_MAX)
+    .sort();
 
   // Sort domains alphabetically and selectors within each domain
   const sortedDomains = {};
   for (const domain of Object.keys(domainMap).sort()) {
-    sortedDomains[domain] = Array.from(domainMap[domain]).sort();
+    const kept = Array.from(domainMap[domain]).filter((sel) => !mentionsExcludedRoot(sel));
+    if (kept.length > 0) sortedDomains[domain] = kept.sort();
   }
 
   return {

@@ -540,11 +540,22 @@ function isAllowedNavigation(targetUrl) {
       }
     }
 
-    // Otherwise, unsolicited external redirect (e.g. anti-devtools jumping to google.com/bing.com) is blocked!
-    return false;
+    // Default-allow: redirect pages (directories, shorteners) must reach their target.
+    // Only unsolicited jumps to search-engine roots (anti-DevTools) or ad networks are blocked.
+    return !(NAV_BOUNCE_ROOTS.includes(targetRoot) || isAdNavigationUrl(resolved.href));
   } catch {
     return false;
   }
+}
+
+const NAV_BOUNCE_ROOTS = ['google.com', 'bing.com', 'yandex.com', 'yandex.ru', 'duckduckgo.com', 'yahoo.com'];
+const AD_NAV_SIGNATURE =
+  /\/afu\.php|\/ntfc\.php|in-page-push|\/pfe\/current\/|popunder|monetag|propellerads|adsterra|hilltopads|clickadu|exoclick|popads|popcash|tsyndicate|onclickalgo|highperformanceformat/i;
+
+function isAdNavigationUrl(href) {
+  const h = String(href || '').toLowerCase();
+  if (AD_NAV_SIGNATURE.test(h)) return true;
+  return (/[?&]zone_?id=/.test(h) && /[?&]click_?id=/.test(h)) || (/[?&]sub_?id=/.test(h) && /[?&]offer_?id=/.test(h));
 }
 
 function isDevToolsKey(e) {
@@ -971,7 +982,12 @@ function isDevToolsKey(e) {
 
       if (isVideoControl) {
         const parentAnchor = target.closest('a[href]');
-        if (parentAnchor && isCrossSite(parentAnchor.href)) {
+        const wrapsMedia = Boolean(
+          parentAnchor &&
+            ((parentAnchor.querySelector && parentAnchor.querySelector('video, audio')) ||
+              target.closest('video, audio, .video-js, .jwplayer, .plyr'))
+        );
+        if (parentAnchor && wrapsMedia && isCrossSite(parentAnchor.href)) {
           // If a cross-site ad anchor wraps the video player, neutralize navigation without breaking player clicks
           const trapUrl = parentAnchor.href;
           if (parentAnchor.removeAttribute) {
