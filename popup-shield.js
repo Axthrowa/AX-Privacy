@@ -98,7 +98,7 @@ function hasTrustedClick(targetUrl = '') {
   if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
     return Boolean(
       (lastTrustedIntent && lastTrustedIntent.exp > now) ||
-      (lastTrustedLink && now - lastTrustedLink.time <= 2500)
+      (lastTrustedLink && now - lastTrustedLink.time <= 3500)
     );
   }
 
@@ -119,7 +119,7 @@ function hasTrustedClick(targetUrl = '') {
     }
 
     // Check if target matches lastTrustedLink
-    if (lastTrustedLink && now - lastTrustedLink.time <= 2500) {
+    if (lastTrustedLink && now - lastTrustedLink.time <= 3500) {
       const linkRoot =
         lastTrustedLink.root ||
         getRootDomain(
@@ -180,7 +180,7 @@ function setTrustedIntent(targetUrl) {
       return;
     }
     const now = Date.now();
-    const exp = now + 2500;
+    const exp = now + 3500;
     const intentData = { host, root: getRootDomain(host), href, exp };
 
     // 1. In-memory fast cache
@@ -821,7 +821,7 @@ function isDevToolsKey(e) {
     if (!e || e.isTrusted !== true) return;
     try {
       const target = e.target;
-      if (!target || !(target instanceof Element)) return;
+      if (!target || (!(target instanceof Element) && !target.closest)) return;
 
       const anchor = target.closest('a[href]');
 
@@ -868,9 +868,12 @@ function isDevToolsKey(e) {
               const host = u.hostname.toLowerCase();
               const root = getRootDomain(host);
 
-              trustedClickUntil = Date.now() + 2500;
               const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
-              const isNewTabIntent = targetAttr === '_blank' || e.button === 1 || e.ctrlKey || e.metaKey;
+              const isMiddleClick = e.button === 1;
+              const isModifier = Boolean(e.ctrlKey || e.metaKey);
+              const isNewTabIntent = targetAttr === '_blank' || isMiddleClick || isModifier;
+
+              trustedClickUntil = Date.now() + (isNewTabIntent ? 3500 : 2500);
               if (isNewTabIntent) {
                 setTrustedIntent(href);
               }
@@ -886,6 +889,12 @@ function isDevToolsKey(e) {
         } catch {}
       }
 
+      // Middle-click (wheel click) tolerance: if user middle-clicked, give 3500ms synchronous tolerance
+      if (e.button === 1) {
+        trustedClickUntil = Date.now() + 3500;
+        return;
+      }
+
       // Any click on document space or background that is not a visible anchor
       lastTrustedIntent = null;
       lastTrustedLink = null;
@@ -897,7 +906,7 @@ function isDevToolsKey(e) {
   function onCaptureClickOrUp(e) {
     try {
       const target = e.target;
-      if (!target || !(target instanceof Element)) return;
+      if (!target || (!(target instanceof Element) && !target.closest)) return;
 
       if (typeof window !== 'undefined' && window.location) {
         const curHost = window.location.hostname.toLowerCase();
@@ -935,6 +944,10 @@ function isDevToolsKey(e) {
       }
 
       if (e && e.isTrusted === true) {
+        if (e.button === 1) {
+          trustedClickUntil = Date.now() + 3500;
+        }
+
         const anchor = target.closest('a[href]');
         if (anchor && anchor.href) {
           const href = anchor.href.trim();
@@ -958,9 +971,12 @@ function isDevToolsKey(e) {
               const host = u.hostname.toLowerCase();
               const root = getRootDomain(host);
 
-              trustedClickUntil = Date.now() + 2500;
               const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
-              const isNewTabIntent = targetAttr === '_blank' || e.button === 1 || e.ctrlKey || e.metaKey;
+              const isMiddleClick = e.button === 1;
+              const isModifier = Boolean(e.ctrlKey || e.metaKey);
+              const isNewTabIntent = targetAttr === '_blank' || isMiddleClick || isModifier;
+
+              trustedClickUntil = Date.now() + (isNewTabIntent ? 3500 : 2500);
               if (isNewTabIntent) {
                 setTrustedIntent(href);
               }
@@ -1658,6 +1674,7 @@ if (typeof module !== 'undefined' && module.exports) {
     setTrustedIntent,
     hasTrustedIntent,
     hasTrustedClick,
+    getTrustedClickUntil: () => trustedClickUntil,
     TRUSTED_AUTH_HOSTS
   };
 }

@@ -1309,6 +1309,9 @@ const trustedIntents = new Map();
 // Track recent user new-tab clicks (middle-click, ctrl-click, target=_blank) per openerTabId
 const lastUserNewTabClicks = new Map(); // openerTabId -> { timestamp: number, targetHost: string, targetRoot: string, href: string, isMiddleClick: boolean }
 
+// Track mouse wheel (middle-click / button === 1) intent per openerTabId (valid for 4500ms)
+const lastMiddleClickMap = new Map(); // openerTabId -> { ts: number, sourceHost: string, sourceRoot: string, targetHost: string, targetRoot: string, href: string }
+
 // Track confirmed current URLs per tab to intercept unrequested top-level redirects
 const lastKnownTabUrls = new Map(); // tabId -> { url: string, rootDomain: string, timestamp: number }
 
@@ -1368,6 +1371,11 @@ function cleanStaleTrustedIntents(store = trustedIntents) {
   for (const [tabId, clickData] of lastUserNewTabClicks.entries()) {
     if (now - clickData.timestamp > 4000) {
       lastUserNewTabClicks.delete(tabId);
+    }
+  }
+  for (const [tabId, clickData] of lastMiddleClickMap.entries()) {
+    if (now - clickData.ts > 4500) {
+      lastMiddleClickMap.delete(tabId);
     }
   }
   for (const [tabId, data] of lastUserInteractionMap.entries()) {
@@ -1909,7 +1917,9 @@ function shouldBlockNewTab({
   intentsStore = trustedIntents,
   whitelist = [],
   popupShield = true,
-  interactionsStore = lastUserInteractionMap
+  interactionsStore = lastUserInteractionMap,
+  middleClickStore = lastMiddleClickMap,
+  userClicksStore = lastUserNewTabClicks
 }) {
   if (!popupShield) {
     return { block: false, reason: 'shield_disabled' };
@@ -1968,7 +1978,28 @@ function shouldBlockNewTab({
     return { block: false, reason: 'trusted_user_intent' };
   }
 
-  // Exception 2: Target is authentication or payment gateway
+  // Exception 2: Mouse wheel (middle click / button === 1) intent verified (valid for 4500ms)
+  const now = Date.now();
+  if (openerTabId && middleClickStore && middleClickStore.has(openerTabId)) {
+    const mc = middleClickStore.get(openerTabId);
+    if (mc && now - mc.ts <= 4500) {
+      if (!isPopunderAdUrl(trimmedTab, openerHost)) {
+        return { block: false, reason: 'middle_click_wheel_intent' };
+      }
+    }
+  }
+
+  // Exception 3: Recent user middle-click on link verified
+  if (openerTabId && userClicksStore && userClicksStore.has(openerTabId)) {
+    const clickData = userClicksStore.get(openerTabId);
+    if (clickData && clickData.isMiddleClick && now - clickData.timestamp <= 4500) {
+      if (!isPopunderAdUrl(trimmedTab, openerHost)) {
+        return { block: false, reason: 'middle_click_user_intent' };
+      }
+    }
+  }
+
+  // Exception 4: Target is authentication or payment gateway
   if (isAuthOrPaymentUrl(trimmedTab)) {
     return { block: false, reason: 'auth_or_payment_gateway' };
   }
@@ -2046,6 +2077,17 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
       }
     } catch {}
 
+    // Safety check 2: If opener tab had recent mouse wheel (middle click / button === 1) intent, NEVER close it!
+    if (openerTabId && lastMiddleClickMap.has(openerTabId)) {
+      const mc = lastMiddleClickMap.get(openerTabId);
+      if (mc && Date.now() - mc.ts <= 4500) {
+        if (!isPopunderAdUrl(url, openerUrl)) {
+          monitoredTabs.delete(tabId);
+          return;
+        }
+      }
+    }
+
     let decision = shouldBlockNewTab({
       openerTabId,
       openerUrl,
@@ -2053,7 +2095,9 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
       intentsStore: trustedIntents,
       whitelist,
       popupShield,
-      interactionsStore: lastUserInteractionMap
+      interactionsStore: lastUserInteractionMap,
+      middleClickStore: lastMiddleClickMap,
+      userClicksStore: lastUserNewTabClicks
     });
 
     if (decision.block) {
@@ -2077,6 +2121,17 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
           return;
         }
 
+        // Check if middle click arrived during the 150ms grace period
+        if (openerTabId && lastMiddleClickMap.has(openerTabId)) {
+          const mc = lastMiddleClickMap.get(openerTabId);
+          if (mc && Date.now() - mc.ts <= 4500) {
+            if (!isPopunderAdUrl(currentUrl, openerUrl)) {
+              monitoredTabs.delete(tabId);
+              return;
+            }
+          }
+        }
+
         decision = shouldBlockNewTab({
           openerTabId,
           openerUrl,
@@ -2084,7 +2139,9 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
           intentsStore: trustedIntents,
           whitelist,
           popupShield,
-          interactionsStore: lastUserInteractionMap
+          interactionsStore: lastUserInteractionMap,
+          middleClickStore: lastMiddleClickMap,
+          userClicksStore: lastUserNewTabClicks
         });
 
         if (!decision.block) {
@@ -2093,7 +2150,18 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
         }
       }
 
-      // Safety check 2: Re-verify tab is NOT active before closing
+      // Safety check 3: Re-verify middle click intent before closing
+      if (openerTabId && lastMiddleClickMap.has(openerTabId)) {
+        const mc = lastMiddleClickMap.get(openerTabId);
+        if (mc && Date.now() - mc.ts <= 4500) {
+          if (!isPopunderAdUrl(url, openerUrl)) {
+            monitoredTabs.delete(tabId);
+            return;
+          }
+        }
+      }
+
+      // Safety check 4: Re-verify tab is NOT active before closing
       try {
         const tabToRemove = await chrome.tabs.get(tabId);
         if (tabToRemove && tabToRemove.active) {
@@ -2259,6 +2327,7 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
     tabThreats.delete(tabId);
     trustedIntents.delete(tabId);
     lastUserNewTabClicks.delete(tabId);
+    lastMiddleClickMap.delete(tabId);
     lastUserInteractionMap.delete(tabId);
     lastKnownTabUrls.delete(tabId);
     await clearTabAlerted(tabId);
@@ -2607,6 +2676,24 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
       return false;
     }
 
+    if (message.type === 'AX_MIDDLE_CLICK_INTENT') {
+      const tabId = sender.tab?.id;
+      if (tabId) {
+        lastMiddleClickMap.set(tabId, {
+          ts: message.ts || Date.now(),
+          sourceHost: message.sourceHost || '',
+          sourceRoot: message.sourceRoot || '',
+          targetHost: message.targetHost || '',
+          targetRoot: message.targetRoot || '',
+          href: message.href || ''
+        });
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false });
+      }
+      return false;
+    }
+
     if (message.type === 'AX_TRUSTED_NEW_TAB' || message.type === 'AX_TRUSTED_NAV') {
       const tabId = sender.tab?.id;
       if (tabId && message.targetHost) {
@@ -2662,6 +2749,7 @@ export {
   recordTrustedIntent,
   hasValidTrustedIntent,
   lastUserNewTabClicks,
+  lastMiddleClickMap,
   lastUserInteractionMap,
   recordUserInteraction,
   hasRecentUserInteraction,

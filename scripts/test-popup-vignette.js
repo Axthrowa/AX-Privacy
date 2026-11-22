@@ -66,6 +66,7 @@ const {
   hasValidTrustedIntent,
   evaluateUrlThreat,
   lastUserNewTabClicks,
+  lastMiddleClickMap,
   lastUserInteractionMap,
   recordUserInteraction,
   hasRecentUserInteraction,
@@ -98,6 +99,7 @@ assert.strictEqual(typeof shieldDevToolsKey, 'function');
 
 // Run full popup-shield.js with mock environment to test synchronous intent & pre-open hooks
 const mockSessionStorage = new Map();
+const registeredListeners = new Map();
 const mockWindow = {
   location: { href: 'https://mysite.com/page', hostname: 'mysite.com', origin: 'https://mysite.com' },
   sessionStorage: {
@@ -108,19 +110,21 @@ const mockWindow = {
   history: { length: 2 },
   name: '',
   close: () => {},
-  addEventListener: () => {},
+  addEventListener: (type, listener) => {
+    registeredListeners.set(type, listener);
+  },
   postMessage: () => {}
 };
 const fullVmContext = {
   window: mockWindow,
   sessionStorage: mockWindow.sessionStorage,
   document: { documentElement: null },
-  Node: { prototype: {} },
-  Element: { prototype: {} },
-  HTMLAnchorElement: { prototype: {} },
-  HTMLIFrameElement: { prototype: {} },
-  EventTarget: { prototype: {} },
-  HTMLFormElement: { prototype: {} },
+  Node: class Node {},
+  Element: class Element {},
+  HTMLAnchorElement: class HTMLAnchorElement {},
+  HTMLIFrameElement: class HTMLIFrameElement {},
+  EventTarget: class EventTarget {},
+  HTMLFormElement: class HTMLFormElement {},
   MutationObserver: class { observe() {} },
   module: { exports: {} },
   console,
@@ -135,7 +139,8 @@ const {
   hasTrustedIntent: shieldHasTrustedIntent,
   hasTrustedClick: shieldHasTrustedClick,
   isAllowedDestination: shieldIsAllowedDestination,
-  isAllowedNavigation: shieldIsAllowedNavigation
+  isAllowedNavigation: shieldIsAllowedNavigation,
+  getTrustedClickUntil: shieldGetTrustedClickUntil
 } = fullVmContext.module.exports;
 assert.strictEqual(typeof shieldSetTrustedIntent, 'function');
 assert.strictEqual(typeof shieldHasTrustedIntent, 'function');
@@ -986,6 +991,128 @@ runTest('popup-shield blocks location redirect to google.com without trusted lin
 runTest('popup-shield intercepts unauthorized window.close on tabs with history', () => {
   assert.strictEqual(typeof fullVmContext.window.close, 'function');
   assert.doesNotThrow(() => fullVmContext.window.close());
+});
+
+console.log('\n[Group 14: Mouse Wheel (Middle-Click) Tab Preservation (v3.3.4)]');
+
+runTest('Middle-click intent in lastMiddleClickMap preserves new tab opened via wheel', () => {
+  const mcMap = new Map();
+  mcMap.set(88, {
+    ts: Date.now() - 200,
+    sourceHost: 'news.ycombinator.com',
+    sourceRoot: 'ycombinator.com',
+    targetHost: 'github.com',
+    targetRoot: 'github.com',
+    href: 'https://github.com/google'
+  });
+
+  const result = shouldBlockNewTab({
+    openerTabId: 88,
+    openerUrl: 'https://news.ycombinator.com/',
+    tabUrl: 'https://github.com/google',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true,
+    middleClickStore: mcMap
+  });
+
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'middle_click_wheel_intent');
+});
+
+runTest('Middle-click intent on link (isMiddleClick: true) preserves new background tab', () => {
+  const clicks = new Map();
+  clicks.set(99, {
+    timestamp: Date.now() - 500,
+    targetHost: 'example.org',
+    targetRoot: 'example.org',
+    href: 'https://example.org/article',
+    isMiddleClick: true
+  });
+
+  const result = shouldBlockNewTab({
+    openerTabId: 99,
+    openerUrl: 'https://medium.com/@author/story',
+    tabUrl: 'https://example.org/article',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true,
+    userClicksStore: clicks
+  });
+
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'middle_click_user_intent');
+});
+
+runTest('Unsolicited pop-under without middle-click or link intent is strictly blocked', () => {
+  const emptyMcMap = new Map();
+  const emptyClicks = new Map();
+
+  const result = shouldBlockNewTab({
+    openerTabId: 77,
+    openerUrl: 'https://pirate-streaming.com/video',
+    tabUrl: 'https://random-dating-tracker.xyz/lander',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true,
+    middleClickStore: emptyMcMap,
+    userClicksStore: emptyClicks
+  });
+
+  assert.strictEqual(result.block, true);
+  assert.strictEqual(result.reason, 'unsolicited_cross_site_tab');
+});
+
+runTest('popup-shield preserves trustedClickUntil for 3500ms on middle click (button === 1)', () => {
+  const pointerEvent = {
+    isTrusted: true,
+    button: 1,
+    target: {
+      closest: () => null,
+      matches: () => false
+    }
+  };
+
+  const pointerHandler = registeredListeners.get('pointerdown');
+  assert.strictEqual(typeof pointerHandler, 'function');
+  pointerHandler(pointerEvent);
+
+  const until = shieldGetTrustedClickUntil();
+  assert.ok(
+    until > Date.now() + 3000,
+    'trustedClickUntil should be at least 3000ms into the future after middle click'
+  );
+});
+
+runTest('popup-shield preserves trustedClickUntil and intent on anchor middle click (button === 1)', () => {
+  const mockAnchor = {
+    tagName: 'A',
+    href: 'https://github.com/google',
+    innerText: 'Google on GitHub',
+    getAttribute: (attr) => (attr === 'href' ? 'https://github.com/google' : null),
+    hasAttribute: () => false,
+    setAttribute: () => {},
+    getBoundingClientRect: () => ({ width: 150, height: 25 }),
+    querySelector: () => null
+  };
+
+  const pointerEvent = {
+    isTrusted: true,
+    button: 1,
+    target: {
+      closest: (sel) => (sel === 'a[href]' ? mockAnchor : null),
+      matches: () => false,
+      getBoundingClientRect: () => ({ width: 150, height: 25 })
+    }
+  };
+
+  const pointerHandler = registeredListeners.get('pointerdown');
+  assert.strictEqual(typeof pointerHandler, 'function');
+  pointerHandler(pointerEvent);
+
+  const until = shieldGetTrustedClickUntil();
+  assert.ok(until > Date.now() + 3000);
+  assert.strictEqual(shieldHasTrustedClick('https://github.com/google'), true);
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);

@@ -889,22 +889,64 @@
     }
   } catch {}
 
-  function handleTrustedNewTabIntent(e) {
+  function getRootDomain(hostname) {
+    if (!hostname || typeof hostname !== 'string') return '';
+    const clean = hostname.trim().toLowerCase();
+    const parts = clean.split('.');
+    if (parts.length <= 2) return clean;
+    const secondToLast = parts[parts.length - 2];
+    if (['com', 'co', 'gov', 'org', 'edu', 'net'].includes(secondToLast) && parts.length >= 3) {
+      return parts.slice(-3).join('.');
+    }
+    return parts.slice(-2).join('.');
+  }
+
+  function handleTrustedPointerOrClick(e) {
     if (!e || e.isTrusted !== true) return;
     try {
+      const isMiddleClick = e.button === 1;
+      const hasModifier = Boolean(e.ctrlKey || e.metaKey);
+      const sourceHost = (window.location.hostname || '').toLowerCase();
+      const sourceRoot = getRootDomain(sourceHost);
+
       const target = e.target;
-      if (!target || !(target instanceof Element)) return;
+      const anchor = target && target instanceof Element ? target.closest('a[href]') : null;
 
-      const anchor = target.closest('a[href]');
-      if (!anchor || !anchor.href) return;
+      let href = '';
+      let targetHost = '';
+      let targetRoot = '';
 
-      const href = anchor.href.trim();
-      if (!href.startsWith('http://') && !href.startsWith('https://')) return;
+      if (anchor && anchor.href) {
+        const rawHref = anchor.href.trim();
+        if (rawHref.startsWith('http://') || rawHref.startsWith('https://')) {
+          href = rawHref;
+          try {
+            const u = new URL(rawHref);
+            targetHost = u.hostname.toLowerCase();
+            targetRoot = getRootDomain(targetHost);
+          } catch {}
+        }
+      }
+
+      // 1. Mouse wheel / middle-click immediate intent dispatch (fire-and-forget)
+      if (isMiddleClick) {
+        chrome.runtime
+          .sendMessage({
+            type: 'AX_MIDDLE_CLICK_INTENT',
+            ts: Date.now(),
+            sourceHost,
+            sourceRoot,
+            targetHost,
+            targetRoot,
+            href
+          })
+          .catch(() => {});
+      }
+
+      if (!anchor || !href || !targetHost) return;
 
       // Check intent to open a new tab vs same-tab navigation
       const targetAttr = (anchor.getAttribute('target') || '').toLowerCase();
-      const isMiddleClick = e.button === 1;
-      const hasModifier = Boolean(e.ctrlKey || e.metaKey);
       const isNewTabIntent = targetAttr === '_blank' || isMiddleClick || hasModifier;
 
       // Physical visibility & dimension check (supports inline elements and display: contents)
@@ -936,42 +978,39 @@
 
       if (style.display === 'none' || style.visibility === 'hidden') return;
       const opacity = parseFloat(style.opacity);
-      if (opacity < 0.15) return;
+      if (opacity < 0.15 && textLen === 0 && !hasMedia) return;
 
       // Must not cover the entire screen (transparent curtain traps)
       if (rect.width > 0 && rect.height > 0) {
         const wRatio = rect.width / (window.innerWidth || 1);
         const hRatio = rect.height / (window.innerHeight || 1);
-        if (wRatio >= 0.7 && hRatio >= 0.7) return;
-      }
-
-      let targetHost = '';
-      try {
-        targetHost = new URL(href).hostname.toLowerCase();
-      } catch {
-        return;
+        if (wRatio >= 0.7 && hRatio >= 0.7 && opacity < 0.15 && textLen === 0 && !hasMedia) return;
       }
 
       const now = Date.now();
-      chrome.runtime.sendMessage({
-        type: isNewTabIntent ? 'AX_TRUSTED_NEW_TAB' : 'AX_TRUSTED_NAV',
-        targetHost,
-        sourceHost: window.location.hostname,
-        href,
-        button: e.button,
-        isMiddleClick,
-        isNewTabIntent,
-        time: now,
-        ts: now
-      }).catch(() => {});
+      chrome.runtime
+        .sendMessage({
+          type: isNewTabIntent ? 'AX_TRUSTED_NEW_TAB' : 'AX_TRUSTED_NAV',
+          targetHost,
+          targetRoot,
+          sourceHost,
+          sourceRoot,
+          href,
+          button: e.button,
+          isMiddleClick,
+          isNewTabIntent,
+          time: now,
+          ts: now
+        })
+        .catch(() => {});
     } catch {}
   }
 
   // Hook all pointer and click phases to guarantee ultra-early delivery before tab creation
-  window.addEventListener('pointerdown', handleTrustedNewTabIntent, true);
-  window.addEventListener('mousedown', handleTrustedNewTabIntent, true);
-  window.addEventListener('click', handleTrustedNewTabIntent, true);
-  window.addEventListener('auxclick', handleTrustedNewTabIntent, true);
+  window.addEventListener('pointerdown', handleTrustedPointerOrClick, true);
+  window.addEventListener('mousedown', handleTrustedPointerOrClick, true);
+  window.addEventListener('click', handleTrustedPointerOrClick, true);
+  window.addEventListener('auxclick', handleTrustedPointerOrClick, true);
 
   // Sync popup shield bridge across all origins
   syncPopupShieldBridge();
