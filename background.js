@@ -293,6 +293,16 @@ async function reportBrainThreat({ domain, sourceHost, reason, url }) {
   }
 }
 
+// Picker selectors that would hide whole pages (bare tags, html/body/main, universal) are never stored or served.
+function isSafeLearnedSelector(sel) {
+  if (typeof sel !== 'string') return false;
+  const s = sel.trim();
+  if (!s || s.length > 300 || /[{}]/.test(s)) return false;
+  if (/^[a-z][a-z0-9-]*$/i.test(s)) return false;
+  if (/(^|[\s>+~,(])(html|body|main|\*)(?=$|[\s>+~,.#:[\])])/i.test(s)) return false;
+  return true;
+}
+
 async function trainBrainModel({ features, label, selector, host }) {
   try {
     const state = await getAxBrainState();
@@ -302,7 +312,7 @@ async function trainBrainModel({ features, label, selector, host }) {
     }
 
     let learnedCosmetics = [...state.learnedCosmetics];
-    if (selector && typeof selector === 'string') {
+    if (selector && typeof selector === 'string' && (label === 0 || isSafeLearnedSelector(selector))) {
       const cleanSelector = selector.trim();
       const cleanHost = host ? host.toLowerCase().trim() : '*';
       if (label === 1) {
@@ -2409,44 +2419,51 @@ if (typeof chrome !== 'undefined' && chrome.webNavigation?.onBeforeNavigate?.add
           }
         }
 
-        // Check for unsolicited main-tab redirection (e.g. netprime.me -> google.com)
-        const previousData = lastKnownTabUrls.get(details.tabId);
-        if (previousData && previousData.url) {
-          const { popupShield = true, whitelist = [] } =
-            await chrome.storage.local.get(['popupShield', 'whitelist']).catch(() => ({}));
-
-          const navDecision = shouldBlockTabNavigation({
-            previousUrl: previousData.url,
-            newUrl: details.url,
-            tabId: details.tabId,
-            whitelist,
-            popupShield,
-            userClickedNavMap: lastUserNewTabClicks
-          });
-
-          if (navDecision.block) {
-            console.warn(
-              `[AX-Background] İzinsiz ana sekme yönlendirmesi engellendi (${details.tabId}, reason: ${navDecision.reason}):`,
-              `${previousData.url} -> ${details.url}`
-            );
-            await chrome.tabs.update(details.tabId, { url: previousData.url }).catch(() => {});
-            return;
-          }
-        }
-
-        // Update known URL for this tab
-        if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
-          try {
-            lastKnownTabUrls.set(details.tabId, {
-              url: details.url,
-              rootDomain: getRootDomain(new URL(details.url).hostname),
-              timestamp: Date.now()
-            });
-          } catch {}
-        }
       }
     } catch (err) {
       console.warn('[AX-Privacy background] webNavigation.onBeforeNavigate error:', err);
+    }
+  });
+}
+
+// Same-tab redirect guard runs on commit, where Chrome tells us HOW the navigation started.
+// Bookmarks, typed URLs, reloads and back/forward are the user's own action and never bounced;
+// only script/meta redirects (client_redirect) to search-engine roots or ad networks are reverted.
+const lastCommittedMainFrame = new Map(); // tabId -> url
+
+function isPageInitiatedRedirect(details) {
+  const q = Array.isArray(details?.transitionQualifiers) ? details.transitionQualifiers : [];
+  if (q.includes('from_address_bar') || q.includes('forward_back')) return false;
+  const userTypes = ['typed', 'auto_bookmark', 'generated', 'keyword', 'keyword_generated', 'reload', 'start_page', 'auto_toplevel'];
+  if (userTypes.includes(details?.transitionType)) return false;
+  return q.includes('client_redirect');
+}
+
+if (typeof chrome !== 'undefined' && chrome.webNavigation?.onCommitted?.addListener) {
+  chrome.webNavigation.onCommitted.addListener(async (details) => {
+    try {
+      if (!details || details.frameId !== 0 || !details.tabId || !/^https?:/.test(details.url || '')) return;
+      const previousUrl = lastCommittedMainFrame.get(details.tabId);
+      lastCommittedMainFrame.set(details.tabId, details.url);
+      if (!previousUrl || !isPageInitiatedRedirect(details)) return;
+
+      const { popupShield = true, whitelist = [] } =
+        await chrome.storage.local.get(['popupShield', 'whitelist']).catch(() => ({}));
+      const navDecision = shouldBlockTabNavigation({
+        previousUrl,
+        newUrl: details.url,
+        tabId: details.tabId,
+        whitelist,
+        popupShield,
+        userClickedNavMap: lastUserNewTabClicks
+      });
+      if (navDecision.block) {
+        console.warn(`[AX-Background] İzinsiz sekme yönlendirmesi geri alındı (${navDecision.reason}):`, details.url);
+        lastCommittedMainFrame.set(details.tabId, previousUrl);
+        await chrome.tabs.update(details.tabId, { url: previousUrl }).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[AX-Privacy background] webNavigation.onCommitted error:', err);
     }
   });
 }
@@ -2480,6 +2497,7 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
     lastMiddleClickMap.delete(tabId);
     lastUserInteractionMap.delete(tabId);
     lastKnownTabUrls.delete(tabId);
+    lastCommittedMainFrame.delete(tabId);
     await clearTabAlerted(tabId);
   });
 }
@@ -2768,14 +2786,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             }
           }
 
-          // AX-Brain learned cosmetic selectors
+          // AX-Brain learned (picker) selectors: sent separately so the page can verify them against its DOM
           const brainState = await getAxBrainState();
-          const learnedCosmetics = brainState.learnedCosmetics || [];
-          for (const item of learnedCosmetics) {
-            if (!item || !item.selector) continue;
-            if (item.host === '*' || checkHosts.includes(item.host)) {
-              siteSelectorsSet.add(item.selector);
-            }
+          const learnedSelectors = [];
+          for (const item of brainState.learnedCosmetics || []) {
+            if (!item || !isSafeLearnedSelector(item.selector)) continue;
+            if (item.host === '*' || checkHosts.includes(item.host)) learnedSelectors.push(item.selector);
           }
 
           const siteSelectors = Array.from(siteSelectorsSet);
@@ -2789,6 +2805,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             genericSelectors: genericList,
             siteSelectors,
             selectors: combined,
+            learnedSelectors,
             model: brainState.model
           });
         } catch (err) {
@@ -2998,6 +3015,8 @@ export {
   PROTECTED_INFRASTRUCTURE,
   IMMUNE_ROOTS,
   POPUNDER_URL_KEYWORDS,
+  isSafeLearnedSelector,
+  isPageInitiatedRedirect,
   LEGITIMATE_HOST_WHITELIST,
   isTrustedFeedOpener
 };

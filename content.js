@@ -418,6 +418,30 @@
       }
 
       const selectors = Array.isArray(response.selectors) ? response.selectors : [];
+      const learnedSelectors = Array.isArray(response.learnedSelectors) ? response.learnedSelectors : [];
+      if (learnedSelectors.length > 0) {
+        const applyLearned = () => {
+          try {
+            const safe = filterSafeLearnedSelectors(learnedSelectors);
+            let learnedStyle = document.getElementById('ax-privacy-learned');
+            if (!learnedStyle) {
+              learnedStyle = document.createElement('style');
+              learnedStyle.id = 'ax-privacy-learned';
+              (document.head || document.documentElement).appendChild(learnedStyle);
+            }
+            learnedStyle.textContent = safe.length
+              ? `${safe.join(',\n')} { display: none !important; visibility: hidden !important; pointer-events: none !important; }`
+              : '';
+          } catch {}
+        };
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', applyLearned);
+        } else {
+          applyLearned();
+        }
+        // Re-validate once late content has rendered
+        window.addEventListener('load', () => setTimeout(applyLearned, 1500));
+      }
 
       // Single injection of unified cosmetic CSS
       const styleId = 'ax-privacy-cosmetic';
@@ -1100,32 +1124,79 @@
    * ============================================================================
    */
 
+  const SAFE_IDENT = /^[a-zA-Z_-][a-zA-Z0-9_-]*$/;
+  const STRUCTURAL_TAGS = new Set(['html', 'body', 'main', 'article', 'header', 'nav', 'footer']);
+
+  /**
+   * Builds a selector that matches ONLY the picked element (verified with querySelectorAll).
+   * Returns '' when no unique selector exists; the element is then hidden once but no rule is saved.
+   */
   function deriveSelector(el) {
     if (!el || !el.tagName) return '';
-    if (el.id && typeof el.id === 'string' && el.id.trim()) {
-      const id = el.id.trim();
-      if (/^[a-zA-Z_-][a-zA-Z0-9_-]*$/.test(id)) {
-        return `#${id}`;
+    const unique = (sel) => {
+      try {
+        return document.querySelectorAll(sel).length === 1;
+      } catch {
+        return false;
       }
-    }
-    const tag = el.tagName.toLowerCase();
-    if (el.classList && el.classList.length > 0) {
-      const classes = Array.from(el.classList).filter((c) =>
-        /^[a-zA-Z_-][a-zA-Z0-9_-]*$/.test(c) && !/^\d+$/.test(c)
-      );
-      if (classes.length > 0) {
-        return `${tag}.${classes.slice(0, 3).join('.')}`;
+    };
+    if (el.id && SAFE_IDENT.test(el.id) && unique(`#${el.id}`)) return `#${el.id}`;
+
+    const parts = [];
+    let node = el;
+    for (let depth = 0; node && node.tagName && depth < 6; depth++) {
+      const tag = node.tagName.toLowerCase();
+      if (tag === 'html' || tag === 'body') break;
+      if (node !== el && node.id && SAFE_IDENT.test(node.id)) {
+        parts.unshift(`#${node.id}`);
+        const sel = parts.join(' > ');
+        return unique(sel) ? sel : '';
       }
+      let part = tag;
+      const classes = Array.from(node.classList || []).filter((cl) => SAFE_IDENT.test(cl)).slice(0, 2);
+      if (classes.length > 0) part += `.${classes.join('.')}`;
+      const parent = node.parentElement;
+      if (parent) {
+        const same = Array.from(parent.children).filter((ch) => ch.tagName === node.tagName);
+        if (same.length > 1) part += `:nth-of-type(${same.indexOf(node) + 1})`;
+      }
+      parts.unshift(part);
+      const sel = parts.join(' > ');
+      if (unique(sel)) return sel;
+      node = parent;
     }
-    const dataAd = el.getAttribute ? (el.getAttribute('data-ad') || el.getAttribute('data-adslot') || el.getAttribute('data-zone')) : null;
-    if (dataAd && typeof dataAd === 'string' && /^[a-zA-Z0-9_-]+$/.test(dataAd.trim())) {
-      return `${tag}[data-ad="${dataAd.trim()}"]`;
+    return '';
+  }
+
+  /** True when hiding this element would blank the page (layout wrappers, structural tags, our UI). */
+  function isPageLevelElement(el) {
+    if (!el || !el.tagName) return true;
+    if (STRUCTURAL_TAGS.has(el.tagName.toLowerCase())) return true;
+    if (el.closest && el.closest(AX_NEVER_TOUCH_SELECTOR + ', #ax-privacy-toast-host')) return true;
+    try {
+      const r = el.getBoundingClientRect();
+      const vw = window.innerWidth || 1;
+      const vh = window.innerHeight || 1;
+      const style = window.getComputedStyle(el);
+      const floating = style.position === 'fixed' || style.position === 'sticky';
+      // A non-floating box at least as large as the viewport is page layout, not an ad
+      if (!floating && r.width >= vw * 0.9 && r.height >= vh * 0.9) return true;
+    } catch {}
+    return false;
+  }
+
+  /** Learned (picker) selectors are only applied when they hit a few, non page-level elements. */
+  function filterSafeLearnedSelectors(list) {
+    const out = [];
+    for (const sel of Array.isArray(list) ? list : []) {
+      try {
+        const found = document.querySelectorAll(sel);
+        if (found.length > 5) continue;
+        if (Array.from(found).some(isPageLevelElement)) continue;
+        out.push(sel);
+      } catch {}
     }
-    const parent = el.parentElement;
-    if (parent && parent.id && /^[a-zA-Z_-][a-zA-Z0-9_-]*$/.test(parent.id)) {
-      return `#${parent.id} > ${tag}`;
-    }
-    return tag;
+    return out;
   }
 
   let isPickerActive = false;
@@ -1173,6 +1244,11 @@
     const target = hoveredTarget || e.target;
     if (!target) {
       stopAdPicker();
+      return;
+    }
+
+    if (isPageLevelElement(target)) {
+      // Picking a layout wrapper would hide the whole site; ignore the click and keep the picker open
       return;
     }
 
@@ -1621,6 +1697,8 @@
       nodeSignature,
       getRootDomain,
       deriveSelector,
+      isPageLevelElement,
+      filterSafeLearnedSelectors,
       startAdPicker,
       stopAdPicker
     };

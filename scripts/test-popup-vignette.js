@@ -1512,6 +1512,31 @@ runTest('v4.1.1: a link card containing a <button> keeps its href when clicked',
   assert.strictEqual(a.getAttribute('href'), 'https://listed-site.example.org/');
 });
 
+// ---------------------------------------------------------------------------
+// v4.1.1 Regression: bookmarks / typed URLs never bounced; picker selectors validated
+// ---------------------------------------------------------------------------
+console.log('\n[Group v4.1.1: Bookmarks & Picker Selectors]');
+
+const { isPageInitiatedRedirect, isSafeLearnedSelector } = await import('../background.js');
+
+runTest('v4.1.1: bookmark, typed URL, reload and back/forward are never treated as page redirects', () => {
+  assert.strictEqual(isPageInitiatedRedirect({ transitionType: 'auto_bookmark', transitionQualifiers: [] }), false);
+  assert.strictEqual(isPageInitiatedRedirect({ transitionType: 'typed', transitionQualifiers: ['from_address_bar'] }), false);
+  assert.strictEqual(isPageInitiatedRedirect({ transitionType: 'reload', transitionQualifiers: [] }), false);
+  assert.strictEqual(isPageInitiatedRedirect({ transitionType: 'link', transitionQualifiers: ['forward_back'] }), false);
+  assert.strictEqual(isPageInitiatedRedirect({ transitionType: 'link', transitionQualifiers: [] }), false, 'user link click');
+  assert.strictEqual(isPageInitiatedRedirect({ transitionType: 'link', transitionQualifiers: ['client_redirect'] }), true);
+});
+
+runTest('v4.1.1: picker selectors that would blank the page are rejected', () => {
+  for (const bad of ['div', 'section', 'body', 'html > body', 'main', '*', 'body > div.wrap', 'div, body']) {
+    assert.strictEqual(isSafeLearnedSelector(bad), false, bad);
+  }
+  for (const ok of ['#ad-slot-3', 'div.sidebar > div.banner:nth-of-type(2)', 'aside.promo', '#app > div.ad-box']) {
+    assert.strictEqual(isSafeLearnedSelector(ok), true, ok);
+  }
+});
+
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
 if (passedTests === totalTests) {
   console.log('✓ All Anti-Vignette & Pop-under Classifier tests passed successfully!');

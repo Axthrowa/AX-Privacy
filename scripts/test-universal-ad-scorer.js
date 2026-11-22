@@ -598,6 +598,42 @@ runTest('v4.1.0: forms, password inputs, video, nav and ytd-guide-renderer are n
   assert.strictEqual(evaluateCandidate(guide), false);
 });
 
+// ---------------------------------------------------------------------------
+// v4.1.1 Regression: ad picker never hides the whole site
+// ---------------------------------------------------------------------------
+console.log('\n[Group v4.1.1: Ad Picker Safety]');
+
+const { isPageLevelElement, filterSafeLearnedSelectors } = sandbox.module.exports;
+
+runTest('v4.1.1: picker refuses body/main and viewport-sized layout wrappers, accepts a banner', () => {
+  assert.strictEqual(isPageLevelElement(createMockElement({ tagName: 'body' })), true);
+  assert.strictEqual(isPageLevelElement(createMockElement({ tagName: 'main' })), true);
+  const wrapper = createMockElement({ tagName: 'div', style: { position: 'static' }, rect: { width: 1200, height: 3000, top: 0, left: 0, right: 1200, bottom: 3000 } });
+  assert.strictEqual(isPageLevelElement(wrapper), true);
+  const banner = createMockElement({ tagName: 'div', style: { position: 'static' }, rect: { width: 728, height: 90, top: 10, left: 10, right: 738, bottom: 100 } });
+  assert.strictEqual(isPageLevelElement(banner), false);
+  const fixedOverlay = createMockElement({ tagName: 'div', style: { position: 'fixed' }, rect: { width: 1200, height: 800, top: 0, left: 0, right: 1200, bottom: 800 } });
+  assert.strictEqual(isPageLevelElement(fixedOverlay), false, 'full-screen fixed overlays may be picked');
+});
+
+runTest('v4.1.1: stored learned selectors are dropped when they match many or page-level elements', () => {
+  const banner = createMockElement({ tagName: 'div', rect: { width: 300, height: 250, top: 0, left: 0, right: 300, bottom: 250 } });
+  const wrapper = createMockElement({ tagName: 'div', rect: { width: 1200, height: 3000, top: 0, left: 0, right: 1200, bottom: 3000 } });
+  const dom = {
+    '#ad-box': [banner],
+    'div.container': [wrapper],
+    'div.card': Array.from({ length: 12 }, () => banner)
+  };
+  const prev = sandbox.document.querySelectorAll;
+  sandbox.document.querySelectorAll = (sel) => dom[sel] || [];
+  try {
+    const kept = filterSafeLearnedSelectors(['#ad-box', 'div.container', 'div.card']);
+    assert.deepStrictEqual(Array.from(kept), ['#ad-box']);
+  } finally {
+    sandbox.document.querySelectorAll = prev;
+  }
+});
+
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
 if (passedTests === totalTests) {
   console.log('✓ All Universal Ad Scorer & Shield tests passed successfully!');
