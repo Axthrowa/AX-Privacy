@@ -64,6 +64,9 @@ const {
   hasValidTrustedIntent,
   evaluateUrlThreat,
   lastUserNewTabClicks,
+  lastUserInteractionMap,
+  recordUserInteraction,
+  hasRecentUserInteraction,
   PROTECTED_INFRASTRUCTURE,
   LEGITIMATE_HOST_WHITELIST,
   isTrustedFeedOpener
@@ -126,11 +129,13 @@ vm.runInNewContext(popupShieldSource, fullVmContext);
 const {
   setTrustedIntent: shieldSetTrustedIntent,
   hasTrustedIntent: shieldHasTrustedIntent,
+  hasTrustedClick: shieldHasTrustedClick,
   isAllowedDestination: shieldIsAllowedDestination,
   isAllowedNavigation: shieldIsAllowedNavigation
 } = fullVmContext.module.exports;
 assert.strictEqual(typeof shieldSetTrustedIntent, 'function');
 assert.strictEqual(typeof shieldHasTrustedIntent, 'function');
+assert.strictEqual(typeof shieldHasTrustedClick, 'function');
 assert.strictEqual(typeof shieldIsAllowedDestination, 'function');
 assert.strictEqual(typeof shieldIsAllowedNavigation, 'function');
 
@@ -601,13 +606,13 @@ runTest('isAllowedNavigation permits navigation when popupShield is disabled in 
   mockSessionStorage.delete('ax_privacy_popup_shield');
 });
 
-runTest('recordTrustedIntent provides 3500ms validity in background.js', () => {
+runTest('recordTrustedIntent provides 4000ms validity in background.js', () => {
   const testStore = new Map();
   recordTrustedIntent(101, 'target-service.com', 'https://target-service.com/api', testStore);
   const entries = testStore.get(101);
   assert.ok(entries && entries.length === 1);
   const now = Date.now();
-  assert.ok(entries[0].expiresAt >= now + 3400 && entries[0].expiresAt <= now + 3600);
+  assert.ok(entries[0].expiresAt >= now + 3900 && entries[0].expiresAt <= now + 4100);
 });
 
 // ---------------------------------------------------------------------------
@@ -805,6 +810,114 @@ runTest('Publisher domains with path-only ad rules are NEVER blocked in ads_trac
       `Publisher website ${pub} must not be blocked at the domain level!`
     );
   }
+});
+
+console.log('\n[Group 12: Legitimate Tab Protection & Strict Opener Intent (v3.3.2)]');
+
+runTest('Tabs opened without openerTabId (omnibox, bookmarks, new tab button) are NEVER closed', () => {
+  const resultNull = shouldBlockNewTab({
+    openerTabId: null,
+    openerUrl: '',
+    tabUrl: 'https://example.com/welcome',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(resultNull.block, false);
+  assert.strictEqual(resultNull.reason, 'user_initiated_no_opener');
+
+  const resultUndefined = shouldBlockNewTab({
+    openerTabId: undefined,
+    openerUrl: '',
+    tabUrl: 'https://github.com/trending',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(resultUndefined.block, false);
+  assert.strictEqual(resultUndefined.reason, 'user_initiated_no_opener');
+
+  const resultZero = shouldBlockNewTab({
+    openerTabId: 0,
+    openerUrl: '',
+    tabUrl: 'https://reddit.com/r/technology',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true
+  });
+  assert.strictEqual(resultZero.block, false);
+  assert.strictEqual(resultZero.reason, 'user_initiated_no_opener');
+});
+
+runTest('Recent trusted user interaction on opener tab keeps new tab open (allow)', () => {
+  const interactions = new Map();
+  const openerId = 888;
+  interactions.set(openerId, Date.now() - 400); // Interacted 400ms ago
+
+  const result = shouldBlockNewTab({
+    openerTabId: openerId,
+    openerUrl: 'https://blog.tech.org/posts/1',
+    tabUrl: 'https://someexternalresource.io/docs',
+    intentsStore: new Map(),
+    whitelist: [],
+    popupShield: true,
+    interactionsStore: interactions
+  });
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'recent_user_interaction');
+});
+
+runTest('Unsolicited pop-under or ad network without user intent or interaction is BLOCKED', () => {
+  const interactions = new Map(); // empty
+  const intents = new Map(); // empty
+
+  // Known pop-under ad path
+  const adPathResult = shouldBlockNewTab({
+    openerTabId: 999,
+    openerUrl: 'https://pirate-streaming-hub.xyz/watch',
+    tabUrl: 'https://propellerads.com/afu.php?zoneid=12345',
+    intentsStore: intents,
+    whitelist: [],
+    popupShield: true,
+    interactionsStore: interactions
+  });
+  assert.strictEqual(adPathResult.block, true);
+  assert.ok(
+    adPathResult.reason === 'popunder_ad_path' || adPathResult.reason === 'known_popunder_ad_signature'
+  );
+
+  // Unsolicited cross-site popup from untrusted site to random ad network
+  const crossSiteResult = shouldBlockNewTab({
+    openerTabId: 999,
+    openerUrl: 'https://pirate-streaming-hub.xyz/watch',
+    tabUrl: 'https://random-scam-popunder-network.net/lander',
+    intentsStore: intents,
+    whitelist: [],
+    popupShield: true,
+    interactionsStore: interactions
+  });
+  assert.strictEqual(crossSiteResult.block, true);
+  assert.strictEqual(crossSiteResult.reason, 'unsolicited_cross_site_tab');
+});
+
+runTest('popup-shield hasTrustedClick allows about:blank and legitimate destinations within 2500ms', () => {
+  assert.strictEqual(shieldHasTrustedClick(), false);
+
+  // When trusted click is recorded
+  fullVmContext.trustedClickUntil = Date.now() + 2500;
+  // Test destinations allowed when hasTrustedClick is true
+  assert.strictEqual(
+    shieldIsAllowedDestination('https://accounts.google.com/o/oauth2/v2/auth'),
+    true
+  );
+  assert.strictEqual(
+    shieldIsAllowedDestination('https://gitlab.com/login'),
+    true
+  );
+  assert.strictEqual(
+    shieldIsAllowedDestination('https://twitch.tv/'),
+    true
+  );
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);

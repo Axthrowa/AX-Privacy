@@ -889,9 +889,20 @@
     }
   } catch {}
 
+  let lastUserInteractionSent = 0;
   function handleTrustedNewTabIntent(e) {
     if (!e || e.isTrusted !== true) return;
     try {
+      const now = Date.now();
+      if (now - lastUserInteractionSent > 200) {
+        lastUserInteractionSent = now;
+        chrome.runtime.sendMessage({
+          type: 'AX_USER_INTERACTION',
+          sourceHost: window.location.hostname,
+          ts: now
+        }).catch(() => {});
+      }
+
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
 
@@ -957,10 +968,12 @@
       chrome.runtime.sendMessage({
         type: 'AX_TRUSTED_NEW_TAB',
         targetHost,
+        sourceHost: window.location.hostname,
         href,
         button: e.button,
         isMiddleClick,
-        time: Date.now()
+        time: now,
+        ts: now
       }).catch(() => {});
     } catch {}
   }

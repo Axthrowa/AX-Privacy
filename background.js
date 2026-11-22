@@ -1297,7 +1297,7 @@ const monitoredTabs = new Map();
 function cleanStaleMonitoredTabs() {
   const now = Date.now();
   for (const [id, data] of monitoredTabs.entries()) {
-    if (now - data.createdAt > 5000) {
+    if (now - data.createdAt > 1200) {
       monitoredTabs.delete(id);
     }
   }
@@ -1307,7 +1307,27 @@ function cleanStaleMonitoredTabs() {
 const trustedIntents = new Map();
 
 // Track recent user new-tab clicks (middle-click, ctrl-click, target=_blank) per openerTabId
-const lastUserNewTabClicks = new Map(); // openerTabId -> { timestamp: number, targetHost: string, href: string, isMiddleClick: boolean }
+const lastUserNewTabClicks = new Map(); // openerTabId -> { timestamp: number, targetHost: string, targetRoot: string, href: string, isMiddleClick: boolean }
+
+// Track recent trusted user interactions per tabId (within 3000ms)
+const lastUserInteractionMap = new Map(); // tabId -> timestamp
+
+function recordUserInteraction(tabId, timestamp = Date.now()) {
+  if (!tabId || typeof tabId !== 'number') return;
+  lastUserInteractionMap.set(tabId, timestamp);
+}
+
+function hasRecentUserInteraction(tabId, store = lastUserInteractionMap, maxAgeMs = 3000) {
+  if (!tabId || !store) return false;
+  const now = Date.now();
+  if (store.has(tabId)) {
+    const ts = store.get(tabId);
+    if (now - ts <= maxAgeMs) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function cleanStaleTrustedIntents(store = trustedIntents) {
   const now = Date.now();
@@ -1324,17 +1344,23 @@ function cleanStaleTrustedIntents(store = trustedIntents) {
       lastUserNewTabClicks.delete(tabId);
     }
   }
+  for (const [tabId, ts] of lastUserInteractionMap.entries()) {
+    if (now - ts > 4000) {
+      lastUserInteractionMap.delete(tabId);
+    }
+  }
 }
 
 function recordTrustedIntent(openerTabId, targetHost, href = '', store = trustedIntents, extra = {}) {
   if (!openerTabId || !targetHost) return;
   const now = Date.now();
   const cleanHost = targetHost.toLowerCase().trim();
+  const targetRoot = getRootDomain(cleanHost);
   const entry = {
     targetHost: cleanHost,
-    targetRoot: getRootDomain(cleanHost),
+    targetRoot,
     href: href ? href.trim() : '',
-    expiresAt: now + 3500 // Valid for 3500ms
+    expiresAt: now + 4000 // Valid for 4000ms
   };
 
   const existing = store.get(openerTabId) || [];
@@ -1345,6 +1371,7 @@ function recordTrustedIntent(openerTabId, targetHost, href = '', store = trusted
   lastUserNewTabClicks.set(openerTabId, {
     timestamp: now,
     targetHost: cleanHost,
+    targetRoot,
     href: href ? href.trim() : '',
     isMiddleClick: Boolean(extra.isMiddleClick || extra.button === 1)
   });
@@ -1365,11 +1392,10 @@ function hasValidTrustedIntent(openerTabId, targetHost, tabUrl = '', store = tru
     for (const item of intents) {
       if (item.expiresAt > now) {
         if (!matched) {
+          const itemRoot = item.targetRoot || getRootDomain(item.targetHost);
           if (
-            cleanTarget &&
-            (cleanTarget === item.targetHost ||
-              cleanTarget.endsWith('.' + item.targetHost) ||
-              (targetRoot && item.targetRoot && targetRoot === item.targetRoot))
+            (cleanTarget && (cleanTarget === item.targetHost || cleanTarget.endsWith('.' + item.targetHost))) ||
+            (targetRoot && itemRoot && targetRoot === itemRoot)
           ) {
             matched = true;
             continue; // Consume the intent
@@ -1394,11 +1420,11 @@ function hasValidTrustedIntent(openerTabId, targetHost, tabUrl = '', store = tru
     }
   }
 
-  // Fallback: If user recently performed a new-tab click on this opener (within 2500ms)
+  // Fallback: If user recently performed a new-tab click on this opener (within 4000ms)
   // and destination is not an ad network, allow it! (Handles middle-clicks, shorteners, redirects)
   if (!matched && lastUserNewTabClicks.has(openerTabId)) {
     const clickData = lastUserNewTabClicks.get(openerTabId);
-    if (now - clickData.timestamp <= 2500) {
+    if (now - clickData.timestamp <= 4000) {
       matched = true;
     }
   }
@@ -1765,14 +1791,15 @@ function shouldBlockNewTab({
   tabUrl = '',
   intentsStore = trustedIntents,
   whitelist = [],
-  popupShield = true
+  popupShield = true,
+  interactionsStore = lastUserInteractionMap
 }) {
   if (!popupShield) {
     return { block: false, reason: 'shield_disabled' };
   }
 
   // User initiated (manual new tab, bookmarks, omnibox) without programmatic opener
-  if (!openerTabId) {
+  if (typeof openerTabId !== 'number' || openerTabId <= 0) {
     return { block: false, reason: 'user_initiated_no_opener' };
   }
 
@@ -1819,11 +1846,6 @@ function shouldBlockNewTab({
     return { block: false, reason: 'same_site' };
   }
 
-  // Known pop-under / malvertising signatures are blocked immediately
-  if (isPopunderAdUrl(trimmedTab, openerHost)) {
-    return { block: true, reason: 'known_popunder_ad_signature' };
-  }
-
   // Exception 1: Explicit user intent verified in content script
   if (hasValidTrustedIntent(openerTabId, targetHost, trimmedTab, intentsStore)) {
     return { block: false, reason: 'trusted_user_intent' };
@@ -1844,24 +1866,64 @@ function shouldBlockNewTab({
     return { block: false, reason: 'legitimate_platform_whitelist' };
   }
 
-  // Block rotating/random cross-site pop-under domains
+  // Check recent trusted user interaction in opener tab (within 3000ms)
+  const hasRecentTrustedAction = hasRecentUserInteraction(openerTabId, interactionsStore, 3000);
+
+  // Known pop-under / malvertising signatures are blocked immediately
+  if (isPopunderAdUrl(trimmedTab, openerHost)) {
+    return { block: true, reason: 'known_popunder_ad_signature' };
+  }
+
+  // If user interacted recently on the opener tab, preserve the tab!
+  if (hasRecentTrustedAction) {
+    return { block: false, reason: 'recent_user_interaction' };
+  }
+
+  // Block rotating/random cross-site pop-under domains with no user interaction
   return { block: true, reason: 'unsolicited_cross_site_tab' };
 }
 
 async function checkAndNeutralizeTab(tabId, url, openerTabId) {
   try {
+    if (typeof openerTabId !== 'number' || openerTabId <= 0) {
+      monitoredTabs.delete(tabId);
+      return;
+    }
+
+    // Never close tabs older than 1200ms
+    if (monitoredTabs.has(tabId)) {
+      const data = monitoredTabs.get(tabId);
+      if (Date.now() - data.createdAt > 1200) {
+        monitoredTabs.delete(tabId);
+        return;
+      }
+    }
+
     const { popupShield = true, whitelist = [] } = await chrome.storage.local.get(['popupShield', 'whitelist']);
-    if (!popupShield) return;
+    if (!popupShield) {
+      monitoredTabs.delete(tabId);
+      return;
+    }
+
+    // Safety check 1: If tab is currently active/focused by user, NEVER close it!
+    try {
+      const currentTab = await chrome.tabs.get(tabId);
+      if (currentTab && currentTab.active) {
+        monitoredTabs.delete(tabId);
+        return;
+      }
+    } catch {
+      monitoredTabs.delete(tabId);
+      return;
+    }
 
     let openerUrl = '';
-    if (openerTabId) {
-      try {
-        const openerTab = await chrome.tabs.get(openerTabId);
-        if (openerTab?.url) {
-          openerUrl = openerTab.url;
-        }
-      } catch {}
-    }
+    try {
+      const openerTab = await chrome.tabs.get(openerTabId);
+      if (openerTab?.url) {
+        openerUrl = openerTab.url;
+      }
+    } catch {}
 
     let decision = shouldBlockNewTab({
       openerTabId,
@@ -1869,24 +1931,29 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
       tabUrl: url,
       intentsStore: trustedIntents,
       whitelist,
-      popupShield
+      popupShield,
+      interactionsStore: lastUserInteractionMap
     });
 
     if (decision.block) {
-      // If decision is 'unsolicited_cross_site_tab', provide a 200ms grace period
-      // to allow in-flight IPC AX_TRUSTED_NEW_TAB message from content.js (middle-click / Ctrl-click)
-      // to be delivered and processed by the service worker before closing!
+      // If decision is 'unsolicited_cross_site_tab', provide a 150ms grace period
+      // to allow in-flight IPC messages from content.js before closing!
       if (decision.reason === 'unsolicited_cross_site_tab') {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, 150));
 
         let currentUrl = url;
         try {
           const freshTab = await chrome.tabs.get(tabId);
-          if (freshTab?.url && freshTab.url !== 'about:blank') {
+          if (!freshTab || freshTab.active) {
+            monitoredTabs.delete(tabId);
+            return;
+          }
+          if (freshTab.url && freshTab.url !== 'about:blank') {
             currentUrl = freshTab.url;
           }
         } catch {
-          return; // Tab was already closed or navigated away
+          monitoredTabs.delete(tabId);
+          return;
         }
 
         decision = shouldBlockNewTab({
@@ -1895,12 +1962,26 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
           tabUrl: currentUrl,
           intentsStore: trustedIntents,
           whitelist,
-          popupShield
+          popupShield,
+          interactionsStore: lastUserInteractionMap
         });
 
         if (!decision.block) {
-          return; // Intent verified! Tab spared!
+          monitoredTabs.delete(tabId);
+          return;
         }
+      }
+
+      // Safety check 2: Re-verify tab is NOT active before closing
+      try {
+        const tabToRemove = await chrome.tabs.get(tabId);
+        if (tabToRemove && tabToRemove.active) {
+          monitoredTabs.delete(tabId);
+          return;
+        }
+      } catch {
+        monitoredTabs.delete(tabId);
+        return;
       }
 
       console.info(
@@ -1914,9 +1995,12 @@ async function checkAndNeutralizeTab(tabId, url, openerTabId) {
       const { totalBlocked = 0 } = await chrome.storage.local.get('totalBlocked');
       await chrome.storage.local.set({ totalBlocked: totalBlocked + 1 }).catch(() => {});
       monitoredTabs.delete(tabId);
+    } else {
+      monitoredTabs.delete(tabId);
     }
   } catch (err) {
     console.warn('[AX-Privacy background] checkAndNeutralizeTab error:', err);
+    monitoredTabs.delete(tabId);
   }
 }
 
@@ -1925,7 +2009,7 @@ const checkAndNeutralizePopunderTab = checkAndNeutralizeTab;
 if (typeof chrome !== 'undefined' && chrome.tabs?.onCreated?.addListener) {
   chrome.tabs.onCreated.addListener((tab) => {
     try {
-      if (tab?.id && tab.openerTabId) {
+      if (tab?.id && typeof tab.openerTabId === 'number' && tab.openerTabId > 0) {
         cleanStaleMonitoredTabs();
         cleanStaleTrustedIntents();
         monitoredTabs.set(tab.id, {
@@ -1952,7 +2036,7 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated?.addListener) {
     }
     if (monitoredTabs.has(tabId) && urlToCheck && urlToCheck !== 'about:blank') {
       const data = monitoredTabs.get(tabId);
-      if (Date.now() - data.createdAt <= 5000) {
+      if (Date.now() - data.createdAt <= 1200) {
         checkAndNeutralizeTab(tabId, urlToCheck, data.openerTabId);
       } else {
         monitoredTabs.delete(tabId);
@@ -1970,7 +2054,7 @@ if (typeof chrome !== 'undefined' && chrome.webNavigation?.onBeforeNavigate?.add
         resetTabBadgeToDefault(details.tabId);
         if (monitoredTabs.has(details.tabId)) {
           const data = monitoredTabs.get(details.tabId);
-          if (Date.now() - data.createdAt <= 5000) {
+          if (Date.now() - data.createdAt <= 1200) {
             checkAndNeutralizeTab(details.tabId, details.url, data.openerTabId);
           } else {
             monitoredTabs.delete(details.tabId);
@@ -1986,6 +2070,7 @@ if (typeof chrome !== 'undefined' && chrome.webNavigation?.onBeforeNavigate?.add
 if (typeof chrome !== 'undefined' && chrome.tabs?.onActivated?.addListener) {
   chrome.tabs.onActivated.addListener(async (activeInfo) => {
     try {
+      monitoredTabs.delete(activeInfo.tabId);
       const tab = await chrome.tabs.get(activeInfo.tabId);
       if (tab?.url) {
         analyzeTab(activeInfo.tabId, tab.url);
@@ -1999,6 +2084,9 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
     tabBlockedCounts.delete(tabId);
     monitoredTabs.delete(tabId);
     tabThreats.delete(tabId);
+    trustedIntents.delete(tabId);
+    lastUserNewTabClicks.delete(tabId);
+    lastUserInteractionMap.delete(tabId);
     await clearTabAlerted(tabId);
   });
 }
@@ -2340,9 +2428,21 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
       return true;
     }
 
+    if (message.type === 'AX_USER_INTERACTION') {
+      const tabId = sender.tab?.id;
+      if (tabId) {
+        recordUserInteraction(tabId, message.ts || Date.now());
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false });
+      }
+      return false;
+    }
+
     if (message.type === 'AX_TRUSTED_NEW_TAB') {
       const openerTabId = sender.tab?.id;
       if (openerTabId && message.targetHost) {
+        recordUserInteraction(openerTabId, message.ts || Date.now());
         recordTrustedIntent(openerTabId, message.targetHost, message.href, trustedIntents, {
           isMiddleClick: message.isMiddleClick,
           button: message.button
@@ -2384,6 +2484,9 @@ export {
   recordTrustedIntent,
   hasValidTrustedIntent,
   lastUserNewTabClicks,
+  lastUserInteractionMap,
+  recordUserInteraction,
+  hasRecentUserInteraction,
   TRUSTED_AUTH_PAYMENT_DOMAINS,
   TRUSTED_OPENER_FEEDS,
   PROTECTED_INFRASTRUCTURE,

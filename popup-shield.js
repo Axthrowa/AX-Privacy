@@ -88,6 +88,11 @@ function isVignetteCandidate(el) {
 // Track synchronous trusted user intents
 let lastTrustedIntent = null; // { host: string, root: string, href: string, exp: number }
 let lastTrustedLink = null; // { time: number, origin: string, href: string }
+let trustedClickUntil = 0;
+
+function hasTrustedClick() {
+  return Date.now() <= trustedClickUntil;
+}
 
 function setTrustedIntent(targetUrl) {
   try {
@@ -118,7 +123,7 @@ function setTrustedIntent(targetUrl) {
       return;
     }
     const now = Date.now();
-    const exp = now + 1500;
+    const exp = now + 2500;
     const intentData = { host, root: getRootDomain(host), href, exp };
 
     // 1. In-memory fast cache
@@ -292,10 +297,13 @@ const TRUSTED_AUTH_HOSTS = [
   'login.microsoftonline.com',
   'login.live.com',
   'github.com',
+  'gitlab.com',
   'discord.com',
   'facebook.com',
   'twitter.com',
   'x.com',
+  'youtube.com',
+  'twitch.tv',
   'stripe.com',
   'checkout.stripe.com',
   'paypal.com',
@@ -316,7 +324,7 @@ function isAllowedDestination(targetUrl) {
   }
 
   if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
-    if (hasTrustedIntent(targetUrl)) {
+    if (hasTrustedIntent(targetUrl) || hasTrustedClick()) {
       return true;
     }
     return false;
@@ -366,8 +374,13 @@ function isAllowedDestination(targetUrl) {
       return true;
     }
 
-    // Fallback: Check if user genuinely clicked a visible anchor to this target origin within 700ms
-    if (lastTrustedLink && Date.now() - lastTrustedLink.time <= 700) {
+    // Check if user recently performed a trusted interaction / click
+    if (hasTrustedClick()) {
+      return true;
+    }
+
+    // Fallback: Check if user genuinely clicked a visible anchor to this target origin within 2500ms
+    if (lastTrustedLink && Date.now() - lastTrustedLink.time <= 2500) {
       if (
         lastTrustedLink.origin === targetOrigin ||
         lastTrustedLink.href === targetUrl ||
@@ -398,7 +411,7 @@ function isAllowedNavigation(targetUrl) {
   }
 
   if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
-    return hasTrustedIntent(targetUrl);
+    return hasTrustedIntent(targetUrl) || hasTrustedClick();
   }
 
   try {
@@ -425,12 +438,12 @@ function isAllowedNavigation(targetUrl) {
       return true;
     }
 
-    // 3. User genuinely clicked a link with navigation/new-tab intent (last 750ms)
-    if (hasTrustedIntent(targetUrl)) {
+    // 3. User genuinely clicked a link with navigation/new-tab intent or recent trusted click (within 2500ms)
+    if (hasTrustedIntent(targetUrl) || hasTrustedClick()) {
       return true;
     }
 
-    if (lastTrustedLink && Date.now() - lastTrustedLink.time <= 750) {
+    if (lastTrustedLink && Date.now() - lastTrustedLink.time <= 2500) {
       if (
         lastTrustedLink.origin === targetOrigin ||
         lastTrustedLink.href === targetUrl ||
@@ -735,6 +748,7 @@ function isDevToolsKey(e) {
 
   function onUserPointer(e) {
     if (!e || e.isTrusted !== true) return;
+    trustedClickUntil = Date.now() + 2500;
     try {
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
@@ -751,6 +765,7 @@ function isDevToolsKey(e) {
       if (isMediaOrControl && !anchor) {
         lastTrustedIntent = null;
         lastTrustedLink = null;
+        trustedClickUntil = 0;
         return;
       }
 
@@ -804,6 +819,9 @@ function isDevToolsKey(e) {
   // Intercept instantaneous transparent <a> traps injected on mousedown/pointerdown
   function onCaptureClickOrUp(e) {
     try {
+      if (e && e.isTrusted === true) {
+        trustedClickUntil = Date.now() + 2500;
+      }
       const target = e.target;
       if (!target || !(target instanceof Element)) return;
 
@@ -1514,6 +1532,7 @@ if (typeof module !== 'undefined' && module.exports) {
     isDevToolsKey,
     setTrustedIntent,
     hasTrustedIntent,
+    hasTrustedClick,
     TRUSTED_AUTH_HOSTS
   };
 }
