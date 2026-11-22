@@ -41,6 +41,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const filterRulesSummary = document.getElementById('filterRulesSummary');
   const filterUpdateStatusText = document.getElementById('filterUpdateStatusText');
 
+  // AX-Brain Elements
+  const axBrainPickerBtn = document.getElementById('ax-brain-picker-btn');
+  const axBrainStats = document.getElementById('ax-brain-stats');
+  const axBrainResetBtn = document.getElementById('ax-brain-reset-btn');
+
   let currentTab = null;
   let currentHostname = '';
   let isSystemPage = false;
@@ -327,6 +332,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         res.customFilterLists || settings.customFilterLists || [],
         res.filterUpdateStatus || settings.filterUpdateStatus || null
       );
+
+      // Render AX-Brain stats
+      await updateAxBrainUI();
     }
   } catch (err) {
     console.error('Failed to get background state:', err);
@@ -542,6 +550,53 @@ document.addEventListener('DOMContentLoaded', async () => {
       } finally {
         btnUpdateAllFilters.classList.remove('spinning');
         btnUpdateAllFilters.disabled = false;
+      }
+    });
+  }
+
+  // AX-Brain UI Updates & Handlers
+  async function updateAxBrainUI() {
+    if (!axBrainStats) return;
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'AX_BRAIN_GET_STATE' });
+      if (res && res.success) {
+        const learnedRules = res.learnedDomainsCount || 0;
+        const totalThreats = res.totalStrikes || 0;
+        const cosmeticsCount = res.learnedCosmeticsCount || 0;
+        axBrainStats.textContent = `Öğrenilen: ${learnedRules + cosmeticsCount} kural • ${totalThreats} tehdit engellendi`;
+      } else {
+        axBrainStats.textContent = 'Öğrenilen: 0 kural • 0 tehdit engellendi';
+      }
+    } catch {
+      axBrainStats.textContent = 'Öğrenilen: 0 kural • 0 tehdit engellendi';
+    }
+  }
+
+  if (axBrainPickerBtn) {
+    axBrainPickerBtn.addEventListener('click', async () => {
+      if (currentTab?.id && !isSystemPage) {
+        try {
+          await chrome.tabs.sendMessage(currentTab.id, { type: 'AX_START_PICKER' });
+          window.close();
+        } catch (err) {
+          console.warn('Could not start picker:', err);
+        }
+      }
+    });
+  }
+
+  if (axBrainResetBtn) {
+    axBrainResetBtn.addEventListener('click', async () => {
+      if (confirm('AX-Brain tarafından öğrenilen tüm kural ve modeller sıfırlansın mı?')) {
+        try {
+          axBrainResetBtn.disabled = true;
+          await chrome.runtime.sendMessage({ type: 'AX_BRAIN_RESET' });
+          await updateAxBrainUI();
+        } catch (err) {
+          console.warn('Could not reset AX-Brain:', err);
+        } finally {
+          axBrainResetBtn.disabled = false;
+        }
       }
     });
   }

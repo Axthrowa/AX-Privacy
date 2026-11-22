@@ -12,6 +12,10 @@
 
   const currentHost = window.location.hostname.toLowerCase();
 
+  const brainRef = typeof AxBrain !== 'undefined' ? AxBrain : (typeof window !== 'undefined' ? window.AxBrain : (typeof globalThis !== 'undefined' ? globalThis.AxBrain : null));
+  let currentBrainModel = brainRef?.createDefaultModel?.() || null;
+  const evaluatedNodes = new WeakSet();
+
   function getRootDomain(hostname) {
     if (!hostname || typeof hostname !== 'string') return '';
     const clean = hostname.trim().toLowerCase();
@@ -24,7 +28,7 @@
     return parts.slice(-2).join('.');
   }
 
-  function evaluateElementAdScore(el, computedStyle, rect, hostName = '') {
+  function evaluateElementAdScore(el, computedStyle, rect, hostName = '', model = currentBrainModel) {
     if (!el) return { score: 0, reasons: ['null-element'], excluded: true, reason: 'null-element', shouldHide: false };
     if (el.id === 'ax-privacy-alert-host') {
       return { score: 0, reasons: ['alert-host'], excluded: true, reason: 'alert-host', shouldHide: false };
@@ -291,6 +295,24 @@
       }
     }
 
+    // Signal 8: AX-Brain Online Machine-Learned Inference
+    const brain = typeof AxBrain !== 'undefined' ? AxBrain : (typeof window !== 'undefined' ? window.AxBrain : (typeof globalThis !== 'undefined' ? globalThis.AxBrain : null));
+    if (brain && brain.extractFeatures && brain.predict && model) {
+      try {
+        const feat = brain.extractFeatures(el, {
+          computedStyle: style,
+          rect: r,
+          currentHost: curH,
+          isLateInjected: Boolean(el.__ax_late_injected)
+        });
+        const pred = brain.predict(feat, model);
+        if (pred && typeof pred.probability === 'number' && pred.probability >= 0.78) {
+          score = Math.max(score, 5);
+          reasons.push('ax-brain-model');
+        }
+      } catch {}
+    }
+
     return {
       score,
       reasons,
@@ -321,6 +343,10 @@
           } catch {}
         }
         return;
+      }
+
+      if (response.model) {
+        currentBrainModel = response.model;
       }
 
       if (response.popupShield !== false) {
@@ -600,9 +626,16 @@
             'div, section, aside, span, a, [id*="overlay"], [class*="overlay"], [id*="banner"], [class*="banner"], [id*="reklam"], [class*="reklam"], [data-ad], [data-adslot], ins, article'
           );
 
+          const SKIP_TAGS = new Set([
+            'SCRIPT', 'STYLE', 'SVG', 'HEAD', 'META', 'LINK', 'BR', 'HR',
+            'NOSCRIPT', 'HTML', 'BODY', 'MAIN', 'NAV', 'HEADER', 'FOOTER', 'ARTICLE', 'FORM'
+          ]);
+
           for (let i = 0; i < candidates.length; i++) {
             const el = candidates[i];
-            if (!el || el.__ax_scanned_hidden) continue;
+            if (!el || el.__ax_scanned_hidden || evaluatedNodes.has(el)) continue;
+            if (SKIP_TAGS.has(el.tagName)) continue;
+            evaluatedNodes.add(el);
 
             const evalResult = evaluateElementAdScore(el, null, null, currentHost);
             if (evalResult.shouldHide) {
@@ -711,11 +744,21 @@
         } catch {}
       }
 
+      function scheduleIdleScan(fn) {
+        if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+          window.requestIdleCallback(fn, { timeout: 100 });
+        } else {
+          setTimeout(fn, 50);
+        }
+      }
+
       // Debounced mutation observer to efficiently react to dynamic ad injections
       let scanTimer = null;
       const debouncedScan = () => {
         if (scanTimer) clearTimeout(scanTimer);
-        scanTimer = setTimeout(scanForMaliciousOverlaysAndBanners, 150);
+        scanTimer = setTimeout(() => {
+          scheduleIdleScan(scanForMaliciousOverlaysAndBanners);
+        }, 120);
       };
 
       const observer = new MutationObserver(debouncedScan);
@@ -964,12 +1007,223 @@
     }
   }
 
-  // Listen for security alert messages from background service worker
+  /**
+   * ============================================================================
+   * AX-Brain: Interactive Ad Picker ("Reklamı Seç ve Öğret")
+   * ============================================================================
+   */
+
+  function deriveSelector(el) {
+    if (!el || !el.tagName) return '';
+    if (el.id && typeof el.id === 'string' && el.id.trim()) {
+      const id = el.id.trim();
+      if (/^[a-zA-Z_-][a-zA-Z0-9_-]*$/.test(id)) {
+        return `#${id}`;
+      }
+    }
+    const tag = el.tagName.toLowerCase();
+    if (el.classList && el.classList.length > 0) {
+      const classes = Array.from(el.classList).filter((c) =>
+        /^[a-zA-Z_-][a-zA-Z0-9_-]*$/.test(c) && !/^\d+$/.test(c)
+      );
+      if (classes.length > 0) {
+        return `${tag}.${classes.slice(0, 3).join('.')}`;
+      }
+    }
+    const dataAd = el.getAttribute ? (el.getAttribute('data-ad') || el.getAttribute('data-adslot') || el.getAttribute('data-zone')) : null;
+    if (dataAd && typeof dataAd === 'string' && /^[a-zA-Z0-9_-]+$/.test(dataAd.trim())) {
+      return `${tag}[data-ad="${dataAd.trim()}"]`;
+    }
+    const parent = el.parentElement;
+    if (parent && parent.id && /^[a-zA-Z_-][a-zA-Z0-9_-]*$/.test(parent.id)) {
+      return `#${parent.id} > ${tag}`;
+    }
+    return tag;
+  }
+
+  let isPickerActive = false;
+  let pickerOverlay = null;
+  let hoveredTarget = null;
+
+  function createPickerOverlay() {
+    if (pickerOverlay && pickerOverlay.parentNode) return pickerOverlay;
+    pickerOverlay = document.createElement('div');
+    pickerOverlay.id = 'ax-privacy-picker-overlay';
+    pickerOverlay.style.cssText =
+      'position: fixed; pointer-events: none; z-index: 2147483646; border: 2px dashed #0284c7; background: rgba(2, 132, 199, 0.18); border-radius: 4px; box-sizing: border-box; display: none; transition: top 0.05s ease, left 0.05s ease, width 0.05s ease, height 0.05s ease;';
+    (document.body || document.documentElement).appendChild(pickerOverlay);
+    return pickerOverlay;
+  }
+
+  function updatePickerOverlay(el) {
+    if (!el || !pickerOverlay) return;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) {
+      pickerOverlay.style.display = 'none';
+      return;
+    }
+    pickerOverlay.style.display = 'block';
+    pickerOverlay.style.top = `${r.top}px`;
+    pickerOverlay.style.left = `${r.left}px`;
+    pickerOverlay.style.width = `${r.width}px`;
+    pickerOverlay.style.height = `${r.height}px`;
+  }
+
+  function onPickerPointerMove(e) {
+    if (!isPickerActive) return;
+    const target = e.target;
+    if (!target || target === pickerOverlay || target.id === 'ax-privacy-picker-overlay' || target.closest?.('#ax-privacy-toast-host, #ax-privacy-alert-host')) {
+      return;
+    }
+    hoveredTarget = target;
+    updatePickerOverlay(target);
+  }
+
+  function onPickerClick(e) {
+    if (!isPickerActive) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const target = hoveredTarget || e.target;
+    if (!target) {
+      stopAdPicker();
+      return;
+    }
+
+    const sel = deriveSelector(target);
+    const brain = typeof AxBrain !== 'undefined' ? AxBrain : (typeof window !== 'undefined' ? window.AxBrain : (typeof globalThis !== 'undefined' ? globalThis.AxBrain : null));
+    const features = brain?.extractFeatures ? brain.extractFeatures(target, { currentHost }) : [];
+
+    // Hide target element immediately
+    target.style.setProperty('display', 'none', 'important');
+    target.style.setProperty('visibility', 'hidden', 'important');
+    target.style.setProperty('pointer-events', 'none', 'important');
+
+    // Send training signal to AX-Brain (label: 1)
+    if (chrome.runtime?.sendMessage) {
+      chrome.runtime
+        .sendMessage({
+          type: 'AX_BRAIN_TRAIN',
+          features,
+          label: 1,
+          selector: sel,
+          host: currentHost
+        })
+        .catch(() => {});
+    }
+
+    stopAdPicker();
+    showPickerUndoToast(target, sel, features);
+  }
+
+  function onPickerKeyDown(e) {
+    if (e.key === 'Escape' && isPickerActive) {
+      stopAdPicker();
+    }
+  }
+
+  function startAdPicker() {
+    if (isPickerActive) return;
+    isPickerActive = true;
+    createPickerOverlay();
+    window.addEventListener('pointermove', onPickerPointerMove, true);
+    window.addEventListener('click', onPickerClick, true);
+    window.addEventListener('keydown', onPickerKeyDown, true);
+    if (document.documentElement) {
+      document.documentElement.style.cursor = 'crosshair';
+    }
+  }
+
+  function stopAdPicker() {
+    if (!isPickerActive) return;
+    isPickerActive = false;
+    hoveredTarget = null;
+    if (pickerOverlay) {
+      pickerOverlay.style.display = 'none';
+    }
+    window.removeEventListener('pointermove', onPickerPointerMove, true);
+    window.removeEventListener('click', onPickerClick, true);
+    window.removeEventListener('keydown', onPickerKeyDown, true);
+    if (document.documentElement) {
+      document.documentElement.style.removeProperty('cursor');
+    }
+  }
+
+  function showPickerUndoToast(targetEl, sel, features) {
+    try {
+      const existing = document.getElementById('ax-privacy-toast-host');
+      if (existing) existing.remove();
+
+      const host = document.createElement('div');
+      host.id = 'ax-privacy-toast-host';
+      host.style.all = 'initial';
+      host.style.position = 'fixed';
+      host.style.bottom = '24px';
+      host.style.right = '24px';
+      host.style.zIndex = '2147483647';
+      host.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+      const shadow = host.attachShadow({ mode: 'closed' });
+      const wrap = document.createElement('div');
+      wrap.style.cssText =
+        'display: flex; align-items: center; gap: 12px; background: #0b1120; color: #f8fafc; border: 1px solid #0284c7; padding: 12px 18px; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); font-size: 13px;';
+
+      const msg = document.createElement('span');
+      msg.textContent = "Reklam gizlendi ve AX-Brain'e öğretildi.";
+
+      const undoBtn = document.createElement('button');
+      undoBtn.textContent = 'Geri Al';
+      undoBtn.style.cssText =
+        'background: #0284c7; color: #ffffff; border: none; padding: 5px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
+
+      let autoRemoveTimer = null;
+
+      undoBtn.addEventListener('click', () => {
+        if (autoRemoveTimer) clearTimeout(autoRemoveTimer);
+        if (targetEl) {
+          targetEl.style.removeProperty('display');
+          targetEl.style.removeProperty('visibility');
+          targetEl.style.removeProperty('pointer-events');
+        }
+        if (chrome.runtime?.sendMessage) {
+          chrome.runtime
+            .sendMessage({
+              type: 'AX_BRAIN_TRAIN',
+              features,
+              label: 0,
+              selector: sel,
+              host: currentHost
+            })
+            .catch(() => {});
+        }
+        host.remove();
+      });
+
+      wrap.appendChild(msg);
+      wrap.appendChild(undoBtn);
+      shadow.appendChild(wrap);
+      const target = document.body || document.documentElement;
+      if (target) target.appendChild(host);
+
+      autoRemoveTimer = setTimeout(() => {
+        try {
+          host.remove();
+        } catch {}
+      }, 6000);
+    } catch {}
+  }
+
+  // Listen for security alert & picker messages from background or popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       if (message?.type === 'AX_SECURITY_ALERT') {
         renderSecurityAlert(message);
         sendResponse({ success: true });
+        return true;
+      }
+      if (message?.type === 'AX_START_PICKER') {
+        startAdPicker();
+        sendResponse({ success: true });
+        return true;
       }
     } catch {
       // Suppress
@@ -1233,6 +1487,24 @@
             count: 1
           })
           .catch(() => {});
+
+        let blockedHost = event.data.targetHost;
+        if (!blockedHost && event.data.url) {
+          try {
+            blockedHost = new URL(event.data.url).hostname;
+          } catch {}
+        }
+        if (blockedHost) {
+          chrome.runtime
+            .sendMessage({
+              type: 'AX_BRAIN_REPORT_THREAT',
+              domain: blockedHost,
+              sourceHost: currentHost,
+              reason: event.data.reason || 'popup_shield_blocked',
+              url: event.data.url || ''
+            })
+            .catch(() => {});
+        }
       }
     } catch {}
   });
@@ -1258,7 +1530,10 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       evaluateElementAdScore,
-      getRootDomain
+      getRootDomain,
+      deriveSelector,
+      startAdPicker,
+      stopAdPicker
     };
   }
 })();

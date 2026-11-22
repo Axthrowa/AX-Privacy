@@ -1,6 +1,8 @@
 /**
- * AX-Privacy Background Service Worker (Manifest V3 - v2.1.0)
+ * AX-Privacy Background Service Worker (Manifest V3 - v4.0.0 "AX-Brain")
  * Features:
+ *   - AX-Brain: Ultra-lightweight local online learning engine (<2KB, zero telemetry, SGD training)
+ *   - Autonomous DNR threat promotion into dedicated ID band 2001..2300 with 60-day TTL and LRU
  *   - Native Chrome DNR Action Count Badge (tab-specific live network blocked counter)
  *   - Local Threat Analysis Engine with RFC 3492 Punycode decoder (Turkish domain false-positive immunity)
  *   - Full frame & subresource dynamic whitelisting via allowAllRequests (priority: 1000)
@@ -8,11 +10,21 @@
  *   - Zero-leak local security alerting with strict error handling
  */
 
+import './ax-brain.js';
+const AxBrain = globalThis.AxBrain;
+
+const LEARNED_DNR_START_ID = 2001;
+const LEARNED_DNR_MAX_RULES = 300;
+const LEARNED_DOMAINS_MAX = 300;
+const LEARNED_COSMETICS_MAX = 200;
+const LEARNED_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+
 const DEFAULT_SETTINGS = {
   adBlock: true,
   urlClean: true,
   cosmeticFilter: true,
   threatShield: true,
+  axBrain: true,
   twitchShield: true,
   twitchProxyUrl: '',
   youtubeShield: true,
@@ -115,6 +127,277 @@ async function clearAllAlertedTabs() {
   } catch (err) {
     console.warn('[AX-Privacy background] clearAllAlertedTabs error:', err);
   }
+}
+
+/**
+ * ============================================================================
+ * AX-Brain (v4.0.0): Autonomous Local Learning & DNR Threat Engine
+ * ============================================================================
+ */
+
+async function getAxBrainState() {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+      return {
+        model: AxBrain ? AxBrain.createDefaultModel() : { weights: [], bias: -1.0, sampleCount: 0, lastUpdated: Date.now() },
+        learnedDomains: [],
+        learnedCosmetics: []
+      };
+    }
+    const data = await chrome.storage.local.get([
+      'axBrainModel',
+      'learnedDomains',
+      'learnedCosmetics'
+    ]);
+    const model = (data.axBrainModel && Array.isArray(data.axBrainModel.weights) && data.axBrainModel.weights.length > 0)
+      ? data.axBrainModel
+      : (AxBrain ? AxBrain.createDefaultModel() : { weights: [], bias: -1.0, sampleCount: 0, lastUpdated: Date.now() });
+    const learnedDomains = Array.isArray(data.learnedDomains) ? data.learnedDomains : [];
+    const learnedCosmetics = Array.isArray(data.learnedCosmetics) ? data.learnedCosmetics : [];
+    return { model, learnedDomains, learnedCosmetics };
+  } catch (err) {
+    console.warn('[AX-Privacy background] getAxBrainState error:', err);
+    return {
+      model: AxBrain ? AxBrain.createDefaultModel() : { weights: [], bias: -1.0, sampleCount: 0, lastUpdated: Date.now() },
+      learnedDomains: [],
+      learnedCosmetics: []
+    };
+  }
+}
+
+async function syncLearnedDNRRules(learnedDomainsList) {
+  if (typeof chrome === 'undefined' || !chrome.declarativeNetRequest?.updateDynamicRules) {
+    return [];
+  }
+  try {
+    const list = Array.isArray(learnedDomainsList)
+      ? learnedDomainsList
+      : (await getAxBrainState()).learnedDomains;
+    const { whitelist = [] } = (chrome.storage?.local ? await chrome.storage.local.get('whitelist') : { whitelist: [] });
+    const whitelistSet = new Set(whitelist.map((w) => (typeof w === 'string' ? w.toLowerCase().trim() : '')));
+
+    // Filter eligible domains: strikes >= 2, root not in IMMUNE_ROOTS, not in whitelist
+    const eligible = list.filter((item) => {
+      if (!item || !item.domain || typeof item.domain !== 'string' || (item.strikes || 0) < 2) return false;
+      const clean = item.domain.toLowerCase().trim();
+      const root = item.rootDomain || (AxBrain ? AxBrain.getRootDomain(clean) : clean);
+      if (AxBrain && AxBrain.IMMUNE_ROOTS && AxBrain.IMMUNE_ROOTS.has(root)) return false;
+      if (whitelistSet.has(clean) || whitelistSet.has(root)) return false;
+      return true;
+    });
+
+    // Sort by lastSeen descending (LRU promotion)
+    eligible.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+    const selected = eligible.slice(0, LEARNED_DNR_MAX_RULES);
+
+    const newRules = selected.map((item, idx) => ({
+      id: LEARNED_DNR_START_ID + idx,
+      priority: 2,
+      action: { type: 'block' },
+      condition: {
+        urlFilter: `||${item.domain}^`,
+        resourceTypes: ['script', 'sub_frame', 'xmlhttprequest', 'image'],
+        domainType: 'thirdParty'
+      }
+    }));
+
+    // Find all existing dynamic rules in 2001..2300
+    const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+    const removeRuleIds = existingRules
+      .filter((r) => r.id >= LEARNED_DNR_START_ID && r.id < LEARNED_DNR_START_ID + LEARNED_DNR_MAX_RULES)
+      .map((r) => r.id);
+
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds,
+      addRules: newRules
+    });
+
+    return newRules;
+  } catch (err) {
+    console.warn('[AX-Privacy background] syncLearnedDNRRules error:', err);
+    return [];
+  }
+}
+
+async function reportBrainThreat({ domain, sourceHost, reason, url }) {
+  if (!domain || typeof domain !== 'string') return { ok: false, error: 'Invalid domain' };
+  try {
+    const cleanDomain = domain.toLowerCase().trim().replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
+    if (!cleanDomain) return { ok: false, error: 'Empty domain' };
+
+    const rootDomain = AxBrain ? AxBrain.getRootDomain(cleanDomain) : cleanDomain;
+    if (AxBrain && AxBrain.IMMUNE_ROOTS && AxBrain.IMMUNE_ROOTS.has(rootDomain)) {
+      return { ok: false, reason: 'immune_root', domain: cleanDomain, rootDomain };
+    }
+
+    let whitelist = [];
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      const stored = await chrome.storage.local.get('whitelist');
+      whitelist = Array.isArray(stored.whitelist) ? stored.whitelist : [];
+    }
+    if (whitelist.some((w) => cleanDomain === w || cleanDomain.endsWith('.' + w) || rootDomain === w)) {
+      return { ok: false, reason: 'whitelisted', domain: cleanDomain };
+    }
+
+    const state = await getAxBrainState();
+    let list = [...state.learnedDomains];
+    const existingIdx = list.findIndex((item) => item.domain === cleanDomain);
+
+    let entry;
+    if (existingIdx !== -1) {
+      entry = { ...list[existingIdx] };
+      entry.strikes = (entry.strikes || 1) + 1;
+      entry.lastSeen = Date.now();
+      entry.reasons = Array.isArray(entry.reasons) ? [...entry.reasons] : [];
+      if (reason && !entry.reasons.includes(reason)) {
+        entry.reasons.push(reason);
+      }
+      list[existingIdx] = entry;
+    } else {
+      entry = {
+        domain: cleanDomain,
+        rootDomain,
+        strikes: 1,
+        firstSeen: Date.now(),
+        lastSeen: Date.now(),
+        reasons: reason ? [reason] : []
+      };
+      list.unshift(entry);
+    }
+
+    // LRU limit 300
+    if (list.length > LEARNED_DOMAINS_MAX) {
+      list.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+      list = list.slice(0, LEARNED_DOMAINS_MAX);
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      await chrome.storage.local.set({ learnedDomains: list });
+    }
+
+    let promoted = false;
+    if (entry.strikes >= 2) {
+      await syncLearnedDNRRules(list);
+      promoted = true;
+    }
+
+    return { ok: true, strikes: entry.strikes, promoted, domain: cleanDomain };
+  } catch (err) {
+    console.warn('[AX-Privacy background] reportBrainThreat error:', err);
+    return { ok: false, error: err.message };
+  }
+}
+
+async function trainBrainModel({ features, label, selector, host }) {
+  try {
+    const state = await getAxBrainState();
+    let model = state.model;
+    if (features && Array.isArray(features) && typeof label === 'number' && AxBrain) {
+      model = AxBrain.train(features, label, model);
+    }
+
+    let learnedCosmetics = [...state.learnedCosmetics];
+    if (selector && typeof selector === 'string') {
+      const cleanSelector = selector.trim();
+      const cleanHost = host ? host.toLowerCase().trim() : '*';
+      if (label === 1) {
+        // Add cosmetic selector if not already present
+        const exists = learnedCosmetics.some((c) => c.selector === cleanSelector && c.host === cleanHost);
+        if (!exists) {
+          learnedCosmetics.unshift({
+            selector: cleanSelector,
+            host: cleanHost,
+            addedAt: Date.now()
+          });
+          if (learnedCosmetics.length > LEARNED_COSMETICS_MAX) {
+            learnedCosmetics = learnedCosmetics.slice(0, LEARNED_COSMETICS_MAX);
+          }
+        }
+      } else if (label === 0) {
+        // Undo / unblock: remove cosmetic selector
+        learnedCosmetics = learnedCosmetics.filter((c) => c.selector !== cleanSelector);
+      }
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      await chrome.storage.local.set({
+        axBrainModel: model,
+        learnedCosmetics
+      });
+    }
+
+    return { ok: true, model, learnedCosmeticsCount: learnedCosmetics.length };
+  } catch (err) {
+    console.warn('[AX-Privacy background] trainBrainModel error:', err);
+    return { ok: false, error: err.message };
+  }
+}
+
+async function resetBrainState() {
+  try {
+    const defaultModel = AxBrain ? AxBrain.createDefaultModel() : { weights: [], bias: -1.0, sampleCount: 0, lastUpdated: Date.now() };
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      await chrome.storage.local.set({
+        axBrainModel: defaultModel,
+        learnedDomains: [],
+        learnedCosmetics: []
+      });
+    }
+
+    // Remove all DNR rules in 2001..2300
+    if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest?.updateDynamicRules) {
+      const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+      const removeRuleIds = existingRules
+        .filter((r) => r.id >= LEARNED_DNR_START_ID && r.id < LEARNED_DNR_START_ID + LEARNED_DNR_MAX_RULES)
+        .map((r) => r.id);
+      if (removeRuleIds.length > 0) {
+        await chrome.declarativeNetRequest.updateDynamicRules({
+          removeRuleIds,
+          addRules: []
+        });
+      }
+    }
+
+    return { ok: true };
+  } catch (err) {
+    console.warn('[AX-Privacy background] resetBrainState error:', err);
+    return { ok: false, error: err.message };
+  }
+}
+
+async function pruneExpiredBrainData() {
+  try {
+    const state = await getAxBrainState();
+    const now = Date.now();
+    const initialDomainCount = state.learnedDomains.length;
+    const initialCosmeticCount = state.learnedCosmetics.length;
+
+    const filteredDomains = state.learnedDomains.filter((d) => (now - (d.lastSeen || 0)) < LEARNED_TTL_MS);
+    const filteredCosmetics = state.learnedCosmetics.filter((c) => (now - (c.addedAt || 0)) < LEARNED_TTL_MS);
+
+    if (filteredDomains.length !== initialDomainCount || filteredCosmetics.length !== initialCosmeticCount) {
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        await chrome.storage.local.set({
+          learnedDomains: filteredDomains,
+          learnedCosmetics: filteredCosmetics
+        });
+      }
+      await syncLearnedDNRRules(filteredDomains);
+    }
+  } catch (err) {
+    console.warn('[AX-Privacy background] pruneExpiredBrainData error:', err);
+  }
+}
+
+if (typeof chrome !== 'undefined' && chrome.alarms?.create) {
+  try {
+    chrome.alarms.create('ax_brain_ttl_prune', { periodInMinutes: 1440 });
+    chrome.alarms.onAlarm?.addListener((alarm) => {
+      if (alarm.name === 'ax_brain_ttl_prune') {
+        pruneExpiredBrainData().catch(() => {});
+      }
+    });
+  } catch {}
 }
 
 /**
@@ -2618,6 +2901,16 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             }
           }
 
+          // AX-Brain learned cosmetic selectors
+          const brainState = await getAxBrainState();
+          const learnedCosmetics = brainState.learnedCosmetics || [];
+          for (const item of learnedCosmetics) {
+            if (!item || !item.selector) continue;
+            if (item.host === '*' || checkHosts.includes(item.host)) {
+              siteSelectorsSet.add(item.selector);
+            }
+          }
+
           const siteSelectors = Array.from(siteSelectorsSet);
           const combined = Array.from(new Set([...genericList, ...siteSelectors]));
 
@@ -2628,7 +2921,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
             popupShield,
             genericSelectors: genericList,
             siteSelectors,
-            selectors: combined
+            selectors: combined,
+            model: brainState.model
           });
         } catch (err) {
           sendResponse({
@@ -2717,6 +3011,73 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
       return false;
     }
 
+    if (message.type === 'AX_BRAIN_REPORT_THREAT') {
+      (async () => {
+        try {
+          const res = await reportBrainThreat({
+            domain: message.domain,
+            sourceHost: message.sourceHost,
+            reason: message.reason,
+            url: message.url
+          });
+          sendResponse({ success: res.ok, ...res });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+    }
+
+    if (message.type === 'AX_BRAIN_GET_STATE') {
+      (async () => {
+        try {
+          const state = await getAxBrainState();
+          const promotedCount = state.learnedDomains.filter((d) => (d.strikes || 0) >= 2).length;
+          const totalStrikes = state.learnedDomains.reduce((sum, d) => sum + (d.strikes || 0), 0);
+          sendResponse({
+            success: true,
+            model: state.model,
+            learnedDomainsCount: state.learnedDomains.length,
+            learnedCosmeticsCount: state.learnedCosmetics.length,
+            promotedCount,
+            totalStrikes
+          });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+    }
+
+    if (message.type === 'AX_BRAIN_TRAIN') {
+      (async () => {
+        try {
+          const res = await trainBrainModel({
+            features: message.features,
+            label: message.label,
+            selector: message.selector,
+            host: message.host
+          });
+          sendResponse({ success: res.ok, ...res });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+    }
+
+    if (message.type === 'AX_BRAIN_RESET') {
+      (async () => {
+        try {
+          const res = await resetBrainState();
+          sendResponse({ success: res.ok, ...res });
+        } catch (err) {
+          sendResponse({ success: false, error: err.message });
+        }
+      })();
+      return true;
+    }
+
     sendResponse({ success: false, error: 'Unhandled message type' });
     return false;
   } catch (err) {
@@ -2728,6 +3089,18 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage?.addListener) {
 
 // Exports for unit testing
 export {
+  AxBrain,
+  LEARNED_DNR_START_ID,
+  LEARNED_DNR_MAX_RULES,
+  LEARNED_DOMAINS_MAX,
+  LEARNED_COSMETICS_MAX,
+  LEARNED_TTL_MS,
+  getAxBrainState,
+  syncLearnedDNRRules,
+  reportBrainThreat,
+  trainBrainModel,
+  resetBrainState,
+  pruneExpiredBrainData,
   parseFilterLine,
   parseFilterContent,
   validateCustomFilterUrl,

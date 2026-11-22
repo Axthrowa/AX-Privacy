@@ -1,11 +1,11 @@
 # AX-Privacy 🛡️
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-3.4.0-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-4.0.0-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
-**AX-Privacy**, Chromium tabanlı modern tarayıcılar (Google Chrome, Microsoft Edge, Brave, Opera) için geliştirilmiş; **sıfır hata**, **sıfır telemetri** ve **siteyi bozmayan** kurallarla çalışan yeni nesil bir **Manifest V3** gizlilik ve reklam engelleme eklentisidir.
+**AX-Privacy**, Chromium tabanlı modern tarayıcılar (Google Chrome, Microsoft Edge, Brave, Opera) ve Mozilla Firefox için geliştirilmiş; **sıfır hata**, **sıfır telemetri** ve **siteyi bozmayan** kurallarla çalışan yeni nesil bir **Manifest V3** gizlilik, yerel öğrenen kalkan ve reklam engelleme eklentisidir.
 
 Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kaydı yok, dış sunucuya veri gönderme yok, arka planda kullanıcıyı takip eden telemetri yok.
 
@@ -13,7 +13,16 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 
 ## 🚀 Öne Çıkan Özellikler
 
-### 1. 25.000+ Önceliklendirilmiş DNR Reklam ve İzleyici Kalkanı
+### 1. AX-Brain (v4.0.0): Ultra Hafif, %100 Yerel Çevrimiçi Öğrenen Motor
+- **Sıfır Telemetri & Sıfır WASM:** Harici sunucu veya ağır makine öğrenimi kütüphaneleri (TensorFlow/PyTorch/WASM) kullanmadan, saf JavaScript (< 2 KB model) ve lineer cebir tabanlı çevrimiçi SGD (Stochastic Gradient Descent) ile tarayıcı içinde öğrenir.
+- **12 Boyutlu Duyusal Özellik Vektörü:** Sabit/kayan pozisyon, z-index, cross-site hedef linki, target="_blank", IAB standart boyutları, GIF/WebP formatı, pageskin yan duvar geometrisi, şeffaf perde, sahte yükleme/doğrulama metinleri, formsuz kapatma butonu, reklam belirteçleri ve geç enjeksiyon sinyallerini eşzamanlı değerlendirir.
+- **Matematiksel Ağırlık Sınırlandırması (Clipping):** Ağırlıklar `[-4.0, +4.0]` ve sapma (bias) `[-5.0, +2.0]` arasında sınırlandırılarak aşırı öğrenme (overfitting) ve model sapması kesin olarak engellenir.
+- **Otonom DNR Tehdit Yükseltme (Ayrılmış 2001..2300 ID Bandı):** Bir kötü niyetli veya reklam yönlendirmesi yapan alan adı pop-up kalkanı veya kullanıcı tarafından 2 kez engellendiğinde, otomatik olarak Chrome'un yerel `declarativeNetRequest` dinamik kurallarına (üçüncü taraf script/iframe/XHR/resim engelleme) terfi ettirilir.
+- **`IMMUNE_ROOTS` & Beyaz Liste Bağışıklığı:** Google, YouTube, Twitch, GitHub, Discord, Stripe, PayPal, İyzico ve Cloudflare gibi kritik altyapı alan adları asla otomatik engellemeye alınmaz.
+- **Tek Tıkla "Reklamı Seç & Öğret" Seçici Aracı:** Kullanıcı popup üzerinden seçiciyi başlatıp sayfadaki herhangi bir öğeye tıkladığında, öğe gizlenir, seçici kural oluşturulur, ağırlıklar güncellenir ve 6 saniye süreli **[Geri Al]** butonu sunulur.
+- **60 Günlük Kendi Kendini Budama (TTL):** 60 günden eski tehdit kayıtları yerel depolamadan otomatik temizlenir; en fazla 300 alan adı (LRU) tutularak depolama daima < 100 KB kalır.
+
+### 2. 25.000+ Önceliklendirilmiş DNR Reklam ve İzleyici Kalkanı
 - Chrome'un yerel `declarativeNetRequest` (DNR) motorunu kullanır; sayfalar yüklenirken tarayıcıyı yormaz, pil ve bellek tüketimini minimumda tutar.
 - **EasyList** ve **OISD** listelerinin kesişiminden derlenmiş, çift kontrol edilmiş 25.000 yüksek etkili kural içerir.
 - **Çekirdek Garanti Listesi:** En yaygın reklam ağları (`doubleclick.net`, `googlesyndication.com`, `google-analytics.com`, `taboola.com`, `outbrain.com`, `criteo.com`, vb.) her zaman kural setinin en üstünde garanti altına alınır.
@@ -83,7 +92,7 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v3.4.0-chrome.zip` veya `ax-privacy-v3.4.0-firefox.zip` paketini indirin.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v4.0.0-chrome.zip` veya `ax-privacy-v4.0.0-firefox.zip` paketini indirin.
 2. **Chrome / Brave / Edge:**
    - Eklentiler sayfasına gidin (`chrome://extensions`, `brave://extensions` veya `edge://extensions`).
    - **Geliştirici Modu (Developer mode)** anahtarını açın.
@@ -148,6 +157,12 @@ npm run test:cosmetic-compiler
 
 # Pop-up, anti-vignette ve pop-under kalkanını test edin
 npm run test:popup-vignette
+
+# Evrensel reklam puanlama motorunu test edin
+npm run test:universal-ad-scorer
+
+# AX-Brain yerel öğrenme motorunu test edin
+npm run test:ax-brain
 ```
 
 ---

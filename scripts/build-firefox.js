@@ -82,6 +82,7 @@ function copyDir(src, dest) {
 
 // Assets to copy into distributions
 const singleFiles = [
+  'ax-brain.js',
   'background.js',
   'content.js',
   'popup-shield.js',
