@@ -12,6 +12,8 @@
 
 import './ax-brain.js';
 const AxBrain = globalThis.AxBrain;
+// Single source of truth for never-block roots (YouTube, Twitch, auth/payment, CDNs).
+const IMMUNE_ROOTS = AxBrain.IMMUNE_ROOTS;
 
 const LEARNED_DNR_START_ID = 2001;
 const LEARNED_DNR_MAX_RULES = 300;
@@ -149,7 +151,10 @@ async function getAxBrainState() {
       'learnedDomains',
       'learnedCosmetics'
     ]);
-    const model = (data.axBrainModel && Array.isArray(data.axBrainModel.weights) && data.axBrainModel.weights.length > 0)
+    // Models saved before the v4.1.0 calibration (version < 2) are reset to the new defaults.
+    const defaultVersion = AxBrain ? AxBrain.createDefaultModel().version : 0;
+    const model = (data.axBrainModel && Array.isArray(data.axBrainModel.weights) && data.axBrainModel.weights.length > 0 &&
+      (data.axBrainModel.version || 0) >= defaultVersion)
       ? data.axBrainModel
       : (AxBrain ? AxBrain.createDefaultModel() : { weights: [], bias: -1.0, sampleCount: 0, lastUpdated: Date.now() });
     const learnedDomains = Array.isArray(data.learnedDomains) ? data.learnedDomains : [];
@@ -897,7 +902,7 @@ function parseFilterLine(line) {
 
   // Critical Web Infrastructure & Essential Platform Exemptions:
   // Never block essential CDNs, media endpoints, fonts, or social infrastructure
-  if (PROTECTED_INFRASTRUCTURE.some((p) => d === p || d.endsWith('.' + p))) {
+  if (PROTECTED_INFRASTRUCTURE.some((p) => d === p || d.endsWith('.' + p)) || IMMUNE_ROOTS.has(getRootDomain(d))) {
     return null;
   }
 
@@ -1750,20 +1755,9 @@ function hasValidTrustedIntent(openerTabId, targetHost, tabUrl = '', store = tru
   return matched;
 }
 
-const POPUNDER_MALVERTISING_PATHS = [
-  '/afu.php',
-  '/ntfc.php',
-  'in-page-push',
-  'popunder',
-  '/direct-link',
-  '/redirect.php',
-  'click.php',
-  'go.php?url=',
-  'open.php?zone=',
-  'ad.php?',
-  '/vignette/',
-  'delivery/impressions'
-];
+const POPUNDER_MALVERTISING_PATHS = ['/afu.php', '/ntfc.php', '/in-page-push', '/pfe/current/'];
+// Ad-network brand tokens matched anywhere in the target URL.
+const POPUNDER_URL_KEYWORDS = ['popunder', 'monetag', 'propellerads', 'adsterra', 'hilltopads', 'clickadu', 'exoclick', 'popads', 'popcash', 'tsyndicate', 'onclickalgo', 'highperformanceformat'];
 
 const POPUNDER_AD_NETWORKS = [
   'monetag.com',
@@ -2024,6 +2018,10 @@ function isPopunderAdUrl(urlStr, openerHost = '') {
   if (POPUNDER_MALVERTISING_PATHS.some((p) => targetPath.includes(p) || targetQuery.includes(p))) {
     return true;
   }
+  const lowerUrl = trimmed.toLowerCase();
+  if (POPUNDER_URL_KEYWORDS.some((k) => lowerUrl.includes(k))) {
+    return true;
+  }
 
   // 3. Monetag / Propeller /4/ + 7+ digit zone ID pattern
   if (/\/4\/\d{7,}/.test(targetPath) || /\/4\/\d{7,}/.test(targetQuery)) {
@@ -2193,286 +2191,144 @@ function shouldBlockTabNavigation({
   return { block: true, reason: 'unsolicited_cross_site_redirect' };
 }
 
+// Known pop-up ad hosts: popups_redirects.json "||host^" rules + AX-Brain promoted domains.
+const knownPopupAdDomains = new Set();
+let knownPopupAdDomainsPromise = null;
+
+function loadKnownPopupAdDomains() {
+  if (knownPopupAdDomainsPromise) return knownPopupAdDomainsPromise;
+  knownPopupAdDomainsPromise = (async () => {
+    try {
+      if (typeof fetch === 'function' && chrome?.runtime?.getURL) {
+        const res = await fetch(chrome.runtime.getURL('rules/popups_redirects.json'));
+        const rules = await res.json();
+        for (const r of Array.isArray(rules) ? rules : []) {
+          const m = /^\|\|([a-z0-9.-]+)\^$/i.exec(r?.condition?.urlFilter || '');
+          if (m) knownPopupAdDomains.add(m[1].toLowerCase());
+        }
+      }
+    } catch {}
+    try {
+      if (chrome?.storage?.local) {
+        const { learnedDomains = [] } = await chrome.storage.local.get('learnedDomains');
+        for (const d of Array.isArray(learnedDomains) ? learnedDomains : []) {
+          if (d && d.domain && (d.promoted === true || (d.strikes || 0) >= 2)) {
+            knownPopupAdDomains.add(String(d.domain).toLowerCase());
+          }
+        }
+      }
+    } catch {}
+    return knownPopupAdDomains;
+  })();
+  return knownPopupAdDomainsPromise;
+}
+
+function hostInSet(host, set) {
+  if (!host || !set || set.size === 0) return false;
+  let h = host;
+  while (h) {
+    if (set.has(h)) return true;
+    const i = h.indexOf('.');
+    if (i < 0) return false;
+    h = h.slice(i + 1);
+  }
+  return false;
+}
+
+/**
+ * Default-allow new-tab policy (v4.1.0). A tab is closed ONLY when it has a
+ * programmatic opener, the opener is not whitelisted, and the target is a
+ * known ad network or carries a pop-under URL signature. Normal sites, tabs
+ * without opener and middle-click tabs are never touched.
+ */
 function shouldBlockNewTab({
   openerTabId,
   openerUrl = '',
   tabUrl = '',
-  intentsStore = trustedIntents,
   whitelist = [],
   popupShield = true,
-  interactionsStore = lastUserInteractionMap,
   middleClickStore = lastMiddleClickMap,
-  userClicksStore = lastUserNewTabClicks
+  userClicksStore = lastUserNewTabClicks,
+  knownAdDomains = knownPopupAdDomains
 }) {
-  if (!popupShield) {
-    return { block: false, reason: 'shield_disabled' };
-  }
-
-  // User initiated (manual new tab, bookmarks, omnibox) without programmatic opener
+  if (!popupShield) return { block: false, reason: 'shield_disabled' };
   if (typeof openerTabId !== 'number' || openerTabId <= 0) {
     return { block: false, reason: 'user_initiated_no_opener' };
   }
-
-  if (!tabUrl || typeof tabUrl !== 'string') {
-    return { block: false, reason: 'empty_url' };
-  }
-
-  const trimmedTab = tabUrl.trim();
-  if (
-    trimmedTab === 'about:blank' ||
-    trimmedTab.startsWith('chrome://') ||
-    trimmedTab.startsWith('edge://') ||
-    trimmedTab.startsWith('brave://') ||
-    trimmedTab.startsWith('chrome-extension://') ||
-    trimmedTab.startsWith('javascript:')
-  ) {
-    return { block: false, reason: 'non_http_protocol' };
-  }
+  if (!tabUrl || typeof tabUrl !== 'string') return { block: false, reason: 'empty_url' };
 
   let targetUrlObj;
   try {
-    targetUrlObj = new URL(trimmedTab);
+    targetUrlObj = new URL(tabUrl.trim());
   } catch {
     return { block: false, reason: 'invalid_url' };
+  }
+  if (targetUrlObj.protocol !== 'http:' && targetUrlObj.protocol !== 'https:') {
+    return { block: false, reason: 'non_http_protocol' };
   }
 
   const targetHost = targetUrlObj.hostname.toLowerCase();
   let openerHost = '';
-  if (openerUrl) {
-    try {
-      openerHost = new URL(openerUrl).hostname.toLowerCase();
-    } catch {}
-  }
+  try {
+    if (openerUrl) openerHost = new URL(openerUrl).hostname.toLowerCase();
+  } catch {}
 
-  // Opener is in user whitelist
   if (openerHost && whitelist.some((w) => openerHost === w || openerHost.endsWith('.' + w))) {
     return { block: false, reason: 'opener_whitelisted' };
   }
 
-  // Same root domain navigation is legitimate
+  // Middle-click / Ctrl+click tabs are the user's own choice: never close them.
+  const now = Date.now();
+  const mc = middleClickStore && middleClickStore.get(openerTabId);
+  if (mc && now - mc.ts <= 4500) return { block: false, reason: 'middle_click_wheel_intent' };
+  const uc = userClicksStore && userClicksStore.get(openerTabId);
+  if (uc && uc.isMiddleClick && now - uc.timestamp <= 4500) {
+    return { block: false, reason: 'middle_click_user_intent' };
+  }
+
   const openerRoot = getRootDomain(openerHost);
   const targetRoot = getRootDomain(targetHost);
-  if (openerRoot && targetRoot && openerRoot === targetRoot) {
-    return { block: false, reason: 'same_site' };
+  if (openerRoot && targetRoot && openerRoot === targetRoot) return { block: false, reason: 'same_site' };
+  if (isAuthOrPaymentUrl(tabUrl)) return { block: false, reason: 'auth_or_payment_gateway' };
+  if (IMMUNE_ROOTS.has(targetRoot) || IMMUNE_ROOTS.has(targetHost)) {
+    return { block: false, reason: 'immune_root' };
   }
 
-  // Exception 1: Explicit user intent verified in content script
-  if (hasValidTrustedIntent(openerTabId, targetHost, trimmedTab, intentsStore)) {
-    return { block: false, reason: 'trusted_user_intent' };
-  }
+  if (hostInSet(targetHost, knownAdDomains)) return { block: true, reason: 'known_ad_network' };
+  if (isPopunderAdUrl(tabUrl, openerHost)) return { block: true, reason: 'known_popunder_ad_signature' };
 
-  // Exception 2: Mouse wheel (middle click / button === 1) intent verified (valid for 4500ms)
-  const now = Date.now();
-  if (openerTabId && middleClickStore && middleClickStore.has(openerTabId)) {
-    const mc = middleClickStore.get(openerTabId);
-    if (mc && now - mc.ts <= 4500) {
-      if (!isPopunderAdUrl(trimmedTab, openerHost)) {
-        return { block: false, reason: 'middle_click_wheel_intent' };
-      }
-    }
-  }
-
-  // Exception 3: Recent user middle-click on link verified
-  if (openerTabId && userClicksStore && userClicksStore.has(openerTabId)) {
-    const clickData = userClicksStore.get(openerTabId);
-    if (clickData && clickData.isMiddleClick && now - clickData.timestamp <= 4500) {
-      if (!isPopunderAdUrl(trimmedTab, openerHost)) {
-        return { block: false, reason: 'middle_click_user_intent' };
-      }
-    }
-  }
-
-  // Exception 4: Target is authentication or payment gateway
-  if (isAuthOrPaymentUrl(trimmedTab)) {
-    return { block: false, reason: 'auth_or_payment_gateway' };
-  }
-
-  // Exception 3: Opener is search engine or social media feed
-  if (isTrustedFeedOpener(openerHost)) {
-    return { block: false, reason: 'trusted_opener_feed' };
-  }
-
-  // Global platform whitelist (Google, GitHub, etc.)
-  // Note: unprompted pop-ups to google.com are NOT allowed without user intent
-  if (
-    (LEGITIMATE_HOST_WHITELIST.has(targetRoot) || LEGITIMATE_HOST_WHITELIST.has(targetHost)) &&
-    targetRoot !== 'google.com'
-  ) {
-    return { block: false, reason: 'legitimate_platform_whitelist' };
-  }
-
-  // Check recent trusted user interaction in opener tab (within 3000ms) specifically for this target
-  const hasRecentTrustedAction = hasRecentUserInteraction(openerTabId, targetHost, interactionsStore, 3000);
-
-  // Known pop-under / malvertising signatures are blocked immediately
-  if (isPopunderAdUrl(trimmedTab, openerHost)) {
-    return { block: true, reason: 'known_popunder_ad_signature' };
-  }
-
-  // If user interacted recently on the opener tab specifically targeting this domain, preserve the tab!
-  if (hasRecentTrustedAction) {
-    return { block: false, reason: 'recent_user_interaction' };
-  }
-
-  // Block rotating/random cross-site pop-under domains with no user interaction
-  return { block: true, reason: 'unsolicited_cross_site_tab' };
+  return { block: false, reason: 'default_allow' };
 }
 
 async function checkAndNeutralizeTab(tabId, url, openerTabId) {
   try {
-    if (typeof openerTabId !== 'number' || openerTabId <= 0) {
+    if (typeof openerTabId !== 'number' || openerTabId <= 0) return;
+    const data = monitoredTabs.get(tabId);
+    if (data && Date.now() - data.createdAt > 4500) {
       monitoredTabs.delete(tabId);
       return;
-    }
-
-    // Never close tabs older than 4500ms
-    if (monitoredTabs.has(tabId)) {
-      const data = monitoredTabs.get(tabId);
-      if (Date.now() - data.createdAt > 4500) {
-        monitoredTabs.delete(tabId);
-        return;
-      }
     }
 
     const { popupShield = true, whitelist = [] } = await chrome.storage.local.get(['popupShield', 'whitelist']);
-    if (!popupShield) {
-      monitoredTabs.delete(tabId);
-      return;
-    }
-
-    // Safety check 1: If tab is currently active/focused by user, NEVER close it!
-    try {
-      const currentTab = await chrome.tabs.get(tabId);
-      if (currentTab && currentTab.active) {
-        monitoredTabs.delete(tabId);
-        return;
-      }
-    } catch {
-      monitoredTabs.delete(tabId);
-      return;
-    }
+    if (!popupShield) return;
+    await loadKnownPopupAdDomains();
 
     let openerUrl = '';
     try {
-      const openerTab = await chrome.tabs.get(openerTabId);
-      if (openerTab?.url) {
-        openerUrl = openerTab.url;
-      }
+      openerUrl = (await chrome.tabs.get(openerTabId))?.url || '';
     } catch {}
 
-    // Safety check 2: If opener tab had recent mouse wheel (middle click / button === 1) intent, NEVER close it!
-    if (openerTabId && lastMiddleClickMap.has(openerTabId)) {
-      const mc = lastMiddleClickMap.get(openerTabId);
-      if (mc && Date.now() - mc.ts <= 4500) {
-        if (!isPopunderAdUrl(url, openerUrl)) {
-          monitoredTabs.delete(tabId);
-          return;
-        }
-      }
-    }
+    const decision = shouldBlockNewTab({ openerTabId, openerUrl, tabUrl: url, whitelist, popupShield });
+    if (!decision.block) return; // keep monitoring: pop-unders often hop through a redirector first
+    monitoredTabs.delete(tabId);
 
-    let decision = shouldBlockNewTab({
-      openerTabId,
-      openerUrl,
-      tabUrl: url,
-      intentsStore: trustedIntents,
-      whitelist,
-      popupShield,
-      interactionsStore: lastUserInteractionMap,
-      middleClickStore: lastMiddleClickMap,
-      userClicksStore: lastUserNewTabClicks
-    });
-
-    if (decision.block) {
-      // If decision is 'unsolicited_cross_site_tab', provide a 150ms grace period
-      // to allow in-flight IPC messages from content.js before closing!
-      if (decision.reason === 'unsolicited_cross_site_tab') {
-        await new Promise((resolve) => setTimeout(resolve, 150));
-
-        let currentUrl = url;
-        try {
-          const freshTab = await chrome.tabs.get(tabId);
-          if (!freshTab || freshTab.active) {
-            monitoredTabs.delete(tabId);
-            return;
-          }
-          if (freshTab.url && freshTab.url !== 'about:blank') {
-            currentUrl = freshTab.url;
-          }
-        } catch {
-          monitoredTabs.delete(tabId);
-          return;
-        }
-
-        // Check if middle click arrived during the 150ms grace period
-        if (openerTabId && lastMiddleClickMap.has(openerTabId)) {
-          const mc = lastMiddleClickMap.get(openerTabId);
-          if (mc && Date.now() - mc.ts <= 4500) {
-            if (!isPopunderAdUrl(currentUrl, openerUrl)) {
-              monitoredTabs.delete(tabId);
-              return;
-            }
-          }
-        }
-
-        decision = shouldBlockNewTab({
-          openerTabId,
-          openerUrl,
-          tabUrl: currentUrl,
-          intentsStore: trustedIntents,
-          whitelist,
-          popupShield,
-          interactionsStore: lastUserInteractionMap,
-          middleClickStore: lastMiddleClickMap,
-          userClicksStore: lastUserNewTabClicks
-        });
-
-        if (!decision.block) {
-          monitoredTabs.delete(tabId);
-          return;
-        }
-      }
-
-      // Safety check 3: Re-verify middle click intent before closing
-      if (openerTabId && lastMiddleClickMap.has(openerTabId)) {
-        const mc = lastMiddleClickMap.get(openerTabId);
-        if (mc && Date.now() - mc.ts <= 4500) {
-          if (!isPopunderAdUrl(url, openerUrl)) {
-            monitoredTabs.delete(tabId);
-            return;
-          }
-        }
-      }
-
-      // Safety check 4: Re-verify tab is NOT active before closing
-      try {
-        const tabToRemove = await chrome.tabs.get(tabId);
-        if (tabToRemove && tabToRemove.active) {
-          monitoredTabs.delete(tabId);
-          return;
-        }
-      } catch {
-        monitoredTabs.delete(tabId);
-        return;
-      }
-
-      console.info(
-        `[AX-Background] Pop-up/under reklam sekmesi engellendi ve kapatıldı (${tabId}, reason: ${decision.reason}):`,
-        url
-      );
-      await chrome.tabs.remove(tabId).catch(() => {});
-      if (openerTabId) {
-        await chrome.tabs.update(openerTabId, { active: true }).catch(() => {});
-      }
-      const { totalBlocked = 0 } = await chrome.storage.local.get('totalBlocked');
-      await chrome.storage.local.set({ totalBlocked: totalBlocked + 1 }).catch(() => {});
-      monitoredTabs.delete(tabId);
-    } else {
-      monitoredTabs.delete(tabId);
-    }
+    console.info(`[AX-Background] Reklam sekmesi kapatıldı (${tabId}, ${decision.reason}):`, url);
+    await chrome.tabs.remove(tabId).catch(() => {});
+    await chrome.tabs.update(openerTabId, { active: true }).catch(() => {});
+    const { totalBlocked = 0 } = await chrome.storage.local.get('totalBlocked');
+    await chrome.storage.local.set({ totalBlocked: totalBlocked + 1 }).catch(() => {});
   } catch (err) {
     console.warn('[AX-Privacy background] checkAndNeutralizeTab error:', err);
-    monitoredTabs.delete(tabId);
   }
 }
 
@@ -3129,6 +2985,8 @@ export {
   TRUSTED_AUTH_PAYMENT_DOMAINS,
   TRUSTED_OPENER_FEEDS,
   PROTECTED_INFRASTRUCTURE,
+  IMMUNE_ROOTS,
+  POPUNDER_URL_KEYWORDS,
   LEGITIMATE_HOST_WHITELIST,
   isTrustedFeedOpener
 };

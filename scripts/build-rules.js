@@ -9,14 +9,19 @@
  *   Tier 5: Final alphabetical sorting with sequential IDs 1..N.
  *
  * Dedicated Rulesets:
- *   - rules/ads_trackers.json: 25,000 static DNR block rules (IDs 1..25000)
- *   - rules/popups_redirects.json: Dedicated pop-under and click-hijacking block rules (IDs 30001..30500)
+ *   - rules/ads_trackers.json: up to 85,000 static DNR block rules (IDs 1..85000)
+ *   - rules/popups_redirects.json: Dedicated pop-under and click-hijacking block rules (IDs 90001..92000)
  *   - rules/cosmetic_rules.json: Two-layer cosmetic ad-hiding selectors ({ generic: [...], domains: { ... } })
  */
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import '../ax-brain.js';
+
+// Shared never-block roots (YouTube, Twitch, Google, CDNs, auth/payment) - same set as background.js
+const IMMUNE_ROOTS = globalThis.AxBrain.IMMUNE_ROOTS;
+const immuneRootOf = (d) => globalThis.AxBrain.getRootDomain(d);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,7 +37,10 @@ const COSMETIC_OUTPUT_FILE = path.join(ROOT_DIR, 'rules', 'cosmetic_rules.json')
 const COSMETIC_TMP_FILE = path.join(ROOT_DIR, 'rules', 'cosmetic_rules.json.tmp');
 
 const MIN_RULE_THRESHOLD = 5000;
-const MAX_RULE_LIMIT = 25000; // Chrome static ruleset target is 25,000
+const MAX_RULE_LIMIT = 85000; // ads_trackers capacity; validator keeps all static rulesets <= 100,000
+const POPUP_RULES_MAX = 2000;
+const POPUP_ID_START = 90001;
+const COSMETIC_GENERIC_MAX = 600;
 
 // 1. Core Guaranteed List: Must ALWAYS be in the ruleset regardless of alphabetical slice
 const CORE_GUARANTEED_DOMAINS = [
@@ -381,6 +389,9 @@ function cleanDomain(raw) {
   if (PROTECTED_INFRASTRUCTURE.some((p) => d === p || d.endsWith('.' + p))) {
     return null;
   }
+  if (IMMUNE_ROOTS.has(d) || IMMUNE_ROOTS.has(immuneRootOf(d))) {
+    return null;
+  }
 
   return d;
 }
@@ -442,7 +453,7 @@ const POPUP_URL_PATTERNS = [
 
 /**
  * Generates dedicated pop-under and ad-redirect blocking rules
- * Range: IDs 30001..30500 (max 500 rules)
+ * Range: IDs 90001..92000 (max 2,000 rules)
  */
 function generatePopupsRedirectsRules(extraDomains = [], extraPatterns = []) {
   const domainsSet = new Set();
@@ -459,10 +470,11 @@ function generatePopupsRedirectsRules(extraDomains = [], extraPatterns = []) {
     }
   }
 
-  const sorted = Array.from(domainsSet).sort().slice(0, 450);
+  const patternList = [...POPUP_URL_PATTERNS, ...(Array.isArray(extraPatterns) ? extraPatterns : [])];
+  const sorted = Array.from(domainsSet).sort().slice(0, POPUP_RULES_MAX - patternList.length);
 
   const rules = sorted.map((domain, index) => ({
-    id: 30001 + index,
+    id: POPUP_ID_START + index,
     priority: 1,
     action: {
       type: 'block'
@@ -473,10 +485,9 @@ function generatePopupsRedirectsRules(extraDomains = [], extraPatterns = []) {
     }
   }));
 
-  let nextId = 30001 + rules.length;
-  const patternList = [...POPUP_URL_PATTERNS, ...(Array.isArray(extraPatterns) ? extraPatterns : [])];
+  let nextId = POPUP_ID_START + rules.length;
   for (const pat of patternList) {
-    if (nextId > 30500) break;
+    if (nextId >= POPUP_ID_START + POPUP_RULES_MAX) break;
     rules.push({
       id: nextId++,
       priority: 1,
@@ -702,8 +713,8 @@ function parseCosmeticRules(turkishText, baseText = '', ...extraSources) {
     }
   }
 
-  // Sort generic selectors alphabetically
-  const sortedGeneric = Array.from(genericSet).sort();
+  // Curated selectors are inserted first, so the cap keeps them; then sort alphabetically
+  const sortedGeneric = Array.from(genericSet).slice(0, COSMETIC_GENERIC_MAX).sort();
 
   // Sort domains alphabetically and selectors within each domain
   const sortedDomains = {};
@@ -897,7 +908,8 @@ async function main() {
 
   // Atomic file write for rules/ads_trackers.json
   await fs.mkdir(path.dirname(OUTPUT_FILE), { recursive: true });
-  const jsonContent = JSON.stringify(rules, null, 2);
+  // One rule per line: diff-friendly but ~3x smaller than pretty-printed JSON at 85k rules
+  const jsonContent = '[\n' + rules.map((r) => JSON.stringify(r)).join(',\n') + '\n]\n';
   await fs.writeFile(TMP_FILE, jsonContent, 'utf8');
 
   const verifyAds = JSON.parse(await fs.readFile(TMP_FILE, 'utf8'));
@@ -907,8 +919,8 @@ async function main() {
   await fs.rename(TMP_FILE, OUTPUT_FILE);
   console.log(`[build-rules] Successfully wrote ${rules.length} rules to ${OUTPUT_FILE}`);
 
-  // Generate and atomic write rules/popups_redirects.json
-  const popupRules = generatePopupsRedirectsRules();
+  // Generate and atomic write rules/popups_redirects.json (pop-under / push / betting networks from Tier 1.5 lists)
+  const popupRules = generatePopupsRedirectsRules([...ublockQuickFixesSet].filter((d) => /pop|push|redirect|bet|casino|vignette/.test(d)));
   const popupJson = JSON.stringify(popupRules, null, 2);
   await fs.writeFile(POPUPS_TMP_FILE, popupJson, 'utf8');
 
@@ -950,7 +962,10 @@ export {
   parseDomains,
   cleanDomain,
   generatePopupsRedirectsRules,
-  POPUP_REDIRECT_DOMAINS
+  POPUP_REDIRECT_DOMAINS,
+  MAX_RULE_LIMIT,
+  POPUP_RULES_MAX,
+  POPUP_ID_START
 };
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

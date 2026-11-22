@@ -98,7 +98,7 @@ function hasTrustedClick(targetUrl = '') {
   if (!targetUrl || targetUrl === 'about:blank' || targetUrl.trim() === '') {
     return Boolean(
       (lastTrustedIntent && lastTrustedIntent.exp > now) ||
-      (lastTrustedLink && now - lastTrustedLink.time <= 3500)
+      (lastTrustedLink && now - lastTrustedLink.time <= 2500)
     );
   }
 
@@ -119,7 +119,7 @@ function hasTrustedClick(targetUrl = '') {
     }
 
     // Check if target matches lastTrustedLink
-    if (lastTrustedLink && now - lastTrustedLink.time <= 3500) {
+    if (lastTrustedLink && now - lastTrustedLink.time <= 2500) {
       const linkRoot =
         lastTrustedLink.root ||
         getRootDomain(
@@ -557,8 +557,8 @@ function isDevToolsKey(e) {
   // F12
   if (key === 'f12' || code === 123) return true;
 
-  // Ctrl+Shift+I (73), Ctrl+Shift+J (74), Ctrl+Shift+C (67)
-  if (ctrlOrMeta && shift && (key === 'i' || key === 'j' || key === 'c' || code === 73 || code === 74 || code === 67)) {
+  // Ctrl+Shift+I (73), Ctrl+Shift+J (74)
+  if (ctrlOrMeta && shift && (key === 'i' || key === 'j' || code === 73 || code === 74)) {
     return true;
   }
 
@@ -874,7 +874,7 @@ function isDevToolsKey(e) {
             const isBlank = targetAttr === '_blank';
             const isCross = isCrossSite(href);
             const now = Date.now();
-            const isRecentlyAdded = recentLinks.has(anchor) && now - recentLinks.get(anchor) < 400;
+            const isRecentlyAdded = recentLinks.has(anchor) && now - recentLinks.get(anchor) < 500;
             const isPlayerOrBodyTrap = Boolean(
               target.closest(
                 'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
@@ -947,6 +947,16 @@ function isDevToolsKey(e) {
         }
       }
 
+      // Middle-click (button 1) and Ctrl/Cmd/Shift+click are always the user's choice: record intent, never block.
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) {
+        if (e.isTrusted === true) {
+          const anchor = target.closest('a[href]');
+          if (anchor && anchor.href) setTrustedIntent(anchor.href);
+          trustedClickUntil = Date.now() + 2500;
+        }
+        return;
+      }
+
       // Never interfere with legitimate video/audio player interactions, seekbars or sliders
       const isVideoControl = Boolean(
         (target.closest &&
@@ -1008,7 +1018,7 @@ function isDevToolsKey(e) {
             const isBlank = targetAttr === '_blank';
             const isCross = isCrossSite(href);
             const now = Date.now();
-            const isRecentlyAdded = recentLinks.has(anchor) && now - recentLinks.get(anchor) < 400;
+            const isRecentlyAdded = recentLinks.has(anchor) && now - recentLinks.get(anchor) < 500;
             const isPlayerOrBodyTrap = Boolean(
               target.closest(
                 'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
@@ -1081,87 +1091,25 @@ function isDevToolsKey(e) {
 
       let isTrap = false;
       const now = Date.now();
+      const isBlank = (anchor.getAttribute('target') || '').toLowerCase().trim() === '_blank';
+      const isRecentlyAdded = recentLinks.has(anchor) && now - recentLinks.get(anchor) < 500;
 
-      // Brave-style strict popup trap defense:
-      // If user performs a normal left-click on a cross-site target="_blank" link:
-      // Stop it if it was injected into the DOM within the last 400ms, or captured on body/player
-      const isPlainLeftClick = e.button === 0 && !e.ctrlKey && !e.metaKey;
-      const targetAttr = (anchor.getAttribute('target') || '').toLowerCase().trim();
-      const isBlank = targetAttr === '_blank';
-
-      if (isPlainLeftClick && isBlank) {
-        const isRecentlyAdded = recentLinks.has(anchor) && now - recentLinks.get(anchor) < 400;
-        const isPlayerOrBodyTrap = Boolean(
-          target.closest(
-            'video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
-          ) ||
-          target === document.body ||
-          target === document.documentElement
-        );
-
-        if (isRecentlyAdded || isPlayerOrBodyTrap) {
+      // Left-click trap: anchor injected in the last 500ms, target=_blank, and transparent / fullscreen / over a player
+      if (e.isTrusted === true && isBlank && isRecentlyAdded) {
+        if (target.closest('video, audio, .video-js, .jwplayer, .plyr, [class*="player"], [id*="player"]')) {
           isTrap = true;
-        }
-      }
-
-      // Sign 1: Added to DOM within the last 600ms without visible text/media (mousedown injection trap)
-      const textLen = (anchor.innerText || '').trim().length;
-      const hasMedia = Boolean(anchor.querySelector('img, svg, button, canvas, video'));
-      if (recentLinks.has(anchor)) {
-        const addedAt = recentLinks.get(anchor);
-        if (now - addedAt < 600 && textLen === 0 && !hasMedia) {
-          isTrap = true;
-        }
-      }
-
-      // Sign 2: Fixed or absolute overlay (or inside fixed/absolute container) covering screen area
-      if (!isTrap) {
-        try {
-          const rect = anchor.getBoundingClientRect();
-          const wRatio = rect.width / (window.innerWidth || 1);
-          const hRatio = rect.height / (window.innerHeight || 1);
-
-          const style = window.getComputedStyle(anchor);
-          const pos = style.position;
-          const z = parseInt(style.zIndex, 10);
-          const opacity = parseFloat(style.opacity);
-
-          // Check parent container
-          const positionedParent = anchor.closest('div, section, aside, span');
-          let parentZ = 0;
-          let parentOpacity = 1;
-          let parentPos = '';
-          if (positionedParent && positionedParent !== document.body) {
-            try {
-              const pStyle = window.getComputedStyle(positionedParent);
-              parentPos = pStyle.position;
-              parentZ = parseInt(pStyle.zIndex, 10) || 0;
-              parentOpacity = parseFloat(pStyle.opacity);
-            } catch {}
-          }
-
-          const isPositioned =
-            pos === 'fixed' || pos === 'absolute' || parentPos === 'fixed' || parentPos === 'absolute';
-          const effectiveZ = Math.max(isNaN(z) ? 0 : z, isNaN(parentZ) ? 0 : parentZ);
-          const effectiveOpacity = Math.min(isNaN(opacity) ? 1 : opacity, isNaN(parentOpacity) ? 1 : parentOpacity);
-
-          if (isPositioned) {
-            if (effectiveOpacity < 0.15 || effectiveZ >= 99999 || (wRatio >= 0.40 && hRatio >= 0.40)) {
+        } else {
+          try {
+            const rect = anchor.getBoundingClientRect();
+            const style = window.getComputedStyle(anchor);
+            const opacity = parseFloat(style.opacity);
+            const fullscreen =
+              rect.width >= (window.innerWidth || 1) * 0.8 && rect.height >= (window.innerHeight || 1) * 0.8;
+            const transparent = (!isNaN(opacity) && opacity < 0.15) || (anchor.innerText || '').trim().length === 0;
+            if (fullscreen || (transparent && !anchor.querySelector('img, svg, canvas, video'))) {
               isTrap = true;
             }
-          } else if (wRatio >= 0.50 && hRatio >= 0.50) {
-            isTrap = true;
-          }
-        } catch {}
-      }
-
-      // Sign 3: Empty text content, no visible img/svg/button, but covering substantial area
-      if (!isTrap) {
-        if (textLen === 0 && !hasMedia) {
-          const rect = anchor.getBoundingClientRect();
-          if (rect.width >= 120 && rect.height >= 80) {
-            isTrap = true;
-          }
+          } catch {}
         }
       }
 
@@ -1280,10 +1228,9 @@ function isDevToolsKey(e) {
             if (typeof window !== 'undefined' && window.sessionStorage?.getItem('ax_privacy_popup_shield') === 'disabled') {
               return nativeWinClose.apply(this, arguments);
             }
-            // Protect main tabs or tabs with navigation history
-            const hasHistory = Boolean(win.history && win.history.length > 1);
+            // Protect main tabs; script-opened popups (OAuth/payment) may still close themselves
             const isMainTab = Boolean(!win.opener || win.opener === win);
-            if (hasHistory || isMainTab) {
+            if (isMainTab) {
               console.info('[AX-Shield] İzinsiz window.close engellendi');
               reportBlocked(win.location?.href || '', 'window.close');
               return;
@@ -1835,25 +1782,6 @@ function isDevToolsKey(e) {
 
   // Anti-DevTools & Right-Click Protector (Defeats site-level inspection & contextmenu blocks)
   try {
-    window.addEventListener(
-      'beforeunload',
-      (e) => {
-        try {
-          if (typeof window !== 'undefined' && window.sessionStorage?.getItem('ax_privacy_popup_shield') === 'disabled') {
-            return;
-          }
-          const hasRealLinkClick =
-            Boolean(lastTrustedIntent && lastTrustedIntent.exp > Date.now()) ||
-            Boolean(lastTrustedLink && Date.now() - lastTrustedLink.time <= 2500);
-          if (!hasRealLinkClick) {
-            e.preventDefault();
-            e.returnValue = '';
-          }
-        } catch {}
-      },
-      true
-    );
-
     window.addEventListener(
       'keydown',
       (e) => {

@@ -422,6 +422,60 @@ await runAsyncTest('pruneExpiredBrainData removes items older than 60 days', asy
   assert.strictEqual(state.learnedDomains[0].domain, 'recent-threat.xyz');
 });
 
+// ---------------------------------------------------------------------------
+// v4.1.0 Regression: untrained calibration, threshold 0.65, IMMUNE_ROOTS
+// ---------------------------------------------------------------------------
+console.log('\n[Group v4.1.0: Calibration & Immunity]');
+
+runTest('v4.1.0: default threshold is 0.65 and untrained model catches the target ad shapes', () => {
+  const m = AxBrain.createDefaultModel();
+  assert.strictEqual(m.threshold, 0.65);
+  const v = (on) => {
+    const f = new Array(12).fill(0);
+    for (const [i, val] of Object.entries(on)) f[i] = val;
+    return f;
+  };
+  const ads = {
+    stickyGif: v({ 0: 1, 2: 1, 5: 1 }),
+    iabExternal: v({ 2: 1, 4: 1 }),
+    pageskin: v({ 0: 1, 2: 1, 6: 1 }),
+    loadingVignette: v({ 0: 1, 1: 1, 8: 1 }),
+    cornerVerify: v({ 0: 1, 1: 0.5, 6: 1, 8: 1, 9: 1 }),
+    curtain: v({ 7: 1 }),
+    adIframe: v({ 2: 1, 4: 1, 10: 1 })
+  };
+  for (const [name, f] of Object.entries(ads)) {
+    assert.strictEqual(AxBrain.predict(f, m).isAd, true, `${name} must be caught untrained`);
+  }
+  const benign = {
+    stickyHeaderWithSocialLinks: v({ 0: 1, 2: 1, 3: 1 }),
+    plainIabSizedImage: v({ 4: 1 }),
+    loadingTextInArticle: v({ 8: 1, 9: 1 })
+  };
+  for (const [name, f] of Object.entries(benign)) {
+    assert.strictEqual(AxBrain.predict(f, m).isAd, false, `${name} must stay visible`);
+  }
+});
+
+runTest('v4.1.0: 1,000 predictions finish in under 15 ms', () => {
+  const m = AxBrain.createDefaultModel();
+  const f = [1, 0.5, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1];
+  const t0 = performance.now();
+  for (let i = 0; i < 1000; i++) AxBrain.predict(f, m);
+  const ms = performance.now() - t0;
+  assert.ok(ms < 15, `took ${ms.toFixed(3)}ms`);
+});
+
+runTest('v4.1.0: IMMUNE_ROOTS cover YouTube, Twitch, Google, CDNs and auth/payment', () => {
+  for (const d of ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'googlevideo.com', 'ytimg.com',
+    'ggpht.com', 'youtubei.googleapis.com', 'twitch.tv', 'ttvnw.net', 'jtvnw.net', 'google.com', 'googleapis.com',
+    'gstatic.com', 'github.com', 'githubusercontent.com', 'cloudflare.com', 'jsdelivr.net', 'unpkg.com',
+    'accounts.google.com', 'appleid.apple.com', 'login.microsoftonline.com', 'discord.com', 'stripe.com',
+    'paypal.com', 'iyzico.com', 'paytr.com']) {
+    assert.ok(AxBrain.IMMUNE_ROOTS.has(d), `${d} missing from IMMUNE_ROOTS`);
+  }
+});
+
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
 if (passedTests === totalTests) {
   console.log('✓ All AX-Brain tests passed successfully!\n');

@@ -3,15 +3,41 @@
  * Validates syntax, integrity, unique IDs, resource types, and MV3 limits
  * for:
  *   - manifest.json (3 declared static rulesets)
- *   - rules/ads_trackers.json (25,000 rules, IDs 1..25000)
+ *   - rules/ads_trackers.json (<= 85,000 rules, IDs 1..85000)
  *   - rules/url_clean.json (redirect rules)
- *   - rules/popups_redirects.json (dedicated pop-up/redirect rules, IDs 30001..30500)
+ *   - rules/popups_redirects.json (dedicated pop-up/redirect rules, IDs 90001..92000)
+ *   - all static rulesets together: <= 100,000 rules, zero ID collisions, no IMMUNE_ROOTS blocks
  *   - rules/cosmetic_rules.json (two-layer: generic + domains)
  */
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import '../ax-brain.js';
+
+const IMMUNE_ROOTS = globalThis.AxBrain.IMMUNE_ROOTS;
+const TOTAL_STATIC_MAX = 100000;
+const ADS_MAX = 85000;
+const POPUPS_MAX = 2000;
+const POPUP_ID_MIN = 90001;
+const POPUP_ID_MAX = 92000;
+const GENERIC_COSMETIC_MAX = 600;
+// Every static rule id across all rulesets, to prove zero collisions
+const allStaticIds = new Map();
+function claimId(id, ruleset) {
+  if (allStaticIds.has(id)) {
+    throw new Error(`Rule id ${id} in ${ruleset} collides with ${allStaticIds.get(id)}`);
+  }
+  allStaticIds.set(id, ruleset);
+}
+function assertNotImmune(urlFilter, ruleset) {
+  const m = /^\|\|([a-z0-9.-]+)\^/i.exec(urlFilter || '');
+  if (!m) return;
+  const host = m[1].toLowerCase();
+  if (IMMUNE_ROOTS.has(host) || IMMUNE_ROOTS.has(globalThis.AxBrain.getRootDomain(host))) {
+    throw new Error(`${ruleset} blocks an IMMUNE_ROOTS host: ${host}`);
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,10 +129,8 @@ async function validateAdsRules() {
     throw new Error(`rules/ads_trackers.json has too few rules (${rules.length})`);
   }
 
-  if (rules.length > 30000) {
-    throw new Error(
-      `rules/ads_trackers.json exceeds Chrome MV3 limit of 30,000 rules (has ${rules.length})`
-    );
+  if (rules.length > ADS_MAX) {
+    throw new Error(`rules/ads_trackers.json exceeds capacity of ${ADS_MAX} rules (has ${rules.length})`);
   }
 
   const ids = new Set();
@@ -121,6 +145,8 @@ async function validateAdsRules() {
       throw new Error(`Duplicate rule id found: ${r.id}`);
     }
     ids.add(r.id);
+    claimId(r.id, 'ads_trackers');
+    assertNotImmune(r.condition?.urlFilter, 'ads_trackers');
 
     if (r.action?.type !== 'block') {
       throw new Error(`Rule ${r.id} action type must be "block"`);
@@ -206,20 +232,22 @@ async function validatePopupsRules() {
     throw new Error('rules/popups_redirects.json must be a JSON array');
   }
 
-  if (rules.length === 0 || rules.length > 500) {
-    throw new Error(`rules/popups_redirects.json rule count invalid (${rules.length}, max 500)`);
+  if (rules.length === 0 || rules.length > POPUPS_MAX) {
+    throw new Error(`rules/popups_redirects.json rule count invalid (${rules.length}, max ${POPUPS_MAX})`);
   }
 
   const ids = new Set();
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i];
-    if (typeof r.id !== 'number' || r.id < 30001 || r.id > 30500) {
-      throw new Error(`Rule at index ${i} has out-of-range id: ${r.id} (expected 30001..30500)`);
+    if (typeof r.id !== 'number' || r.id < POPUP_ID_MIN || r.id > POPUP_ID_MAX) {
+      throw new Error(`Rule at index ${i} has out-of-range id: ${r.id} (expected ${POPUP_ID_MIN}..${POPUP_ID_MAX})`);
     }
     if (ids.has(r.id)) {
       throw new Error(`Duplicate rule id found in popups_redirects: ${r.id}`);
     }
     ids.add(r.id);
+    claimId(r.id, 'popups_redirects');
+    assertNotImmune(r.condition?.urlFilter, 'popups_redirects');
 
     if (r.action?.type !== 'block') {
       throw new Error(`Rule ${r.id} action type must be "block"`);
@@ -255,7 +283,7 @@ async function validatePopupsRules() {
   }
 
   console.log(
-    `[validate-rules] rules/popups_redirects.json OK (${rules.length} rules, IDs 30001..${30000 + rules.length})`
+    `[validate-rules] rules/popups_redirects.json OK (${rules.length} rules, IDs ${POPUP_ID_MIN}..${POPUP_ID_MIN - 1 + rules.length})`
   );
 }
 
@@ -277,6 +305,7 @@ async function validateUrlCleanRules() {
       throw new Error(`Duplicate rule id in url_clean: ${r.id}`);
     }
     ids.add(r.id);
+    claimId(r.id, 'url_clean');
 
     if (r.action?.type !== 'redirect') {
       throw new Error(`url_clean rule ${r.id} action type must be "redirect"`);
@@ -307,6 +336,10 @@ async function validateCosmeticRules() {
   // Validate Generic layer
   if (!Array.isArray(cosmeticData.generic) || cosmeticData.generic.length < 10) {
     throw new Error(`rules/cosmetic_rules.json generic array missing or too small (${cosmeticData.generic?.length})`);
+  }
+
+  if (cosmeticData.generic.length > GENERIC_COSMETIC_MAX) {
+    throw new Error(`rules/cosmetic_rules.json generic layer exceeds ${GENERIC_COSMETIC_MAX} selectors (${cosmeticData.generic.length})`);
   }
 
   for (const sel of cosmeticData.generic) {
@@ -359,6 +392,10 @@ async function main() {
   await validateAdsRules();
   await validatePopupsRules();
   await validateCosmeticRules();
+  if (allStaticIds.size > TOTAL_STATIC_MAX) {
+    throw new Error(`Static rulesets total ${allStaticIds.size} rules, over the ${TOTAL_STATIC_MAX} budget`);
+  }
+  console.log(`[validate-rules] ${allStaticIds.size} static rules total, zero ID collisions`);
   console.log('=== AX-Privacy Rule Validation Passed with ZERO errors! ===');
 }
 

@@ -7,7 +7,7 @@
  *   4. Correctly parses multi-domain comma-separated lists and skips negated (~domain) targets
  *   5. Guarantees netprime.me curated rules in domains and universal ad containers in generic
  *   6. Deterministic, alphabetically-sorted output for both generic and domains
- *   7. generatePopupsRedirectsRules schema, IDs 30001..30500, and main_frame resourceTypes
+ *   7. generatePopupsRedirectsRules schema, IDs 90001..92000, and main_frame resourceTypes
  */
 
 import assert from 'node:assert';
@@ -172,16 +172,16 @@ beta.com##.first-ad
 // ---------------------------------------------------------------------------
 console.log('\n[Group 4: Pop-up & Redirect Rules]');
 
-runTest('generatePopupsRedirectsRules creates valid rules in 30001..30500 range', () => {
+runTest('generatePopupsRedirectsRules creates valid rules in 90001..92000 range', () => {
   const rules = generatePopupsRedirectsRules(['testpopup.com', 'extraredirect.org']);
   assert.ok(Array.isArray(rules));
   assert.ok(rules.length > 0);
-  assert.strictEqual(rules[0].id, 30001);
-  assert.strictEqual(rules[rules.length - 1].id, 30000 + rules.length);
-  assert.ok(rules.length <= 500);
+  assert.strictEqual(rules[0].id, 90001);
+  assert.strictEqual(rules[rules.length - 1].id, 90000 + rules.length);
+  assert.ok(rules.length <= 2000);
 
   for (const r of rules) {
-    assert.ok(r.id >= 30001 && r.id <= 30500);
+    assert.ok(r.id >= 90001 && r.id <= 92000);
     assert.strictEqual(r.action.type, 'block');
     if (r.condition.domainType === 'thirdParty') {
       assert.ok(r.condition.resourceTypes.includes('script'));

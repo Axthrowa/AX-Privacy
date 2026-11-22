@@ -34,6 +34,9 @@
     'googleapis.com',
     'gstatic.com',
     'youtube.com',
+    'www.youtube.com',
+    'm.youtube.com',
+    'music.youtube.com',
     'googlevideo.com',
     'ytimg.com',
     'ggpht.com',
@@ -83,24 +86,26 @@
 
   function createDefaultModel() {
     return {
-      version: 1,
-      // Calibrated baseline weights corresponding to proven v3.4.0 heuristic behavior
+      version: 2,
+      // v4.1.0 calibration: untrained model already catches sticky GIF banners, IAB banners
+      // with external links, pageskins, fake loading/verify cards and transparent curtains,
+      // while a lone sticky header or a plain IAB-sized image stays below 0.65.
       weights: [
         1.0,  // isFixedOrSticky
-        1.2,  // highZIndex
-        1.5,  // hasCrossSiteLink
-        0.6,  // hasBlankTarget
-        1.5,  // isIabSize
-        1.2,  // hasGifOrWebp
-        1.5,  // isEdgeOrCorner
-        4.0,  // isTransparentCover
-        2.5,  // hasBaitLanguage
-        1.2,  // hasCloseNoForm
-        1.5,  // hasAdTokens
-        0.8   // isLateInjected
+        0.8,  // highZIndex
+        1.2,  // hasCrossSiteLink
+        0.3,  // hasBlankTarget
+        1.6,  // isIabSize
+        1.4,  // hasGifOrWebp
+        1.4,  // isEdgeOrCorner
+        3.0,  // isTransparentCover
+        1.8,  // hasBaitLanguage
+        0.6,  // hasCloseNoForm
+        1.8,  // hasAdTokens
+        0.6   // isLateInjected
       ],
-      bias: -2.5,
-      threshold: 0.78,
+      bias: -2.0,
+      threshold: 0.65,
       learningRate: 0.12,
       sampleCount: 0,
       trainingCount: 0,
@@ -121,7 +126,7 @@
   function predict(features, model) {
     const m = model || createDefaultModel();
     const w = m.weights;
-    const b = m.bias || -2.5;
+    const b = typeof m.bias === 'number' ? m.bias : -2.0;
 
     let z = b;
     const len = Math.min(features.length, w.length);
@@ -132,7 +137,7 @@
     const probability = sigmoid(z);
     return {
       probability,
-      isAd: probability >= (m.threshold || 0.78),
+      isAd: probability >= (m.threshold || 0.65),
       rawScore: z
     };
   }
@@ -324,9 +329,15 @@
       'tap to',
       'loading',
       'allow',
-      'update'
+      'update',
+      'tıkla',
+      'tamam'
     ];
-    if (baitWords.some((b) => lowerText.includes(b)) || /\d{1,3}\s*%/i.test(lowerText)) {
+    if (
+      baitWords.some((b) => lowerText.includes(b)) ||
+      /\d{1,3}\s*%/i.test(lowerText) ||
+      /\b(ok|okay)\b/i.test(lowerText)
+    ) {
       f[8] = 1;
     }
 
@@ -362,7 +373,7 @@
   }
 
   return {
-    VERSION: '4.0.0',
+    VERSION: '4.1.0',
     FEATURE_NAMES,
     IMMUNE_ROOTS,
     getRootDomain,

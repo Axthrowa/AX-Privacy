@@ -362,7 +362,7 @@ runTest('Strictly PRESERVES legitimate cookie consent or terms dialogs with real
 // ---------------------------------------------------------------------------
 console.log('\n[Group 4: Intent-Verified Tab Shield Decision Engine]');
 
-runTest('Blocks cross-site random ad domain when no user intent exists', () => {
+runTest('Default-allow: unknown cross-site tab without ad signature stays open (v4.1.0)', () => {
   const result = shouldBlockNewTab({
     openerTabId: 101,
     openerUrl: 'https://film-dizi-izle.net/izle',
@@ -370,8 +370,8 @@ runTest('Blocks cross-site random ad domain when no user intent exists', () => {
     whitelist: [],
     popupShield: true
   });
-  assert.strictEqual(result.block, true);
-  assert.strictEqual(result.reason, 'unsolicited_cross_site_tab');
+  assert.strictEqual(result.block, false);
+  assert.strictEqual(result.reason, 'default_allow');
 });
 
 runTest('Allows cross-site tab when verified trusted intent exists in memory', () => {
@@ -387,7 +387,6 @@ runTest('Allows cross-site tab when verified trusted intent exists in memory', (
     popupShield: true
   });
   assert.strictEqual(result.block, false);
-  assert.strictEqual(result.reason, 'trusted_user_intent');
 });
 
 runTest('Allows manual user-initiated tabs without openerTabId (Ctrl+T, bookmarks, omnibox)', () => {
@@ -454,7 +453,6 @@ runTest('Allows search engine and social media feed openers', () => {
     popupShield: true
   });
   assert.strictEqual(googleFeedResult.block, false);
-  assert.strictEqual(googleFeedResult.reason, 'trusted_opener_feed');
 
   const redditFeedResult = shouldBlockNewTab({
     openerTabId: 105,
@@ -464,7 +462,6 @@ runTest('Allows search engine and social media feed openers', () => {
     popupShield: true
   });
   assert.strictEqual(redditFeedResult.block, false);
-  assert.strictEqual(redditFeedResult.reason, 'trusted_opener_feed');
 });
 
 runTest('Allows whitelisted opener domains', () => {
@@ -501,10 +498,10 @@ runTest('Correctly classifies F12 key events', () => {
   assert.strictEqual(shieldDevToolsKey({ keyCode: 123 }), true);
 });
 
-runTest('Correctly classifies Ctrl+Shift+I / J / C (DevTools inspector)', () => {
+runTest('Correctly classifies Ctrl+Shift+I / J (DevTools); Ctrl+Shift+C is left to the site', () => {
   assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, shiftKey: true, key: 'I' }), true);
   assert.strictEqual(shieldDevToolsKey({ metaKey: true, shiftKey: true, key: 'J' }), true);
-  assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, shiftKey: true, key: 'C' }), true);
+  assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, shiftKey: true, key: 'C' }), false);
   assert.strictEqual(shieldDevToolsKey({ ctrlKey: true, shiftKey: true, keyCode: 73 }), true);
 });
 
@@ -656,7 +653,6 @@ runTest('recordTrustedIntent tracks middle-click intent in lastUserNewTabClicks 
     popupShield: true
   });
   assert.strictEqual(redirectResult.block, false);
-  assert.strictEqual(redirectResult.reason, 'trusted_user_intent');
 });
 
 runTest('isPopunderAdUrl detects newly added ad/redirect networks and affiliate traps', () => {
@@ -740,7 +736,6 @@ runTest('shouldBlockNewTab allows external outbound links originating from Insta
     popupShield: true
   });
   assert.strictEqual(igResult.block, false);
-  assert.strictEqual(igResult.reason, 'trusted_opener_feed');
 
   const xResult = shouldBlockNewTab({
     openerTabId: 302,
@@ -751,7 +746,6 @@ runTest('shouldBlockNewTab allows external outbound links originating from Insta
     popupShield: true
   });
   assert.strictEqual(xResult.block, false);
-  assert.strictEqual(xResult.reason, 'trusted_opener_feed');
 });
 
 runTest('LEGITIMATE_HOST_WHITELIST protects major platform destinations', () => {
@@ -874,7 +868,6 @@ runTest('Recent trusted user interaction on opener tab keeps new tab open (allow
     interactionsStore: interactions
   });
   assert.strictEqual(result.block, false);
-  assert.strictEqual(result.reason, 'recent_user_interaction');
 });
 
 runTest('Unsolicited pop-under or ad network without user intent or interaction is BLOCKED', () => {
@@ -907,7 +900,7 @@ runTest('Unsolicited pop-under or ad network without user intent or interaction 
     interactionsStore: interactions
   });
   assert.strictEqual(crossSiteResult.block, true);
-  assert.strictEqual(crossSiteResult.reason, 'unsolicited_cross_site_tab');
+  assert.strictEqual(crossSiteResult.reason, 'known_popunder_ad_signature');
 });
 
 runTest('popup-shield hasTrustedClick allows about:blank and legitimate destinations within 2500ms', () => {
@@ -966,7 +959,7 @@ runTest('Verified <a href="https://example.com"> click allows navigation to exam
   assert.strictEqual(result.reason, 'user_clicked_link');
 });
 
-runTest('Blank space / video click on netprime does NOT permit unprompted pop-up to google.com', () => {
+runTest('New tab to google.com is never closed (immune root; same-tab redirects are guarded separately)', () => {
   const interactions = new Map();
   const result = shouldBlockNewTab({
     openerTabId: 50,
@@ -977,8 +970,7 @@ runTest('Blank space / video click on netprime does NOT permit unprompted pop-up
     popupShield: true,
     interactionsStore: interactions
   });
-  assert.strictEqual(result.block, true);
-  assert.strictEqual(result.reason, 'unsolicited_cross_site_tab');
+  assert.strictEqual(result.block, false);
 });
 
 runTest('popup-shield blocks location redirect to google.com without trusted link click', () => {
@@ -1045,7 +1037,7 @@ runTest('Middle-click intent on link (isMiddleClick: true) preserves new backgro
   assert.strictEqual(result.reason, 'middle_click_user_intent');
 });
 
-runTest('Unsolicited pop-under without middle-click or link intent is strictly blocked', () => {
+runTest('Default-allow: unknown tab without middle-click is kept; ad signature is closed', () => {
   const emptyMcMap = new Map();
   const emptyClicks = new Map();
 
@@ -1059,9 +1051,18 @@ runTest('Unsolicited pop-under without middle-click or link intent is strictly b
     middleClickStore: emptyMcMap,
     userClicksStore: emptyClicks
   });
+  assert.strictEqual(result.block, false);
 
-  assert.strictEqual(result.block, true);
-  assert.strictEqual(result.reason, 'unsolicited_cross_site_tab');
+  const adResult = shouldBlockNewTab({
+    openerTabId: 77,
+    openerUrl: 'https://pirate-streaming.com/video',
+    tabUrl: 'https://cdn.example-ads.xyz/afu.php?zoneid=1',
+    whitelist: [],
+    popupShield: true,
+    middleClickStore: emptyMcMap,
+    userClicksStore: emptyClicks
+  });
+  assert.strictEqual(adResult.block, true);
 });
 
 runTest('popup-shield preserves trustedClickUntil for 3500ms on middle click (button === 1)', () => {
@@ -1230,6 +1231,237 @@ runTest('Middle-click (button === 1) on cross-site target="_blank" is NOT interc
 
   clickHandler(middleClickEvent);
   assert.strictEqual(prevented, false, 'Middle-click on legitimate link must NOT be prevented');
+});
+
+// ---------------------------------------------------------------------------
+// v4.1.0 Regression: default-allow tabs + popup-shield hooks
+// ---------------------------------------------------------------------------
+console.log('\n[Group v4.1.0: Default-Allow Tabs & Shield Hooks]');
+
+runTest('v4.1.0: middle-clicked example.org/haber stays open even if the click message is late or missing', () => {
+  const base = {
+    openerTabId: 4101,
+    openerUrl: 'https://news-portal.com/',
+    tabUrl: 'https://example.org/haber',
+    whitelist: [],
+    popupShield: true,
+    userClicksStore: new Map()
+  };
+  // Message never arrived
+  assert.strictEqual(shouldBlockNewTab({ ...base, middleClickStore: new Map() }).block, false);
+  // Message arrived
+  const mc = new Map([[4101, { ts: Date.now() }]]);
+  assert.strictEqual(shouldBlockNewTab({ ...base, middleClickStore: mc }).block, false);
+});
+
+runTest('v4.1.0: popads.net and /afu.php pop-unders are closed; known-list domains are closed', () => {
+  const base = { openerTabId: 4102, openerUrl: 'https://stream-site.net/watch', whitelist: [], popupShield: true,
+    middleClickStore: new Map(), userClicksStore: new Map() };
+  assert.strictEqual(shouldBlockNewTab({ ...base, tabUrl: 'https://popads.net/serve' }).block, true);
+  assert.strictEqual(shouldBlockNewTab({ ...base, tabUrl: 'https://cdn-x.example.net/afu.php?zoneid=5' }).block, true);
+  const known = new Set(['listed-ad-host.com']);
+  const r = shouldBlockNewTab({ ...base, tabUrl: 'https://go.listed-ad-host.com/x', knownAdDomains: known });
+  assert.strictEqual(r.block, true);
+  assert.strictEqual(r.reason, 'known_ad_network');
+});
+
+runTest('v4.1.0: whitelisted opener, no opener and normal sites are never closed', () => {
+  const base = { middleClickStore: new Map(), userClicksStore: new Map(), popupShield: true };
+  assert.strictEqual(shouldBlockNewTab({ ...base, openerTabId: 1, openerUrl: 'https://my.site/', tabUrl: 'https://popads.net/', whitelist: ['my.site'] }).block, false);
+  assert.strictEqual(shouldBlockNewTab({ ...base, openerTabId: undefined, tabUrl: 'https://popads.net/', whitelist: [] }).block, false);
+  assert.strictEqual(shouldBlockNewTab({ ...base, openerTabId: 2, openerUrl: 'https://a.com/', tabUrl: 'https://wikipedia.org/wiki/X', whitelist: [] }).block, false);
+});
+
+function loadShieldSandbox() {
+  const listeners = {};
+  const opened = [];
+  let closed = 0;
+  class EventTarget {
+    dispatchEvent() {
+      this.__nativeDispatched = true;
+      return true;
+    }
+  }
+  class Element extends EventTarget {
+    constructor() {
+      super();
+      this.attrs = {};
+    }
+    getAttribute(k) {
+      return k in this.attrs ? this.attrs[k] : null;
+    }
+    setAttribute(k, v) {
+      this.attrs[k] = String(v);
+    }
+    hasAttribute(k) {
+      return k in this.attrs;
+    }
+    removeAttribute(k) {
+      delete this.attrs[k];
+    }
+  }
+  class HTMLAnchorElement extends Element {
+    constructor() {
+      super();
+      this.tagName = 'A';
+    }
+    click() {
+      this.__nativeClicked = true;
+    }
+  }
+  class HTMLFormElement extends Element {
+    submit() {
+      this.__nativeSubmitted = true;
+    }
+  }
+  const frameWin = {
+    open: (u) => {
+      opened.push(['frame', u]);
+      return { real: true };
+    },
+    close() {},
+    location: {}
+  };
+  class HTMLIFrameElement extends Element {
+    get contentWindow() {
+      return frameWin;
+    }
+    get contentDocument() {
+      return null;
+    }
+  }
+  const store = new Map();
+  const win = {
+    location: { href: 'https://site-a.com/watch', hostname: 'site-a.com', origin: 'https://site-a.com' },
+    sessionStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k)
+    },
+    history: { length: 1 },
+    opener: null,
+    name: '',
+    innerWidth: 1200,
+    innerHeight: 800,
+    open: (u) => {
+      opened.push(['top', u]);
+      return { real: true };
+    },
+    close: () => {
+      closed++;
+    },
+    addEventListener: (t, fn) => {
+      (listeners[t] = listeners[t] || []).push(fn);
+    },
+    postMessage: () => {},
+    getComputedStyle: () => ({}),
+    HTMLAnchorElement,
+    HTMLFormElement,
+    EventTarget
+  };
+  const quiet = { info() {}, warn() {}, log() {}, error() {} };
+  const ctx = {
+    window: win,
+    sessionStorage: win.sessionStorage,
+    document: { documentElement: null, addEventListener() {} },
+    Node: class Node {},
+    Element,
+    HTMLAnchorElement,
+    HTMLIFrameElement,
+    HTMLFormElement,
+    EventTarget,
+    MutationObserver: class {
+      observe() {}
+    },
+    module: { exports: {} },
+    console: quiet,
+    setTimeout,
+    clearTimeout,
+    Date,
+    URL
+  };
+  vm.runInNewContext(popupShieldSource, ctx);
+  return { ctx, win, listeners, opened, closedCount: () => closed, HTMLAnchorElement, HTMLIFrameElement };
+}
+
+runTest('v4.1.0: popup-shield is active on first load with empty sessionStorage', () => {
+  const sb = loadShieldSandbox();
+  assert.strictEqual(sb.win.__AX_POPUP_SHIELD_INSTALLED__, true);
+  assert.ok(sb.listeners.keydown && sb.listeners.keydown.length > 0);
+  assert.strictEqual(sb.listeners.beforeunload, undefined, 'no "leave site?" prompt handler');
+});
+
+runTest('v4.1.0: unauthorized window.open returns a dummy and never reaches the native open', () => {
+  const sb = loadShieldSandbox();
+  const w = sb.win.open('https://ads.example-net.xyz/landing');
+  assert.notStrictEqual(w && w.real, true);
+  assert.strictEqual(sb.win.open('').real, undefined);
+  assert.strictEqual(sb.opened.length, 0);
+  // Same-site, relative and auth hosts pass through
+  assert.strictEqual(sb.win.open('/next-episode').real, true);
+  assert.strictEqual(sb.win.open('https://accounts.google.com/o/oauth2/auth').real, true);
+});
+
+runTest('v4.1.0: synthetic dispatchEvent / anchor.click on cross-site _blank link are blocked', () => {
+  const sb = loadShieldSandbox();
+  const a = new sb.HTMLAnchorElement();
+  a.href = 'https://ads.example-net.xyz/x';
+  a.setAttribute('target', '_blank');
+  assert.strictEqual(a.dispatchEvent({ type: 'click' }), false);
+  assert.notStrictEqual(a.__nativeDispatched, true);
+  a.click();
+  assert.notStrictEqual(a.__nativeClicked, true);
+  const dl = new sb.HTMLAnchorElement();
+  dl.href = 'https://cdn.other.com/file.zip';
+  dl.setAttribute('download', '');
+  dl.click();
+  assert.strictEqual(dl.__nativeClicked, true, 'download links are untouched');
+});
+
+runTest('v4.1.0: iframe contentWindow.open and main-tab window.close are blocked', () => {
+  const sb = loadShieldSandbox();
+  const ifr = new sb.HTMLIFrameElement();
+  const res = ifr.contentWindow.open('https://ads.example-net.xyz/p');
+  assert.notStrictEqual(res && res.real, true);
+  assert.strictEqual(sb.opened.filter((o) => o[0] === 'frame').length, 0);
+  sb.win.close();
+  assert.strictEqual(sb.closedCount(), 0);
+});
+
+runTest('v4.1.0: sites cannot swallow F12 / Ctrl+Shift+I / Ctrl+U; normal keys untouched', () => {
+  const sb = loadShieldSandbox();
+  const fire = (ev) => {
+    let stopped = false;
+    const e = { ...ev, stopImmediatePropagation: () => (stopped = true) };
+    sb.listeners.keydown.forEach((fn) => fn(e));
+    return stopped;
+  };
+  assert.strictEqual(fire({ key: 'F12' }), true);
+  assert.strictEqual(fire({ key: 'I', ctrlKey: true, shiftKey: true }), true);
+  assert.strictEqual(fire({ key: 'u', ctrlKey: true }), true);
+  assert.strictEqual(fire({ key: 'a' }), false);
+});
+
+runTest('v4.1.0: middle-click and Ctrl+click on a cross-site _blank link are never prevented', () => {
+  const sb = loadShieldSandbox();
+  const a = new sb.HTMLAnchorElement();
+  a.href = 'https://example.org/haber';
+  a.setAttribute('target', '_blank');
+  a.innerText = '';
+  a.getBoundingClientRect = () => ({ width: 1200, height: 800 });
+  a.querySelector = () => null;
+  a.closest = (sel) => (sel === 'a[href]' ? a : null);
+  const target = { closest: (sel) => (sel === 'a[href]' ? a : null), matches: () => false };
+  for (const ev of [
+    { type: 'auxclick', button: 1 },
+    { type: 'click', button: 0, ctrlKey: true },
+    { type: 'click', button: 0, metaKey: true }
+  ]) {
+    let prevented = false;
+    const e = { ...ev, isTrusted: true, target, preventDefault: () => (prevented = true), stopImmediatePropagation: () => (prevented = true) };
+    (sb.listeners[ev.type] || []).forEach((fn) => fn(e));
+    assert.strictEqual(prevented, false, `${ev.type} button=${ev.button} must not be prevented`);
+  }
 });
 
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AX-Privacy",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "Gelişmiş reklam engelleme, URL izleyici temizleyici, yerel tehdit kalkanı, Twitch SSAI, YouTube video kalkanı, pop-up/yönlendirme engelleme ve özel filtre listesi yöneticisi.",
   "icons": {
     "16": "icons/icon-16.png",

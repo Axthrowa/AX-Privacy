@@ -517,6 +517,87 @@ runTest('popup-shield allows legitimate auth gateways unconditionally', () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// v4.1.0 Regression: signature-based re-evaluation (no WeakSet blind spot)
+// ---------------------------------------------------------------------------
+console.log('\n[Group v4.1.0: Signature Re-evaluation]');
+
+const { evaluateCandidate } = sandbox.module.exports;
+
+function mutableEl(opts) {
+  const children = [];
+  const attributes = {};
+  const el = createMockElement({ ...opts, children, attributes });
+  el.childElementCount = 0;
+  el.fill = (patch) => {
+    if (patch.children) {
+      children.push(...patch.children);
+      el.childElementCount = children.length;
+    }
+    if (patch.textContent !== undefined) {
+      el.textContent = patch.textContent;
+      el.innerText = patch.textContent;
+    }
+    if (patch.style) Object.assign(el.style, patch.style);
+    if (patch.styleAttr) attributes.style = patch.styleAttr;
+  };
+  el.attrs = attributes;
+  return el;
+}
+
+runTest('v4.1.0: empty div later filled with a GIF banner is caught on signature change', () => {
+  const el = mutableEl({ tagName: 'div', style: { position: 'static' }, rect: { width: 300, height: 250, top: 100, left: 100, right: 400, bottom: 350 } });
+  assert.strictEqual(evaluateCandidate(el), false, 'empty slot is not an ad yet');
+  assert.strictEqual(evaluateCandidate(el), false, 'unchanged signature is skipped');
+  el.fill({
+    children: [
+      { tagName: 'A', href: 'https://bet-network.xyz/go' },
+      { tagName: 'IMG', src: 'https://bet-network.xyz/banner.gif' }
+    ],
+    style: { position: 'sticky', zIndex: '9999' },
+    styleAttr: 'position:sticky;z-index:9999'
+  });
+  assert.strictEqual(evaluateCandidate(el), true);
+  assert.strictEqual(el.attrs['data-ax-hidden'], '1');
+  assert.strictEqual(evaluateCandidate(el), false, 'hidden elements are skipped');
+});
+
+runTest('v4.1.0: "Ben robot değilim. Devam etmek için dokunun" card is caught after injection', () => {
+  const el = mutableEl({ tagName: 'div', style: {}, rect: { width: 360, height: 200, top: 580, left: 820, right: 1180, bottom: 780 } });
+  assert.strictEqual(evaluateCandidate(el), false);
+  el.fill({ textContent: 'Ben robot değilim. Devam etmek için dokunun', style: { position: 'fixed', zIndex: '2147483647' }, styleAttr: 'position:fixed' });
+  assert.strictEqual(evaluateCandidate(el), true);
+});
+
+runTest('v4.1.0: "%87 Yükleniyor" vignette is caught after text change', () => {
+  const el = mutableEl({ tagName: 'div', style: { position: 'fixed', zIndex: '99999' }, rect: { width: 1200, height: 800, top: 0, left: 0, right: 1200, bottom: 800 } });
+  el.backgroundOpaque = true;
+  el.style.backgroundColor = 'rgb(0, 0, 0)';
+  el.style.opacity = '1';
+  assert.strictEqual(evaluateCandidate(el), false);
+  el.fill({ textContent: '%87 Yükleniyor... TAMAM' });
+  assert.strictEqual(evaluateCandidate(el), true);
+});
+
+runTest('v4.1.0: forms, password inputs, video, nav and ytd-guide-renderer are never hidden', () => {
+  const login = createMockElement({
+    tagName: 'div',
+    style: { position: 'fixed', zIndex: '99999' },
+    textContent: 'Devam etmek için giriş yapın',
+    children: [{ tagName: 'INPUT', type: 'password' }]
+  });
+  assert.strictEqual(evaluateCandidate(login), false);
+  const form = createMockElement({ tagName: 'form', style: { position: 'fixed', zIndex: '99999' }, textContent: 'robot' });
+  assert.strictEqual(evaluateCandidate(form), false);
+  const video = createMockElement({ tagName: 'div', style: { position: 'fixed', zIndex: '99999' }, textContent: 'loading', children: [{ tagName: 'VIDEO' }] });
+  assert.strictEqual(evaluateCandidate(video), false);
+  const nav = createMockElement({ tagName: 'nav', style: { position: 'fixed', zIndex: '99999' }, textContent: 'allow' });
+  assert.strictEqual(evaluateCandidate(nav), false);
+  const guide = createMockElement({ tagName: 'div', style: { position: 'fixed', zIndex: '99999' }, textContent: 'Yükleniyor %50' });
+  guide.closest = (sel) => (sel.includes('ytd-guide-renderer') ? {} : null);
+  assert.strictEqual(evaluateCandidate(guide), false);
+});
+
 console.log(`\n=== Test Results: ${passedTests}/${totalTests} Passed ===\n`);
 if (passedTests === totalTests) {
   console.log('✓ All Universal Ad Scorer & Shield tests passed successfully!');

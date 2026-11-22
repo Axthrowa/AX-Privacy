@@ -11,10 +11,20 @@
   window.__AX_PRIVACY_INITIALIZED__ = true;
 
   const currentHost = window.location.hostname.toLowerCase();
+  const AX_CANDIDATE_SELECTOR =
+    'div, section, aside, span, a, ins, [id*="overlay"], [class*="overlay"], [id*="banner"], [class*="banner"], [id*="reklam"], [class*="reklam"], [data-ad], [data-adslot]';
+  const AX_SKIP_TAGS = new Set([
+    'SCRIPT', 'STYLE', 'SVG', 'HEAD', 'META', 'LINK', 'BR', 'HR',
+    'NOSCRIPT', 'HTML', 'BODY', 'MAIN', 'NAV', 'HEADER', 'FOOTER', 'ARTICLE', 'FORM'
+  ]);
+  // YouTube navigation drawer / guide and our own UI must never be scored or hidden
+  const AX_NEVER_TOUCH_SELECTOR =
+    'ytd-guide-renderer, tp-yt-app-drawer, #guide, #sections, ytd-mini-guide-renderer, #ax-privacy-alert-host, #ax-privacy-picker-host, #ax-privacy-picker-overlay';
 
   const brainRef = typeof AxBrain !== 'undefined' ? AxBrain : (typeof window !== 'undefined' ? window.AxBrain : (typeof globalThis !== 'undefined' ? globalThis.AxBrain : null));
   let currentBrainModel = brainRef?.createDefaultModel?.() || null;
-  const evaluatedNodes = new WeakSet();
+  // Element -> last evaluated signature. An element is re-scored when it changes (e.g. empty slot later filled).
+  const evaluatedSignatures = new WeakMap();
 
   function getRootDomain(hostname) {
     if (!hostname || typeof hostname !== 'string') return '';
@@ -30,8 +40,15 @@
 
   function evaluateElementAdScore(el, computedStyle, rect, hostName = '', model = currentBrainModel) {
     if (!el) return { score: 0, reasons: ['null-element'], excluded: true, reason: 'null-element', shouldHide: false };
-    if (el.id === 'ax-privacy-alert-host') {
+    if (el.id === 'ax-privacy-alert-host' || el.id === 'ax-privacy-picker-host') {
       return { score: 0, reasons: ['alert-host'], excluded: true, reason: 'alert-host', shouldHide: false };
+    }
+    if (el.closest && el.closest(AX_NEVER_TOUCH_SELECTOR)) {
+      return { score: 0, reasons: ['protected-ui'], excluded: true, reason: 'protected-ui', shouldHide: false };
+    }
+    const ownIdent = `${el.id || ''} ${typeof el.className === 'string' ? el.className : ''}`;
+    if (/\b(upload|download|header|loading|shadow|radio|badge)\b/i.test(ownIdent)) {
+      return { score: 0, reasons: ['protected-class'], excluded: true, reason: 'protected-class', shouldHide: false };
     }
 
     const tag = (el.tagName || '').toLowerCase();
@@ -240,9 +257,11 @@
       'tap to',
       'loading',
       'allow',
-      'update'
+      'update',
+      'tıkla',
+      'tamam'
     ];
-    const hasBaitWord = fakeBaitWords.some((bw) => lowerText.includes(bw));
+    const hasBaitWord = fakeBaitWords.some((bw) => lowerText.includes(bw)) || /\b(ok|okay)\b/i.test(lowerText);
     const hasProgressPercent = /\d{1,3}\s*%/i.test(lowerText);
     const hasCloseButton = Boolean(
       el.querySelector &&
@@ -306,7 +325,7 @@
           isLateInjected: Boolean(el.__ax_late_injected)
         });
         const pred = brain.predict(feat, model);
-        if (pred && typeof pred.probability === 'number' && pred.probability >= 0.78) {
+        if (pred && typeof pred.probability === 'number' && pred.probability >= (model.threshold || 0.65)) {
           score = Math.max(score, 5);
           reasons.push('ax-brain-model');
         }
@@ -319,6 +338,49 @@
       excluded: false,
       shouldHide: score >= 5
     };
+  }
+
+  function nodeSignature(el) {
+    return `${el.childElementCount}:${(el.textContent || '').length}:${typeof el.className === 'string' ? el.className : ''}:${el.getAttribute?.('style')?.length || 0}`;
+  }
+
+  function hideAdElement(el) {
+    try {
+      el.setAttribute('data-ax-hidden', '1');
+      if (el.style && el.style.setProperty) {
+        el.style.setProperty('display', 'none', 'important');
+        el.style.setProperty('visibility', 'hidden', 'important');
+        el.style.setProperty('pointer-events', 'none', 'important');
+      }
+      el.__ax_scanned_hidden = true;
+      unlockBodyOverflow();
+    } catch {}
+  }
+
+  /** Scores one candidate unless it is unchanged since its last evaluation. Returns true when hidden. */
+  function evaluateCandidate(el) {
+    if (!el || !el.tagName || AX_SKIP_TAGS.has(el.tagName)) return false;
+    if (el.__ax_scanned_hidden || (el.getAttribute && el.getAttribute('data-ax-hidden') === '1')) return false;
+    const sig = nodeSignature(el);
+    if (evaluatedSignatures.get(el) === sig) return false;
+    evaluatedSignatures.set(el, sig);
+    const res = evaluateElementAdScore(el, null, null, currentHost);
+    if (!res.shouldHide) return false;
+    hideAdElement(el);
+    return true;
+  }
+
+  // Restores page scroll that ad overlays lock (shared by scanner and picker)
+  function unlockBodyOverflow() {
+    try {
+      if (document.body && (document.body.style.overflow === 'hidden' || document.body.style.position === 'fixed')) {
+        document.body.style.removeProperty('overflow');
+        document.body.style.removeProperty('position');
+      }
+      if (document.documentElement && document.documentElement.style.overflow === 'hidden') {
+        document.documentElement.style.removeProperty('overflow');
+      }
+    } catch {}
   }
 
   /**
@@ -508,17 +570,6 @@
         return false;
       }
 
-      function unlockBodyOverflow() {
-        try {
-          if (document.body && (document.body.style.overflow === 'hidden' || document.body.style.position === 'fixed')) {
-            document.body.style.removeProperty('overflow');
-            document.body.style.removeProperty('position');
-          }
-          if (document.documentElement && document.documentElement.style.overflow === 'hidden') {
-            document.documentElement.style.removeProperty('overflow');
-          }
-        } catch {}
-      }
 
 
 
@@ -589,7 +640,7 @@
         } catch {}
       }
 
-      function scanForMaliciousOverlaysAndBanners() {
+      function scanForMaliciousOverlaysAndBanners(mutated) {
         try {
           const MAJOR_SAFE_PLATFORMS = [
             'x.com',
@@ -617,62 +668,60 @@
             return;
           }
 
-          neutralizeAntiAdblockModals();
+          // 1. Build the candidate queue (full document, or only mutated subtrees)
+          const queue = [];
+          const pushCandidates = (root) => {
+            try {
+              if (root && root.querySelectorAll) {
+                const list = root.querySelectorAll(AX_CANDIDATE_SELECTOR);
+                for (let i = 0; i < list.length; i++) queue.push(list[i]);
+              }
+            } catch {}
+          };
+          const pushShadow = (host) => {
+            try {
+              const root =
+                host.shadowRoot ||
+                (typeof chrome !== 'undefined' && chrome.dom?.openOrClosedShadowRoot
+                  ? chrome.dom.openOrClosedShadowRoot(host)
+                  : null);
+              if (root) pushCandidates(root);
+            } catch {}
+          };
 
-          let blockedCount = 0;
-
-          // 1. Gather candidates from main document
-          const candidates = document.querySelectorAll(
-            'div, section, aside, span, a, [id*="overlay"], [class*="overlay"], [id*="banner"], [class*="banner"], [id*="reklam"], [class*="reklam"], [data-ad], [data-adslot], ins, article'
-          );
-
-          const SKIP_TAGS = new Set([
-            'SCRIPT', 'STYLE', 'SVG', 'HEAD', 'META', 'LINK', 'BR', 'HR',
-            'NOSCRIPT', 'HTML', 'BODY', 'MAIN', 'NAV', 'HEADER', 'FOOTER', 'ARTICLE', 'FORM'
-          ]);
-
-          for (let i = 0; i < candidates.length; i++) {
-            const el = candidates[i];
-            if (!el || el.__ax_scanned_hidden || evaluatedNodes.has(el)) continue;
-            if (SKIP_TAGS.has(el.tagName)) continue;
-            evaluatedNodes.add(el);
-
-            const evalResult = evaluateElementAdScore(el, null, null, currentHost);
-            if (evalResult.shouldHide) {
-              el.style.setProperty('display', 'none', 'important');
-              el.style.setProperty('visibility', 'hidden', 'important');
-              el.style.setProperty('pointer-events', 'none', 'important');
-              el.__ax_scanned_hidden = true;
-              blockedCount++;
-              unlockBodyOverflow();
+          if (!mutated) {
+            neutralizeAntiAdblockModals();
+            pushCandidates(document);
+            // 2. Shadow DOM hosts marked by popup-shield's attachShadow hook (open or closed)
+            const shadowHosts = document.querySelectorAll('[data-ax-shadow-host]');
+            for (let i = 0; i < shadowHosts.length; i++) pushShadow(shadowHosts[i]);
+          } else {
+            for (const el of mutated.self) {
+              if (el.matches && el.matches(AX_CANDIDATE_SELECTOR)) queue.push(el);
+            }
+            for (const el of mutated.deep) {
+              if (el.matches && el.matches(AX_CANDIDATE_SELECTOR)) queue.push(el);
+              pushCandidates(el);
+              if (el.shadowRoot || el.hasAttribute('data-ax-shadow-host')) pushShadow(el);
             }
           }
 
-          // 2. Scan open Shadow DOMs and custom closed shadow hosts
-          try {
-            const shadowHosts = document.querySelectorAll('[data-ax-shadow-host="1"], *');
-            for (let shIdx = 0; shIdx < shadowHosts.length; shIdx++) {
-              const sh = shadowHosts[shIdx];
-              const root = sh.shadowRoot || sh.__axShadowRoot;
-              if (root && root.querySelectorAll) {
-                const shadowCandidates = root.querySelectorAll('div, section, aside, span, a, iframe');
-                for (let scIdx = 0; scIdx < shadowCandidates.length; scIdx++) {
-                  const scEl = shadowCandidates[scIdx];
-                  if (scEl && !scEl.__ax_scanned_hidden) {
-                    const res = evaluateElementAdScore(scEl, null, null, currentHost);
-                    if (res.shouldHide) {
-                      scEl.style.setProperty('display', 'none', 'important');
-                      scEl.style.setProperty('visibility', 'hidden', 'important');
-                      scEl.style.setProperty('pointer-events', 'none', 'important');
-                      scEl.__ax_scanned_hidden = true;
-                      blockedCount++;
-                      unlockBodyOverflow();
-                    }
-                  }
-                }
-              }
+          // Process in idle slices of 50 nodes so large pages never jank
+          let cursor = 0;
+          const runSlice = () => {
+            let blockedCount = 0;
+            const end = Math.min(cursor + 50, queue.length);
+            for (; cursor < end; cursor++) {
+              if (evaluateCandidate(queue[cursor])) blockedCount++;
             }
-          } catch {}
+            if (blockedCount > 0) {
+              chrome.runtime.sendMessage({ type: 'INCREMENT_BLOCKED', count: Math.min(blockedCount, 25) }).catch(() => {});
+            }
+            if (cursor < queue.length) scheduleIdleScan(runSlice);
+          };
+          runSlice();
+
+          let blockedCount = 0;
 
           // 3. Collapse empty / blocked ad iframes and empty wrappers
           const iframes = document.querySelectorAll('iframe');
@@ -752,36 +801,54 @@
         }
       }
 
-      // Debounced mutation observer to efficiently react to dynamic ad injections
+      // Mutation-driven incremental scans: 200ms debounce, only mutated subtrees, idle slices
       let scanTimer = null;
-      const debouncedScan = () => {
-        if (scanTimer) clearTimeout(scanTimer);
-        scanTimer = setTimeout(() => {
-          scheduleIdleScan(scanForMaliciousOverlaysAndBanners);
-        }, 120);
+      let pending = { self: new Set(), deep: new Set() };
+      const flushScan = () => {
+        scanTimer = null;
+        const batch = pending;
+        pending = { self: new Set(), deep: new Set() };
+        // Very large batches: one full scan is cheaper than thousands of subtree queries
+        scheduleIdleScan(() =>
+          scanForMaliciousOverlaysAndBanners(batch.self.size + batch.deep.size > 500 ? undefined : batch)
+        );
       };
-
-      const observer = new MutationObserver(debouncedScan);
-      const rootTarget = document.documentElement || document.body;
-      if (rootTarget) {
-        observer.observe(rootTarget, { childList: true, subtree: true });
-      } else {
-        document.addEventListener('DOMContentLoaded', () => {
-          if (document.documentElement) {
-            observer.observe(document.documentElement, { childList: true, subtree: true });
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.type === 'childList') {
+            if (m.target && m.target.nodeType === 1) pending.self.add(m.target);
+            for (const n of m.addedNodes) if (n.nodeType === 1) pending.deep.add(n);
+          } else if (m.target && m.target.nodeType === 1) {
+            pending.self.add(m.target);
           }
-        });
+        }
+        if (scanTimer) clearTimeout(scanTimer);
+        scanTimer = setTimeout(flushScan, 200);
+      });
+      const observerOptions = {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'src', 'href']
+      };
+      const startObserver = () => {
+        if (document.documentElement) observer.observe(document.documentElement, observerOptions);
+      };
+      if (document.documentElement) {
+        startObserver();
+      } else {
+        document.addEventListener('DOMContentLoaded', startObserver);
       }
 
-      // Initial scanning runs (immediate + 400ms + 1.5s delayed scan)
+      // Follow-up full scans after load (late ad slots, lazy banners)
+      const scheduleFollowUps = () => {
+        setTimeout(() => scheduleIdleScan(() => scanForMaliciousOverlaysAndBanners()), 800);
+        setTimeout(() => scheduleIdleScan(() => scanForMaliciousOverlaysAndBanners()), 2500);
+      };
       if (document.readyState === 'complete') {
-        setTimeout(scanForMaliciousOverlaysAndBanners, 400);
-        setTimeout(scanForMaliciousOverlaysAndBanners, 1500);
+        scheduleFollowUps();
       } else {
-        window.addEventListener('load', () => {
-          setTimeout(scanForMaliciousOverlaysAndBanners, 400);
-          setTimeout(scanForMaliciousOverlaysAndBanners, 1500);
-        });
+        window.addEventListener('load', scheduleFollowUps);
       }
     } catch {
       // Storage access or context invalidated
@@ -955,28 +1022,48 @@
         }
       `;
 
-      container.innerHTML = `
-        <div class="ax-card-header">
-          <div class="ax-brand-tag">
-            <span>🛡️ AX-Privacy</span>
-          </div>
-          <span class="ax-status-pill">${badgeText}</span>
-        </div>
-        <div class="ax-card-body">
-          <div class="ax-title-row">
-            <svg class="ax-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-            </svg>
-            <div class="ax-title">${alertData.title || 'Güvenlik Uyarısı'}</div>
-          </div>
-          <p class="ax-message">${alertData.message || 'Şüpheli aktivite algılandı.'}</p>
-          <div class="ax-domain-box">${alertData.domain || currentHost}</div>
-          <div class="ax-actions">
-            <button class="ax-btn ax-btn-back" id="ax-back-btn">Güvenliğe Dön</button>
-            <button class="ax-btn ax-btn-dismiss" id="ax-dismiss-btn">Riski Anladım</button>
-          </div>
-        </div>
-      `;
+      // Built with DOM APIs: alert text is set via textContent only
+      const mk = (tag, cls, text) => {
+        const n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text !== undefined) n.textContent = text;
+        return n;
+      };
+      const header = mk('div', 'ax-card-header');
+      const brand = mk('div', 'ax-brand-tag');
+      brand.appendChild(mk('span', '', '🛡️ AX-Privacy'));
+      header.append(brand, mk('span', 'ax-status-pill', badgeText));
+      const body = mk('div', 'ax-card-body');
+      const titleRow = mk('div', 'ax-title-row');
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+      const icon = document.createElementNS(SVG_NS, 'svg');
+      icon.setAttribute('class', 'ax-icon');
+      icon.setAttribute('viewBox', '0 0 24 24');
+      icon.setAttribute('fill', 'none');
+      icon.setAttribute('stroke', 'currentColor');
+      icon.setAttribute('stroke-width', '2');
+      const iconPath = document.createElementNS(SVG_NS, 'path');
+      iconPath.setAttribute('stroke-linecap', 'round');
+      iconPath.setAttribute('stroke-linejoin', 'round');
+      iconPath.setAttribute(
+        'd',
+        'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z'
+      );
+      icon.appendChild(iconPath);
+      titleRow.append(icon, mk('div', 'ax-title', alertData.title || 'Güvenlik Uyarısı'));
+      const actions = mk('div', 'ax-actions');
+      const backButton = mk('button', 'ax-btn ax-btn-back', 'Güvenliğe Dön');
+      backButton.id = 'ax-back-btn';
+      const dismissButton = mk('button', 'ax-btn ax-btn-dismiss', 'Riski Anladım');
+      dismissButton.id = 'ax-dismiss-btn';
+      actions.append(backButton, dismissButton);
+      body.append(
+        titleRow,
+        mk('p', 'ax-message', alertData.message || 'Şüpheli aktivite algılandı.'),
+        mk('div', 'ax-domain-box', alertData.domain || currentHost),
+        actions
+      );
+      container.append(header, body);
 
       shadow.appendChild(style);
       shadow.appendChild(container);
@@ -1530,6 +1617,8 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       evaluateElementAdScore,
+      evaluateCandidate,
+      nodeSignature,
       getRootDomain,
       deriveSelector,
       startAdPicker,

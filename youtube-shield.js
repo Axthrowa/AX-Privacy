@@ -330,8 +330,10 @@
       initObserver();
     }
 
-    // Lightweight 500ms safety interval
-    setInterval(checkAndSkipAds, 500);
+    // No polling: the player's class mutations plus video timeupdate drive ad skipping
+    document.addEventListener('timeupdate', (e) => {
+      if (e.target && e.target.tagName === 'VIDEO') checkAndSkipAds();
+    }, true);
   } catch {}
 
   // --- Layer 3: Site-Safe Cosmetic Filtering ---

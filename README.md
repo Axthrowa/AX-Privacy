@@ -1,7 +1,7 @@
 # AX-Privacy 🛡️
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-4.0.0-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-4.1.0-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik-ve-g%C3%BCvenlik-garantisi)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
@@ -10,6 +10,14 @@
 Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kaydı yok, dış sunucuya veri gönderme yok, arka planda kullanıcıyı takip eden telemetri yok.
 
 ---
+
+## 🆕 v4.1.0'da Neler Düzeldi
+
+- **Sekmeler artık kapanmıyor:** Yeni sekme yalnızca bilinen reklam ağına veya pop-under imzasına (`/afu.php`, `zoneid=`+`click_id=` vb.) gidiyorsa kapatılır. Orta tık (tekerlek), Ctrl/Cmd+tık ve açanı olmayan sekmelere hiç dokunulmaz.
+- **"Siteden ayrılmak istiyor musunuz?" uyarısı kaldırıldı:** Sayfayı yenilemek, kapatmak ve adres çubuğuna yazmak yeniden normal çalışır.
+- **Geç dolan reklam alanları yakalanıyor:** Boş eklenip sonradan GIF banner, "Ben robot değilim" kartı veya "%87 Yükleniyor" perdesiyle doldurulan öğeler, değişiklik imzası sayesinde yeniden değerlendirilir.
+- **Daha hafif tarama:** Sadece değişen DOM parçaları 200 ms gecikmeyle, 50'lik boşta-zaman dilimleriyle taranır; `setInterval` yok.
+- **AX-Brain kalibrasyonu:** Eşik 0.65; eğitimsiz model de yapışkan GIF banner, IAB banner, pageskin, sahte yükleme/doğrulama kartı ve şeffaf perdeleri yakalar.
 
 ## 🚀 Öne Çıkan Özellikler
 
@@ -22,9 +30,9 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 - **Tek Tıkla "Reklamı Seç & Öğret" Seçici Aracı:** Kullanıcı popup üzerinden seçiciyi başlatıp sayfadaki herhangi bir öğeye tıkladığında, öğe gizlenir, seçici kural oluşturulur, ağırlıklar güncellenir ve 6 saniye süreli **[Geri Al]** butonu sunulur.
 - **60 Günlük Kendi Kendini Budama (TTL):** 60 günden eski tehdit kayıtları yerel depolamadan otomatik temizlenir; en fazla 300 alan adı (LRU) tutularak depolama daima < 100 KB kalır.
 
-### 2. 25.000+ Önceliklendirilmiş DNR Reklam ve İzleyici Kalkanı
+### 2. 85.000 Önceliklendirilmiş DNR Reklam ve İzleyici Kalkanı
 - Chrome'un yerel `declarativeNetRequest` (DNR) motorunu kullanır; sayfalar yüklenirken tarayıcıyı yormaz, pil ve bellek tüketimini minimumda tutar.
-- **EasyList** ve **OISD** listelerinin kesişiminden derlenmiş, çift kontrol edilmiş 25.000 yüksek etkili kural içerir.
+- EasyList, EasyPrivacy, AdGuard Base, AdGuard Türkçe, AdGuard Annoyances, uBlock Filters, uBlock Quick Fixes ve OISD listelerinden katmanlı (çekirdek → Türkçe/pop-up → EasyList∩OISD → geri kalan) derlenmiş 85.000 kural içerir. YouTube, Twitch, Google, CDN ve ödeme/giriş alan adları (`IMMUNE_ROOTS`) hiçbir zaman engellenmez.
 - **Çekirdek Garanti Listesi:** En yaygın reklam ağları (`doubleclick.net`, `googlesyndication.com`, `google-analytics.com`, `taboola.com`, `outbrain.com`, `criteo.com`, vb.) her zaman kural setinin en üstünde garanti altına alınır.
 
 ### 2. URL Takip Parametresi Temizleyici (Query Stripper)
@@ -92,7 +100,7 @@ Her şey tamamen tarayıcınızın içinde yerel olarak çalışır: Hesap kayd�
 ## 📦 Kurulum
 
 ### Yöntem 1: GitHub Releases ile Kurulum (Önerilen)
-1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v4.0.0-chrome.zip` veya `ax-privacy-v4.0.0-firefox.zip` paketini indirin.
+1. [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından en son `ax-privacy-v4.1.0-chrome.zip` veya `ax-privacy-v4.1.0-firefox.zip` paketini indirin.
 2. **Chrome / Brave / Edge:**
    - Eklentiler sayfasına gidin (`chrome://extensions`, `brave://extensions` veya `edge://extensions`).
    - **Geliştirici Modu (Developer mode)** anahtarını açın.
