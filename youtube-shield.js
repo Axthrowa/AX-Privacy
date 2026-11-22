@@ -352,13 +352,22 @@
         pointer-events: none !important;
       }
 
-      /* Explicitly protect YouTube main layout & navigation sidebar */
+      /* Explicitly protect YouTube main layout & navigation sidebar when opened */
       ytd-guide-renderer,
-      tp-yt-app-drawer,
-      #guide,
+      ytd-mini-guide-renderer,
       #sections,
-      ytd-mini-guide-renderer {
+      tp-yt-app-drawer[opened],
+      #guide[opened] {
         visibility: visible !important;
+      }
+
+      /* Prevent closed drawer backdrop scrim from trapping clicks over the entire YouTube page */
+      tp-yt-app-drawer:not([opened]),
+      tp-yt-app-drawer:not([opened]) #scrim,
+      #guide:not([opened]) #scrim {
+        display: none !important;
+        pointer-events: none !important;
+        visibility: hidden !important;
       }
 
       /* Guarantee that YouTube player buttons and controls are interactive */
