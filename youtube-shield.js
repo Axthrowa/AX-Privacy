@@ -361,27 +361,13 @@
         visibility: visible !important;
       }
 
-      /* Guarantee that YouTube player controls, seekbars, volume slider and buttons are ALWAYS interactive */
-      .html5-video-player .ytp-chrome-bottom,
-      .html5-video-player .ytp-chrome-bottom *,
-      .html5-video-player.ad-showing .ytp-chrome-bottom,
-      .html5-video-player.ad-showing .ytp-chrome-bottom *,
+      /* Guarantee that YouTube player buttons and controls are interactive */
       .ytp-play-button,
       .ytp-fullscreen-button,
-      .ytp-volume-area,
-      .ytp-volume-panel,
       .ytp-volume-slider,
       .ytp-mute-button,
       .ytp-settings-button,
-      .ytp-progress-bar-container,
-      .ytp-progress-bar,
-      .ytp-progress-bar * {
-        pointer-events: auto !important;
-      }
-
-      /* Protect YouTube HTML5 video element interactivity */
-      .html5-video-player video,
-      video.html5-main-video {
+      .ytp-chrome-bottom button {
         pointer-events: auto !important;
       }
     `;

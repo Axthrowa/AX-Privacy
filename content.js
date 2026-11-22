@@ -88,78 +88,7 @@
         }
       `);
 
-      // Universal HTML5 Video & Media Player Controls Protection
-      cssRules.push(`
-        video,
-        audio,
-        .video-js,
-        .video-js *,
-        .jwplayer,
-        .jwplayer *,
-        .plyr,
-        .plyr *,
-        .dplayer,
-        .dplayer *,
-        .artplayer-app,
-        .artplayer-app *,
-        [class*="player"] [class*="control"],
-        [class*="player"] [class*="control"] *,
-        [class*="player"] [class*="progress"],
-        [class*="player"] [class*="progress"] *,
-        [class*="player"] [class*="slider"],
-        [class*="player"] [class*="slider"] *,
-        [class*="player"] [class*="timeline"],
-        [class*="player"] [class*="timeline"] *,
-        [class*="player"] [class*="seekbar"],
-        [class*="player"] [class*="seekbar"] *,
-        [class*="player"] [class*="fullscreen"],
-        [class*="player"] [class*="fullscreen"] *,
-        [class*="player"] [class*="volume"],
-        [class*="player"] [class*="volume"] *,
-        [class*="player"] button,
-        [class*="player"] [role="button"],
-        [class*="player"] [role="slider"],
-        [class*="player"] [role="progressbar"],
-        .video-player__default-player,
-        .video-player__default-player *,
-        [data-a-target="player-play-pause-button"],
-        [data-a-target="player-fullscreen-button"],
-        [data-a-target="player-settings-button"],
-        [data-a-target="player-settings-menu"],
-        [data-a-target="player-overlay-click-handler"] {
-          pointer-events: auto !important;
-        }
-      `);
 
-      if (currentHost.includes('youtube.com')) {
-        cssRules.push(`
-          ytd-guide-renderer,
-          tp-yt-app-drawer,
-          #guide,
-          #sections,
-          ytd-mini-guide-renderer {
-            visibility: visible !important;
-          }
-          .html5-video-player .ytp-chrome-bottom,
-          .html5-video-player .ytp-chrome-bottom *,
-          .html5-video-player.ad-showing .ytp-chrome-bottom,
-          .html5-video-player.ad-showing .ytp-chrome-bottom *,
-          .ytp-play-button,
-          .ytp-fullscreen-button,
-          .ytp-volume-area,
-          .ytp-volume-panel,
-          .ytp-volume-slider,
-          .ytp-mute-button,
-          .ytp-settings-button,
-          .ytp-progress-bar-container,
-          .ytp-progress-bar,
-          .ytp-progress-bar * {
-            opacity: 1 !important;
-            pointer-events: auto !important;
-            visibility: visible !important;
-          }
-        `);
-      }
 
       style.textContent = cssRules.join('\n');
 
@@ -278,112 +207,7 @@
         } catch {}
       }
 
-      function defuseVideoPlayerClickTraps() {
-        try {
-          const MAJOR_SAFE_PLATFORMS = [
-            'x.com',
-            'twitter.com',
-            'instagram.com',
-            'facebook.com',
-            'youtube.com',
-            'twitch.tv',
-            'reddit.com',
-            'github.com',
-            'linkedin.com',
-            'google.com',
-            'netflix.com',
-            'amazon.com',
-            'amazon.com.tr',
-            'discord.com',
-            'spotify.com',
-            'whatsapp.com',
-            'telegram.org',
-            'threads.net',
-            'tiktok.com',
-            'pinterest.com'
-          ];
-          if (MAJOR_SAFE_PLATFORMS.some((p) => currentHost === p || currentHost.endsWith('.' + p))) {
-            return;
-          }
 
-          const videos = document.querySelectorAll('video');
-          if (!videos || videos.length === 0) return;
-
-          for (let v = 0; v < videos.length; v++) {
-            const video = videos[v];
-            const vRect = video.getBoundingClientRect();
-            if (vRect.width < 80 || vRect.height < 80) continue;
-
-            const playerContainer =
-              (video.closest &&
-                video.closest(
-                  '.video-js, .jwplayer, .plyr, [class*="player"], [id*="player"], [class*="vjs-"], [class*="jw-"]'
-                )) ||
-              video.parentElement;
-            if (!playerContainer) continue;
-
-            const overlays = playerContainer.querySelectorAll('div, span, a');
-            for (let o = 0; o < overlays.length; o++) {
-              const el = overlays[o];
-              if (el === video || el.contains(video)) continue;
-
-              // Never touch legitimate controls, buttons, or overlay containers housing controls
-              const isControl = Boolean(
-                (el.matches &&
-                  el.matches(
-                    '[class*="control"], [class*="progress"], [class*="slider"], [class*="rail"], [class*="timeline"], [class*="seekbar"], [role="slider"], [role="progressbar"], button, input, [aria-label*="play" i], [aria-label*="seek" i]'
-                  )) ||
-                  (el.closest &&
-                    el.closest(
-                      '[class*="control"], [class*="progress"], [class*="slider"], [class*="rail"], [class*="timeline"], [class*="seekbar"], [role="slider"], [role="progressbar"], button, input, .video-player, [data-a-target*="player"]'
-                    )) ||
-                  el.querySelector(
-                    'button, [role="button"], [role="slider"], input, select, textarea, [class*="control"], [class*="progress"], [data-a-target*="button"], [data-a-target*="player"]'
-                  )
-              );
-              if (isControl) continue;
-
-              let style;
-              try {
-                style = window.getComputedStyle(el);
-              } catch {
-                continue;
-              }
-              const pos = style.position;
-              if (pos !== 'absolute' && pos !== 'fixed') continue;
-
-              const zIndex = parseInt(style.zIndex, 10);
-              if (zIndex < 1) continue;
-
-              const oRect = el.getBoundingClientRect();
-              const isCoveringPlayer =
-                oRect.width >= vRect.width * 0.6 && oRect.height >= vRect.height * 0.6;
-
-              if (isCoveringPlayer) {
-                // Must be an actual ad or external link trap; never disable pure UI overlays
-                const hasAdOrLink = el.tagName === 'A' || Boolean(el.querySelector('a[href^="http"], a[target="_blank"]'));
-                if (hasAdOrLink) {
-                  const containsControls = Boolean(
-                    el.querySelector('video, audio, button, [role="button"], [role="slider"], [class*="control"]')
-                  );
-                  if (!containsControls) {
-                    el.style.setProperty('pointer-events', 'none', 'important');
-                  }
-                  if (el.tagName === 'A') {
-                    el.removeAttribute('href');
-                    el.removeAttribute('target');
-                  }
-                  const innerLinks = el.querySelectorAll('a[href]');
-                  for (let l = 0; l < innerLinks.length; l++) {
-                    innerLinks[l].removeAttribute('href');
-                    innerLinks[l].removeAttribute('target');
-                  }
-                }
-              }
-            }
-          }
-        } catch {}
-      }
 
       function neutralizeAntiAdblockModals() {
         try {
@@ -480,7 +304,6 @@
             return;
           }
 
-          defuseVideoPlayerClickTraps();
           neutralizeAntiAdblockModals();
           const candidates = document.querySelectorAll(
             'div, section, aside, span, a, [id*="overlay"], [class*="overlay"], [id*="banner"], [class*="banner"], [id*="reklam"], [class*="reklam"]'
