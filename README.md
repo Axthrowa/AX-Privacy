@@ -139,39 +139,20 @@ cd AX-Privacy
 # Bağımlılıkları yükleyin
 npm install
 
-# Tüm test paketini çalıştırın (DNR doğrulama + Punycode + Twitch GQL + YouTube pruner + Filtre güncelleyici)
-npm test
+# Filtre listelerini indirip DNR kural setlerini derleyin (--offline: filters-cache/ kullanır)
+npm run filters
 
-# EasyList ve OISD filtrelerini sıfırdan derleyin (25.000 limitli öncelikli model)
-npm run build:rules
+# Eklentiyi dist/chrome ve dist/firefox klasörlerine derleyin
+npm run build
 
-# Statik DNR kurallarının geçerliliğini test edin
-npm run validate:rules
+# Tip denetimi + lint + biçim + vitest
+npm run check
 
-# Punycode Türkçe homograph tehdit motorunu test edin
-npm run test:punycode
-
-# Twitch GraphQL şema ve değişken geçerliliğini test edin
-npm run test:twitch-gql
-
-# YouTube JSON pruner temizleyicisini test edin
-npm run test:youtube-pruner
-
-# Çoklu format ve filtre güncelleyicisini test edin
-npm run test:filter-updater
-
-# Kozmetik kural derleyicisini ve Türkçe kuralları test edin
-npm run test:cosmetic-compiler
-
-# Pop-up, anti-vignette ve pop-under kalkanını test edin
-npm run test:popup-vignette
-
-# Evrensel reklam puanlama motorunu test edin
-npm run test:universal-ad-scorer
-
-# AX-Brain yerel öğrenme motorunu test edin
-npm run test:ax-brain
+# Chrome ve Firefox zip paketleri
+npm run pack
 ```
+
+> v4 JavaScript hattı `legacy/` klasöründe arşivlidir; derlenmez ve test edilmez.
 
 ---
 

@@ -2,16 +2,16 @@
   {
     "id": "easylist",
     "version": "202611171551",
-    "builtAt": "2026-11-17T16:06:48.914Z",
-    "lines": 77536,
+    "builtAt": "2026-11-23T09:49:24.388Z",
+    "lines": 77532,
     "includes": [],
-    "engineBytes": 1106289,
+    "engineBytes": 1105849,
     "stats": {
-      "networkFilters": 52317,
-      "converted": 52301,
-      "dnrRules": 3781,
-      "popupRules": 2969,
-      "cosmetic": 24941,
+      "networkFilters": 52314,
+      "converted": 52298,
+      "dnrRules": 3779,
+      "popupRules": 2968,
+      "cosmetic": 24940,
       "badfiltered": 0,
       "unsupported": {
         "popup": 8,
@@ -23,7 +23,7 @@
   {
     "id": "easyprivacy",
     "version": "202611171551",
-    "builtAt": "2026-11-17T16:06:49.634Z",
+    "builtAt": "2026-11-23T09:49:24.611Z",
     "lines": 57456,
     "includes": [],
     "engineBytes": 737,
@@ -46,8 +46,8 @@
   {
     "id": "ublock",
     "version": "Mon, 09 Nov 2026 13:40:40 +0000",
-    "builtAt": "2026-11-17T16:06:51.763Z",
-    "lines": 34237,
+    "builtAt": "2026-11-23T09:49:24.903Z",
+    "lines": 34227,
     "includes": [
       "filters-general.txt",
       "filters-2020.txt",
@@ -60,13 +60,13 @@
       "ubo-link-shorteners.txt",
       "filters-mobile.txt"
     ],
-    "engineBytes": 505557,
+    "engineBytes": 505097,
     "stats": {
       "networkFilters": 5670,
       "converted": 5123,
       "dnrRules": 4233,
       "popupRules": 91,
-      "cosmetic": 17905,
+      "cosmetic": 17895,
       "badfiltered": 1,
       "unsupported": {
         "replace": 11,
@@ -95,7 +95,7 @@
   {
     "id": "ublock-unbreak",
     "version": "Mon, 16 Nov 2026 03:25:26 +0000",
-    "builtAt": "2026-11-17T16:06:51.931Z",
+    "builtAt": "2026-11-23T09:49:24.935Z",
     "lines": 4445,
     "includes": [],
     "engineBytes": 18753,
@@ -123,7 +123,7 @@
   {
     "id": "ublock-quick-fixes",
     "version": "Tue, 17 Nov 2026 02:41:18 +0000",
-    "builtAt": "2026-11-17T16:06:52.056Z",
+    "builtAt": "2026-11-23T09:49:24.943Z",
     "lines": 548,
     "includes": [],
     "engineBytes": 9673,
@@ -148,7 +148,7 @@
   {
     "id": "brave-unbreak",
     "version": null,
-    "builtAt": "2026-11-17T16:06:52.195Z",
+    "builtAt": "2026-11-23T09:49:24.955Z",
     "lines": 1526,
     "includes": [],
     "engineBytes": 10889,
@@ -169,7 +169,7 @@
   {
     "id": "ublock-privacy",
     "version": "Mon, 16 Nov 2026 05:04:35 +0000",
-    "builtAt": "2026-11-17T16:06:52.455Z",
+    "builtAt": "2026-11-23T09:49:24.974Z",
     "lines": 3000,
     "includes": [
       "resource-abuse.txt"
@@ -201,7 +201,7 @@
   {
     "id": "pgl",
     "version": null,
-    "builtAt": "2026-11-17T16:06:54.948Z",
+    "builtAt": "2026-11-23T09:49:24.986Z",
     "lines": 3566,
     "includes": [],
     "engineBytes": 325,
@@ -218,7 +218,7 @@
   {
     "id": "adguard-tr",
     "version": "2.0.69.97",
-    "builtAt": "2026-11-17T16:06:55.499Z",
+    "builtAt": "2026-11-23T09:49:25.054Z",
     "lines": 8051,
     "includes": [],
     "engineBytes": 381893,
@@ -242,7 +242,7 @@
   {
     "id": "adguard-urltracking",
     "version": "2.0.14.85",
-    "builtAt": "2026-11-17T16:06:55.730Z",
+    "builtAt": "2026-11-23T09:49:25.091Z",
     "lines": 4087,
     "includes": [],
     "engineBytes": 417,
@@ -265,7 +265,7 @@
   {
     "id": "easylist-cookie",
     "version": "2026-11-16 23:00 UTC",
-    "builtAt": "2026-11-17T16:06:56.594Z",
+    "builtAt": "2026-11-23T09:49:25.257Z",
     "lines": 29288,
     "includes": [
       "easylist_cookie_specific_uBO.txt"
@@ -284,16 +284,16 @@
   {
     "id": "adguard-popups",
     "version": "2.0.87.98",
-    "builtAt": "2026-11-17T16:06:57.126Z",
-    "lines": 23890,
+    "builtAt": "2026-11-23T09:49:25.453Z",
+    "lines": 23887,
     "includes": [],
-    "engineBytes": 1254201,
+    "engineBytes": 1254117,
     "stats": {
       "networkFilters": 2206,
       "converted": 2196,
       "dnrRules": 1775,
       "popupRules": 1,
-      "cosmetic": 20455,
+      "cosmetic": 20452,
       "badfiltered": 0,
       "unsupported": {
         "redirect-rule": 1,
@@ -305,7 +305,7 @@
   {
     "id": "ublock-badware",
     "version": "Mon, 16 Nov 2026 05:36:08 +0000",
-    "builtAt": "2026-11-17T16:06:57.300Z",
+    "builtAt": "2026-11-23T09:49:25.492Z",
     "lines": 6485,
     "includes": [],
     "engineBytes": 19009,
@@ -331,7 +331,7 @@
   {
     "id": "urlhaus",
     "version": "2026-11-17T12:10:13Z",
-    "builtAt": "2026-11-17T16:06:57.823Z",
+    "builtAt": "2026-11-23T09:49:25.502Z",
     "lines": 1811,
     "includes": [],
     "engineBytes": 325,

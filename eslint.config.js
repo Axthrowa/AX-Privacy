@@ -13,12 +13,8 @@ export default tseslint.config(
       'public/surrogates/**',
       'public/scriptlets/**',
       'public/content/generic-tokens.js',
-      // Legacy v4 JS line, kept until its features are ported to src/ and archived
-      '*.js',
-      '!eslint.config.js',
-      'scripts/*.js',
-      'popup/**',
-      'rules/**',
+      // Archived v4 JS line, not built or linted
+      'legacy/**',
     ],
   },
   js.configs.recommended,

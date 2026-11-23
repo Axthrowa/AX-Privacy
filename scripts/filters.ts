@@ -28,6 +28,7 @@ import { safeCosmeticLines } from '../src/filters/custom.ts';
 import type { BuiltinListMeta } from '../src/filters/meta.ts';
 import { includesOf, preprocess } from '../src/filters/preprocess.ts';
 import { listText } from '../src/filters/updates.ts';
+import { dropExcluded } from './excluded.ts';
 import { rejectedRegexes, type RegexQuery } from './regex-check.ts';
 
 const run = promisify(execFile);
@@ -42,7 +43,7 @@ const cacheName = (url: string) => url.replace(/^https:\/\//, '').replace(/[^\w.
 
 async function fetchText(url: string): Promise<string> {
   const file = resolve(cacheDir, cacheName(url));
-  if (offline) return readFile(file, 'utf8');
+  if (offline) return dropExcluded(await readFile(file, 'utf8'));
   for (let attempt = 1; ; attempt++) {
     try {
       // Node 24's fetch dies on an internal assertion on some of these hosts, beyond any catch.
@@ -50,7 +51,7 @@ async function fetchText(url: string): Promise<string> {
         maxBuffer: 64 * 1024 * 1024,
       });
       await writeFile(file, stdout);
-      return stdout;
+      return dropExcluded(stdout);
     } catch (e) {
       if (attempt === 3) throw e;
       await new Promise((r) => setTimeout(r, 1000 * attempt));

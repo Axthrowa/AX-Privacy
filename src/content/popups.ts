@@ -6,6 +6,7 @@ import {
   shouldBlockOpen,
 } from '../engines/popup/click.ts';
 import { decoy } from '../engines/popup/decoy.ts';
+import { allowsNotificationPrompt, isAdServiceWorker, rateLimiter } from '../engines/popup/push.ts';
 
 // uBO Lite's prevent-window-open (scriptlets.js) blocks window.open and answers with a decoy
 // iframe, because popunder scripts copy open from a fresh iframe's contentWindow. Replacing only
@@ -173,4 +174,37 @@ function arm(e: MouseEvent): void {
 
 for (const type of ['pointerdown', 'mousedown', 'click'] as const) {
   addEventListener(type, arm, true);
+}
+
+// Push-ad traps ask for notification permission on load ("click Allow to continue").
+if (typeof Notification === 'function') {
+  const native = Notification.requestPermission.bind(Notification);
+  const hooked = (callback?: NotificationPermissionCallback) => {
+    // Browsers without userActivation keep the native behavior.
+    if (allowsNotificationPrompt(location.hostname, navigator.userActivation?.isActive ?? true)) {
+      return native(callback);
+    }
+    callback?.('denied');
+    return Promise.resolve<NotificationPermission>('denied');
+  };
+  hooked.toString = () => native.toString();
+  Notification.requestPermission = hooked;
+}
+
+const sw = navigator.serviceWorker as ServiceWorkerContainer | undefined;
+if (sw) {
+  const native = sw.register.bind(sw);
+  sw.register = (url: string | URL, options?: RegistrationOptions) =>
+    isAdServiceWorker(String(url))
+      ? Promise.reject(new DOMException('Blocked by AX Privacy', 'SecurityError'))
+      : native(url, options);
+}
+
+// Browser lockers flood history so Back never leaves the page.
+{
+  const native = history.pushState;
+  const allowed = rateLimiter();
+  history.pushState = function (this: History, ...args: Parameters<History['pushState']>) {
+    if (allowed()) native.apply(this, args);
+  };
 }

@@ -6,18 +6,6 @@
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "build:rules": "node scripts/build-rules.js",
-    "build:firefox": "node scripts/build-firefox.js",
-    "build:dist": "node scripts/build-firefox.js",
-    "validate:rules": "node scripts/validate-rules.js",
-    "test:punycode": "node scripts/test-punycode.js",
-    "test:twitch-gql": "node scripts/test-twitch-gql.js",
-    "test:youtube-pruner": "node scripts/test-youtube-pruner.js",
-    "test:filter-updater": "node scripts/test-filter-updater.js",
-    "test:cosmetic-compiler": "node scripts/test-cosmetic-compiler.js",
-    "test:popup-vignette": "node scripts/test-popup-vignette.js",
-    "test:universal-ad-scorer": "node scripts/test-universal-ad-scorer.js",
-    "test:ax-brain": "node scripts/test-ax-brain.js",
     "test": "vitest run",
     "build": "node scripts/build.ts",
     "pack": "node scripts/pack.ts",
@@ -26,10 +14,11 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:legacy": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater && npm run test:cosmetic-compiler && npm run test:popup-vignette && npm run test:universal-ad-scorer && npm run test:ax-brain",
     "e2e": "playwright test --project brave",
     "e2e:chromium": "playwright test --project chromium",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run test:legacy"
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "release": "npm run filters && npm run build && npm run check && npm run pack",
+    "filters:offline": "node scripts/filters.ts --offline"
   },
   "dependencies": {
     "@duckduckgo/autoconsent": "^17.2.0",
