@@ -62,6 +62,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
     sponsorChannels: [],
   },
   theme: 'dark',
+  shields: { cosmetic: true, popups: true },
   siteProfiles: {},
 };
 
@@ -182,6 +183,10 @@ export function normalizeSettings(raw: unknown): Settings {
     privacy: normalizePrivacy(r.privacy),
     video: normalizeVideo(r.video),
     theme: r.theme === 'light' || r.theme === 'dark' ? r.theme : d.theme,
+    shields: {
+      cosmetic: bool(record(r.shields).cosmetic, d.shields.cosmetic),
+      popups: bool(record(r.shields).popups, d.shields.popups),
+    },
     siteProfiles: normalizeProfiles(r.siteProfiles),
   };
 }

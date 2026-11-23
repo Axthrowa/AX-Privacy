@@ -72,6 +72,7 @@ export interface RouterDeps {
     features: number[] | null,
   ): Promise<void>;
   brainPause(tabId: number): Promise<void>;
+  brainReset(): Promise<void>;
   cosmeticStart(s: Settings, ctx: SenderContext): Promise<ExtendedRule[]>;
   cosmeticDom(s: Settings, ctx: SenderContext, features: DomFeatures): Promise<ExtendedRule[]>;
   noteUserOpen(tabId: number, url: string): void;
@@ -409,6 +410,11 @@ export function createRouter(deps: RouterDeps) {
       case 'brain/pause':
         await deps.brainPause(msg.tabId);
         return null;
+      case 'brain/reset':
+        await deps.brainReset();
+        return null;
+      case 'shields/set':
+        return update((s) => ({ ...s, shields: { ...s.shields, ...msg.shields } }), 'control');
       case 'embed/status':
       case 'embed/load': {
         const s = await deps.load();

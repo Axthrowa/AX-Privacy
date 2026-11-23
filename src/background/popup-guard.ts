@@ -64,7 +64,7 @@ async function check(
   }
   if (!/^https?:/.test(url)) return;
   const s = await load();
-  if (!moduleOn(s, siteKey(p.openerUrl), 'network')) return;
+  if (!s.shields.popups || !moduleOn(s, siteKey(p.openerUrl), 'network')) return;
   if (!(await popupMatcher(s))(url, p.openerUrl) && !isPopunderUrl(url)) return;
   if (await p.byUser) return;
   pending.delete(tabId);
@@ -135,7 +135,7 @@ function installRedirectGuard(
       if (!prev || !isPageRedirect(d) || siteKey(prev) === siteKey(d.url)) return;
       void (async () => {
         const s = await load();
-        if (!moduleOn(s, siteKey(prev), 'network')) return;
+        if (!s.shields.popups || !moduleOn(s, siteKey(prev), 'network')) return;
         if (!(await popupMatcher(s))(d.url, prev) && !isPopunderUrl(d.url)) return;
         lastPage.set(d.tabId, prev);
         await chrome.tabs.update(d.tabId, { url: prev }).catch(() => undefined);

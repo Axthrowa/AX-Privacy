@@ -99,6 +99,7 @@ describe('normalizeSettings', () => {
       privacy: DEFAULT_SETTINGS.privacy,
       video: DEFAULT_SETTINGS.video,
       theme: 'dark',
+      shields: { cosmetic: true, popups: true },
       siteProfiles: {},
     });
   });

@@ -8,6 +8,7 @@ import type {
   SegmentPlan,
   Settings,
   SettingsExport,
+  ShieldSettings,
   SiteProfile,
   StatsView,
   TabReport,
@@ -94,6 +95,9 @@ export interface Api {
   'brain/hidden': { req: { reasons: string[]; features: number[] }; res: null };
   /** From the popup: something broke; AX-Brain unlearns this page and rests on the site. */
   'brain/pause': { req: { tabId: number }; res: null };
+  /** Forget what AX-Brain learned (UI only). */
+  'brain/reset': { req: NoPayload; res: null };
+  'shields/set': { req: { shields: Partial<ShieldSettings> }; res: Settings };
 }
 
 /** The autoconsent reports the background records; the content script handles the rest itself. */
@@ -267,7 +271,18 @@ export function parseMessage(raw: unknown): Message | null {
     case 'embed/status':
     case 'embed/load':
     case 'brain/model':
+    case 'brain/reset':
       return { type: m.type };
+    case 'shields/set': {
+      if (typeof m.shields !== 'object' || m.shields === null) return null;
+      const raw = m.shields as Record<string, unknown>;
+      const shields: Partial<ShieldSettings> = {};
+      for (const [key, value] of Object.entries(raw)) {
+        if ((key !== 'cosmetic' && key !== 'popups') || typeof value !== 'boolean') return null;
+        shields[key] = value;
+      }
+      return { type: m.type, shields };
+    }
     case 'popup/state':
       return typeof m.url === 'string' ? { type: m.type, url: m.url } : null;
     case 'global/set':

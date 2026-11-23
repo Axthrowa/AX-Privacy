@@ -31,7 +31,14 @@ import { embedsLoaded, loadEmbeds } from './embeds.ts';
 import { installSecurityGuard, proceed, wasProceeded } from './security.ts';
 import { syncSiteDataCleanup } from './site-data.ts';
 import { sponsorSegments } from './sponsor.ts';
-import { brainPausedUntil, loadBrain, pauseBrain, trainBrain, trainBrainAll } from './brain.ts';
+import {
+  BRAIN_KEY,
+  brainPausedUntil,
+  loadBrain,
+  pauseBrain,
+  trainBrain,
+  trainBrainAll,
+} from './brain.ts';
 import { setTabReports, sessionStore, TabReports } from './tab-report.ts';
 
 const stats = new StatsRecorder();
@@ -173,6 +180,7 @@ const route = createRouter({
   brainPausedUntil,
   brainHidden: (tabId, url, reasons, features) =>
     reports.brainHidden(tabId, url, reasons, features),
+  brainReset: () => chrome.storage.local.remove(BRAIN_KEY),
   brainPause: async (tabId) => {
     const tab = await chrome.tabs.get(tabId);
     const site = siteKey(tab.url);

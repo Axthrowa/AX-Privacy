@@ -126,6 +126,14 @@ export interface SegmentPlan {
   channels: string[];
 }
 
+/** Global switches for the in-page shields, as in the v4 popup. */
+export interface ShieldSettings {
+  /** Cosmetic filters and the AX-Brain scanner: hide ad slots on pages. */
+  cosmetic: boolean;
+  /** Pop-up, pop-under, same-tab redirect, push prompt and leave-prompt guards. */
+  popups: boolean;
+}
+
 export interface Settings {
   version: 3;
   /** Sites paused for a while, to the time the pause ends. Paused sites without one stay paused. */
@@ -147,6 +155,7 @@ export interface Settings {
   privacy: PrivacySettings;
   video: VideoSettings;
   theme: Theme;
+  shields: ShieldSettings;
   /** Per-site module switches. Missing site = all on. Paused sites override this. */
   siteProfiles: Record<string, SiteProfile>;
 }

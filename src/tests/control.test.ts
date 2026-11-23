@@ -150,6 +150,15 @@ describe('controlRules', () => {
 });
 
 describe('contentScripts', () => {
+  it('drops the cosmetic and pop-up shields when their global switch is off', () => {
+    const ids = contentScripts({ ...on, shields: { cosmetic: false, popups: false } }).map(
+      (s) => s.id,
+    );
+    expect(ids).not.toContain('cosmetic');
+    expect(ids).not.toContain('brain-scan');
+    expect(ids).not.toContain('popups');
+    expect(ids).toContain('scriptlets');
+  });
   it('registers nothing when globally off', () => {
     expect(contentScripts({ ...on, enabled: false })).toEqual([]);
   });

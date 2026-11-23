@@ -43,6 +43,15 @@ describe('parseMessage', () => {
     }
     expect(parseMessage({ type: 'brain/hidden', reasons: [], features: [1] })).toBeNull();
   });
+  it('accepts only known boolean shield switches', () => {
+    expect(parseMessage({ type: 'shields/set', shields: { popups: false } })).toEqual({
+      type: 'shields/set',
+      shields: { popups: false },
+    });
+    expect(parseMessage({ type: 'shields/set', shields: { popups: 'no' } })).toBeNull();
+    expect(parseMessage({ type: 'shields/set', shields: { evil: true } })).toBeNull();
+    expect(parseMessage({ type: 'shields/set' })).toBeNull();
+  });
   it('rejects unknown types and wrong field types', () => {
     expect(parseMessage(null)).toBeNull();
     expect(parseMessage('global/set')).toBeNull();

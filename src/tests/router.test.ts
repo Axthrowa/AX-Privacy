@@ -21,6 +21,7 @@ function setup(initial: Partial<Settings> = {}) {
     brainPausedUntil: vi.fn<(site: string) => Promise<number | null>>(async () => null),
     brainHidden: vi.fn(async () => undefined),
     brainPause: vi.fn<(tabId: number) => Promise<void>>(async () => undefined),
+    brainReset: vi.fn(async () => undefined),
     load: vi.fn(async () => structuredClone(stored)),
     save: vi.fn(async (s: Settings) => {
       stored = structuredClone(s);

@@ -493,7 +493,11 @@ export function contentScripts(
   const genericCustom = /^(?:~[^#\n]*)?##/m.test(s.customRules);
   const onlyBuiltin = !genericCustom && !s.userLists.some((l) => l.enabled);
   if (onlyBuiltin) cosmetic.js = [GENERIC_TOKENS_JS, CONTENT_SCRIPT_FILES.cosmetic];
-  const scripts = [cosmetic, script('brain-scan'), script('popups', 'MAIN'), scriptlets];
+  const scripts = [
+    ...(s.shields.cosmetic ? [cosmetic, script('brain-scan')] : []),
+    ...(s.shields.popups ? [script('popups', 'MAIN')] : []),
+    scriptlets,
+  ];
   if (s.privacy.gpc) scripts.push(script('gpc', 'MAIN', undefined, 'privacy'));
   if (s.privacy.hideLocale) scripts.push(script('locale', 'MAIN', undefined, 'privacy'));
   if (s.privacy.cleanLinks) {
