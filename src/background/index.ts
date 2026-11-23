@@ -31,7 +31,7 @@ import { embedsLoaded, loadEmbeds } from './embeds.ts';
 import { installSecurityGuard, proceed, wasProceeded } from './security.ts';
 import { syncSiteDataCleanup } from './site-data.ts';
 import { sponsorSegments } from './sponsor.ts';
-import { loadBrain, trainBrain } from './brain.ts';
+import { brainPausedUntil, loadBrain, pauseBrain, trainBrain, trainBrainAll } from './brain.ts';
 import { setTabReports, sessionStore, TabReports } from './tab-report.ts';
 
 const stats = new StatsRecorder();
@@ -170,6 +170,19 @@ const route = createRouter({
   },
   trainBrain,
   brainModel: loadBrain,
+  brainPausedUntil,
+  brainHidden: (tabId, url, reasons, features) =>
+    reports.brainHidden(tabId, url, reasons, features),
+  brainPause: async (tabId) => {
+    const tab = await chrome.tabs.get(tabId);
+    const site = siteKey(tab.url);
+    if (!site) return;
+    await pauseBrain(site);
+    // What the scanner hid here was wrong: the model learns that, then the page comes back whole.
+    const features = await reports.takeBrainFeatures(tabId);
+    if (!tab.incognito && features.length) await trainBrainAll(features, 0);
+    await chrome.tabs.reload(tabId);
+  },
   takePicker: async (tabId) => {
     const session = (await chrome.storage.session.get(PICKER_KEY))[PICKER_KEY] as
       { tabId: number; until: number } | undefined;
@@ -200,7 +213,15 @@ const route = createRouter({
     const url = report.url ?? current ?? null;
     const page = { ...report, url, site: report.site ?? siteKey(url ?? undefined) };
     const bypassed = await wasProceeded(page.url);
-    return { ...page, risk: assessRisk(page.url, { insecurePassword, bypassed }) };
+    const pausedUntil = page.site ? await brainPausedUntil(page.site) : null;
+    return {
+      ...page,
+      brain:
+        report.brain || pausedUntil
+          ? { count: 0, reasons: {}, ...report.brain, pausedUntil }
+          : null,
+      risk: assessRisk(page.url, { insecurePassword, bypassed }),
+    };
   },
   consent: (msg, ctx) => handleConsent(msg, ctx, recordConsent),
   proceed,

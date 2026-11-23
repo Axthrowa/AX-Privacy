@@ -9,12 +9,38 @@ export async function loadBrain(): Promise<BrainModel> {
 
 let queue: Promise<unknown> = Promise.resolve();
 
-/** Serialized so two quick picks cannot overwrite each other's update. */
-export function trainBrain(features: number[]): Promise<void> {
+/** Serialized so two quick updates cannot overwrite each other. Label 1: an ad, 0: not one. */
+export function trainBrain(features: number[], label: 0 | 1 = 1): Promise<void> {
+  return trainBrainAll([features], label);
+}
+
+export function trainBrainAll(vectors: number[][], label: 0 | 1): Promise<void> {
   const run = queue.then(async () => {
-    const model = train(features, 1, await loadBrain());
+    let model = await loadBrain();
+    for (const f of vectors) model = train(f, label, model);
     await chrome.storage.local.set({ [BRAIN_KEY]: model });
   });
   queue = run.catch(() => undefined);
   return run;
+}
+
+const PAUSED_KEY = 'axBrainPaused';
+/** How long AX-Brain rests on a site after the user said it broke something. */
+export const BRAIN_PAUSE_MS = 7 * 24 * 60 * 60_000;
+
+async function pausedSites(): Promise<Record<string, number>> {
+  const raw = (await chrome.storage.local.get(PAUSED_KEY))[PAUSED_KEY];
+  return raw && typeof raw === 'object' ? (raw as Record<string, number>) : {};
+}
+
+export async function brainPausedUntil(site: string): Promise<number | null> {
+  const until = (await pausedSites())[site];
+  return typeof until === 'number' && until > Date.now() ? until : null;
+}
+
+export async function pauseBrain(site: string): Promise<void> {
+  const now = Date.now();
+  // Expired entries are dropped here, so the map never grows past the sites paused this week.
+  const kept = Object.fromEntries(Object.entries(await pausedSites()).filter(([, t]) => t > now));
+  await chrome.storage.local.set({ [PAUSED_KEY]: { ...kept, [site]: now + BRAIN_PAUSE_MS } });
 }

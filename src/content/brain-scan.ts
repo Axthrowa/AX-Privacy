@@ -1,4 +1,4 @@
-import type { BrainModel } from '../engines/brain/brain.ts';
+import { extractFeatures, type BrainModel } from '../engines/brain/brain.ts';
 import {
   CANDIDATE_SELECTOR,
   isSafePlatform,
@@ -23,6 +23,9 @@ const seen = new WeakMap<Element, string>();
 const hidden = new WeakSet<Element>();
 const lateInjected = new WeakSet<Element>();
 let model: BrainModel | null = null;
+/** Messages per frame; later hides still happen, they are just not reported. */
+const MAX_REPORTS = 30;
+let reported = 0;
 let lastUserAction = -Infinity;
 
 const signature = (el: Element) =>
@@ -55,12 +58,17 @@ function evaluate(el: Element): void {
   if (seen.get(el) === sig) return;
   seen.set(el, sig);
   try {
-    const res = scoreElement(el, {
-      currentHost: host,
-      model,
-      isLateInjected: lateInjected.has(el),
-    });
-    if (res.shouldHide) hide(el);
+    const ctx = { currentHost: host, model, isLateInjected: lateInjected.has(el) };
+    const res = scoreElement(el, ctx);
+    if (!res.shouldHide) return;
+    hide(el);
+    // Shown in the popup, and unlearned if the user says the page broke.
+    if (++reported <= MAX_REPORTS) {
+      void send('brain/hidden', {
+        reasons: res.reasons,
+        features: extractFeatures(el, ctx),
+      }).catch(() => undefined);
+    }
   } catch {
     // A node detached mid-scan; nothing to hide.
   }

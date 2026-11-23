@@ -31,6 +31,18 @@ describe('parseMessage', () => {
       expect(parseMessage({ type: 'picker/add', selector: '.ad', features: bad })).toBeNull();
     }
   });
+  it('accepts brain/hidden reports only with known-shaped reasons and a valid vector', () => {
+    const features = new Array<number>(12).fill(0);
+    expect(parseMessage({ type: 'brain/hidden', reasons: ['iab-dimension'], features })).toEqual({
+      type: 'brain/hidden',
+      reasons: ['iab-dimension'],
+      features,
+    });
+    for (const reasons of [['<img>'], 'x', new Array(13).fill('a'), [1]]) {
+      expect(parseMessage({ type: 'brain/hidden', reasons, features })).toBeNull();
+    }
+    expect(parseMessage({ type: 'brain/hidden', reasons: [], features: [1] })).toBeNull();
+  });
   it('rejects unknown types and wrong field types', () => {
     expect(parseMessage(null)).toBeNull();
     expect(parseMessage('global/set')).toBeNull();

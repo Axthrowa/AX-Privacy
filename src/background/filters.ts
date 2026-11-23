@@ -1,4 +1,5 @@
 import { L } from '../shared/i18n.ts';
+import { syncRulesets } from '../engines/adblock/rulesets.ts';
 import { FiltersEngine } from '@ghostery/adblocker';
 import { COSMETIC_ENGINE_CONFIG } from '../engines/adblock/engine-config.ts';
 import { compileList, type CompiledRule } from '../engines/adblock/network.ts';
@@ -103,17 +104,11 @@ async function userFetchTimes(s: Settings): Promise<(number | null)[]> {
  */
 export async function applyFilters(s: Settings): Promise<void> {
   const enabled = new Set(s.enabledLists);
-  const current = new Set(await chrome.declarativeNetRequest.getEnabledRulesets());
-  const enableRulesetIds = BUILTIN_LISTS.map((l) => l.id).filter(
-    (id) => enabled.has(id) && !current.has(id),
+  // Catalog order is priority order: when the shared pool is short, the last lists stay off.
+  await syncRulesets(
+    chrome.declarativeNetRequest,
+    BUILTIN_LISTS.map((l) => l.id).filter((id) => enabled.has(id)),
   );
-  const disableRulesetIds = [...current].filter((id) => !enabled.has(id));
-  if (enableRulesetIds.length || disableRulesetIds.length) {
-    await chrome.declarativeNetRequest.updateEnabledRulesets({
-      enableRulesetIds,
-      disableRulesetIds,
-    });
-  }
 
   const updates = (
     await Promise.all(BUILTIN_LISTS.filter((l) => enabled.has(l.id)).map((l) => liveUpdate(l.id)))
@@ -379,6 +374,7 @@ export async function listsView(s: Settings): Promise<ListsView> {
   const d = await db();
   const dynamic = await chrome.declarativeNetRequest.getDynamicRules();
   const reports = await lastReports();
+  const active = new Set(await chrome.declarativeNetRequest.getEnabledRulesets());
   return {
     builtin: BUILTIN_LISTS.map((l) => ({
       id: l.id,
@@ -388,6 +384,7 @@ export async function listsView(s: Settings): Promise<ListsView> {
       homepage: l.homepage,
       license: l.license,
       enabled: s.enabledLists.includes(l.id),
+      active: active.has(l.id),
       version: meta.get(l.id)?.version ?? null,
       builtAt: meta.get(l.id)?.builtAt ?? null,
       stats: meta.get(l.id)?.stats ?? null,

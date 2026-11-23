@@ -18,6 +18,9 @@ function setup(initial: Partial<Settings> = {}) {
     takePicker: vi.fn<(tabId: number) => Promise<boolean>>(async () => false),
     trainBrain: vi.fn<(features: number[]) => Promise<void>>(async () => undefined),
     brainModel: vi.fn(async () => createDefaultModel()),
+    brainPausedUntil: vi.fn<(site: string) => Promise<number | null>>(async () => null),
+    brainHidden: vi.fn(async () => undefined),
+    brainPause: vi.fn<(tabId: number) => Promise<void>>(async () => undefined),
     load: vi.fn(async () => structuredClone(stored)),
     save: vi.fn(async (s: Settings) => {
       stored = structuredClone(s);
@@ -38,6 +41,7 @@ function setup(initial: Partial<Settings> = {}) {
       url: null,
       hosts: [],
       consent: null,
+      brain: null,
       risk: { level: 'none' as const, findings: [] },
     })),
     consent: vi.fn(async () => null),
@@ -203,11 +207,48 @@ describe('router', () => {
   it('serves the AX-Brain model only where protection is on', async () => {
     const { route, deps } = setup();
     const content = { kind: 'content', url: 'https://a.example/' } as SenderContext;
-    expect(await route({ type: 'brain/model' }, content)).toEqual({
-      model: createDefaultModel(),
+    // lastUpdated is a timestamp, so only the learned part is compared.
+    expect(await route({ type: 'brain/model' }, content)).toMatchObject({
+      model: { weights: createDefaultModel().weights, bias: createDefaultModel().bias },
     });
     deps.load.mockResolvedValue({ ...(await deps.load()), pausedSites: ['a.example'] });
     expect(await route({ type: 'brain/model' }, content)).toBeNull();
+  });
+
+  it('rests AX-Brain on a site the user paused, and keeps hide reports private', async () => {
+    const { route, deps } = setup();
+    const content = {
+      kind: 'content',
+      url: 'https://a.example/x',
+      tabUrl: 'https://a.example/x',
+      tabId: 3,
+    } as SenderContext;
+    deps.brainPausedUntil.mockResolvedValue(Date.now() + 1000);
+    expect(await route({ type: 'brain/model' }, content)).toBeNull();
+    expect(deps.brainPausedUntil).toHaveBeenCalledWith('a.example');
+
+    const features = new Array<number>(12).fill(0);
+    await route({ type: 'brain/hidden', reasons: ['iab-dimension'], features }, content);
+    expect(deps.brainHidden).toHaveBeenLastCalledWith(
+      3,
+      'https://a.example/x',
+      ['iab-dimension'],
+      features,
+    );
+    await route(
+      { type: 'brain/hidden', reasons: ['iab-dimension'], features },
+      { ...content, incognito: true },
+    );
+    expect(deps.brainHidden).toHaveBeenLastCalledWith(
+      3,
+      'https://a.example/x',
+      ['iab-dimension'],
+      null,
+    );
+
+    await expect(route({ type: 'brain/pause', tabId: 3 }, content)).rejects.toThrow('not allowed');
+    await route({ type: 'brain/pause', tabId: 3 }, ui);
+    expect(deps.brainPause).toHaveBeenCalledWith(3);
   });
 
   it('trains AX-Brain from a saved pick, never in a private window', async () => {

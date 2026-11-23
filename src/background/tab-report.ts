@@ -1,10 +1,12 @@
-import type { ConsentReport, HostReport, TabReport } from '../shared/types.ts';
+import type { BrainReport, ConsentReport, HostReport, TabReport } from '../shared/types.ts';
 import { siteKey } from '../shared/url.ts';
 
 const BLOCKED = 'net::ERR_BLOCKED_BY_CLIENT';
 const MAX_HOSTS = 500;
 const SAVE_DELAY_MS = 500;
 const key = (tabId: number) => `tab:${tabId}`;
+/** Vectors kept per page for unlearning; more hides than this are counted only. */
+const MAX_BRAIN_FEATURES = 20;
 
 interface Entry {
   site: string | null;
@@ -14,9 +16,14 @@ interface Entry {
   insecurePassword?: boolean;
   /** The page the password field was on: without navigation events, this is what expires it. */
   insecureUrl?: string;
+  /** Like `insecureUrl`, the page URL expires it when navigation events are not watched. */
+  brain?: { url: string; count: number; reasons: Record<string, number>; features: number[][] };
 }
 
-export type PageReport = Omit<TabReport, 'risk'> & { insecurePassword: boolean };
+export type PageReport = Omit<TabReport, 'risk' | 'brain'> & {
+  insecurePassword: boolean;
+  brain: Omit<BrainReport, 'pausedUntil'> | null;
+};
 
 /** Per-tab state, mirrored to session storage so it survives service worker restarts. */
 export class TabReports {
@@ -111,6 +118,29 @@ export class TabReports {
     this.touch(tabId);
   }
 
+  async brainHidden(
+    tabId: number,
+    url: string,
+    reasons: string[],
+    features: number[] | null,
+  ): Promise<void> {
+    const e = await this.entry(tabId);
+    if (e.brain?.url !== url) e.brain = { url, count: 0, reasons: {}, features: [] };
+    e.brain.count++;
+    for (const r of reasons) e.brain.reasons[r] = (e.brain.reasons[r] ?? 0) + 1;
+    if (features && e.brain.features.length < MAX_BRAIN_FEATURES) e.brain.features.push(features);
+    this.touch(tabId);
+  }
+
+  /** The vectors AX-Brain hid on this page, handed over once for unlearning. */
+  async takeBrainFeatures(tabId: number): Promise<number[][]> {
+    const e = await this.entry(tabId);
+    const features = e.brain?.features ?? [];
+    if (e.brain) e.brain.features = [];
+    this.touch(tabId);
+    return features;
+  }
+
   async report(tabId: number, currentUrl?: string): Promise<PageReport> {
     const e = await this.entry(tabId);
     const hosts = Object.values(e.hosts).sort(
@@ -128,6 +158,10 @@ export class TabReports {
       insecurePassword:
         (e.insecurePassword ?? false) &&
         (e.insecureUrl === undefined || e.insecureUrl === currentUrl),
+      brain:
+        e.brain && (currentUrl === undefined || e.brain.url === currentUrl)
+          ? { count: e.brain.count, reasons: e.brain.reasons }
+          : null,
     };
   }
 

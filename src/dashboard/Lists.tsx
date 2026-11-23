@@ -137,6 +137,14 @@ export function Lists({
                     void run(() => send('lists/setEnabled', { id: l.id, enabled: on }))
                   }
                 />
+                {l.enabled && !l.active && (
+                  <p className="error">
+                    {L(
+                      'Tarayıcının ortak kural havuzunda yer kalmadığı için bu liste şu an kapalı. Başka bir listeyi kapatmak ya da başka eklentileri kaldırmak yer açar.',
+                      'This list is off because the browser’s shared rule pool is full. Turning off another list or removing other extensions frees room.',
+                    )}
+                  </p>
+                )}
                 <p className="note">
                   {l.buildOnly &&
                     L(

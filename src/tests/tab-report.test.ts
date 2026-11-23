@@ -26,6 +26,7 @@ describe('TabReports', () => {
       url: 'https://www.news.example/article',
       consent: null,
       insecurePassword: false,
+      brain: null,
       hosts: [
         { host: 'tracker.test', thirdParty: true, loaded: 0, blocked: 2 },
         { host: 'fonts.test', thirdParty: true, loaded: 1, blocked: 0 },
@@ -59,6 +60,7 @@ describe('TabReports', () => {
       hosts: [],
       consent: null,
       insecurePassword: false,
+      brain: null,
     });
     await b.closed(2);
     expect(store.data.size).toBe(0);
@@ -70,5 +72,22 @@ describe('TabReports', () => {
     await r.consent(3, { cmp: 'X', result: true });
     await r.consent(3, { cmp: 'Y', result: false });
     expect((await r.report(3)).consent).toEqual({ cmp: 'X', result: true });
+  });
+  it('counts AX-Brain hides per page, keeps a few vectors and hands them over once', async () => {
+    const r = new TabReports(memoryStore());
+    const url = 'https://news.example/a';
+    const f = new Array<number>(12).fill(0);
+    for (let i = 0; i < 25; i++) await r.brainHidden(4, url, ['iab-dimension', 'ad-identifier'], f);
+    await r.brainHidden(4, url, ['iab-dimension'], null);
+    expect((await r.report(4, url)).brain).toEqual({
+      count: 26,
+      reasons: { 'iab-dimension': 26, 'ad-identifier': 25 },
+    });
+    expect(await r.takeBrainFeatures(4)).toHaveLength(20);
+    expect(await r.takeBrainFeatures(4)).toEqual([]);
+    // Another page in the tab: the old counts no longer describe it.
+    expect((await r.report(4, 'https://news.example/b')).brain).toBeNull();
+    await r.brainHidden(4, 'https://news.example/b', ['ad-identifier'], null);
+    expect((await r.report(4, 'https://news.example/b')).brain?.count).toBe(1);
   });
 });

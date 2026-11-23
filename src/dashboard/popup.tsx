@@ -46,6 +46,63 @@ function Security({ risk }: { risk: TabReport['risk'] }) {
   );
 }
 
+const BRAIN_REASON: Record<string, string> = {
+  'fixed-or-sticky': L('sabit konum', 'fixed position'),
+  'high-z-index': L('üstte duran katman', 'top layer'),
+  'max-z-index': L('en üst katman', 'topmost layer'),
+  'cross-site-or-ad-target': L('başka siteye/reklama bağlantı', 'link to another site or ad'),
+  'iab-dimension': L('standart reklam boyutu', 'standard ad size'),
+  'external-image': L('hareketli görsel', 'animated image'),
+  'pageskin-geometry': L('kenar reklamı', 'side skin ad'),
+  'fake-progress-or-bait': L('sahte yükleme/doğrulama metni', 'fake loading/verify text'),
+  'corner-push-card': L('köşe bildirim kartı', 'corner push card'),
+  'invisible-click-curtain': L('görünmez tıklama perdesi', 'invisible click curtain'),
+  'ad-identifier': L('reklam sınıf adı', 'ad class name'),
+  'ax-brain-model': L('öğrenilmiş model', 'learned model'),
+};
+
+function Brain({
+  brain,
+  onPause,
+}: {
+  brain: NonNullable<TabReport['brain']>;
+  onPause: () => void;
+}) {
+  if (brain.pausedUntil !== null) {
+    return (
+      <p className="note">
+        {L(
+          `AX-Brain bu sitede ${new Date(brain.pausedUntil).toLocaleDateString()} tarihine kadar kapalı.`,
+          `AX-Brain is off on this site until ${new Date(brain.pausedUntil).toLocaleDateString()}.`,
+        )}
+      </p>
+    );
+  }
+  const reasons = Object.entries(brain.reasons)
+    .sort((a, b) => b[1] - a[1])
+    .map(([r, n]) => `${BRAIN_REASON[r] ?? r} (${n})`)
+    .join(', ');
+  return (
+    <details>
+      <summary>
+        {L(
+          `AX-Brain bu sayfada ${brain.count} öğe gizledi`,
+          `AX-Brain hid ${brain.count} elements on this page`,
+        )}
+      </summary>
+      <p className="note">
+        {L('Nedenler', 'Reasons')}: {reasons}
+      </p>
+      <button type="button" className="secondary" onClick={onPause}>
+        {L(
+          'Yanlış gizledi: bu sitede 7 gün kapat ve yenile',
+          'Wrongly hidden: turn off here for 7 days and reload',
+        )}
+      </button>
+    </details>
+  );
+}
+
 function Report({ report, matched }: { report: TabReport; matched: number | null }) {
   const third = report.hosts.filter((h) => h.thirdParty);
   const blocked = report.hosts.filter((h) => h.blocked > 0).length;
@@ -275,6 +332,16 @@ function Popup() {
             ))}
           </ul>
         </details>
+      )}
+      {report?.brain && tab?.id !== undefined && (
+        <Brain
+          brain={report.brain}
+          onPause={() => {
+            void send('brain/pause', { tabId: tab.id as number })
+              .then(() => window.close())
+              .catch((e: unknown) => setError(String(e)));
+          }}
+        />
       )}
       {report && <Report report={report} matched={matched} />}
       {state.isBrave && (

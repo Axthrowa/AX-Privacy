@@ -165,11 +165,21 @@ export interface ConsentReport {
   result: boolean | null;
 }
 
+/** What the AX-Brain ad scanner hid on the current page, and why. */
+export interface BrainReport {
+  count: number;
+  /** Scorer reason -> how many hidden elements had it. */
+  reasons: Record<string, number>;
+  /** Set while the user has AX-Brain switched off on this site. */
+  pausedUntil: number | null;
+}
+
 export interface TabReport {
   site: string | null;
   url: string | null;
   hosts: HostReport[];
   consent: ConsentReport | null;
+  brain: BrainReport | null;
   risk: RiskReport;
 }
 
@@ -200,6 +210,8 @@ export interface BuiltinListView {
   homepage: string;
   license: string;
   enabled: boolean;
+  /** Enabled in the browser; false for an enabled list the shared rule pool had no room for. */
+  active: boolean;
   version: string | null;
   builtAt: string | null;
   stats: ListStats | null;

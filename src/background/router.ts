@@ -63,6 +63,15 @@ export interface RouterDeps {
   /** One AX-Brain training step from an element the user picked as an ad. */
   trainBrain(features: number[]): Promise<void>;
   brainModel(): Promise<BrainModel>;
+  /** Sites where the user switched AX-Brain off for a while; null when it may run. */
+  brainPausedUntil(site: string): Promise<number | null>;
+  brainHidden(
+    tabId: number,
+    url: string,
+    reasons: string[],
+    features: number[] | null,
+  ): Promise<void>;
+  brainPause(tabId: number): Promise<void>;
   cosmeticStart(s: Settings, ctx: SenderContext): Promise<ExtendedRule[]>;
   cosmeticDom(s: Settings, ctx: SenderContext, features: DomFeatures): Promise<ExtendedRule[]>;
   noteUserOpen(tabId: number, url: string): void;
@@ -372,9 +381,24 @@ export function createRouter(deps: RouterDeps) {
         return null;
       case 'brain/model': {
         const s = await deps.load();
-        if (!moduleOn(s, siteKey(ctx.tabUrl ?? ctx.url), 'network')) return null;
+        const site = siteKey(ctx.tabUrl ?? ctx.url);
+        if (!moduleOn(s, site, 'network')) return null;
+        if (site && (await deps.brainPausedUntil(site)) !== null) return null;
         return { model: await deps.brainModel() };
       }
+      case 'brain/hidden':
+        if (ctx.tabId === undefined) return null;
+        // Private windows: counted for the popup, but nothing is kept to learn from.
+        await deps.brainHidden(
+          ctx.tabId,
+          ctx.tabUrl ?? ctx.url,
+          msg.reasons,
+          ctx.incognito ? null : msg.features,
+        );
+        return null;
+      case 'brain/pause':
+        await deps.brainPause(msg.tabId);
+        return null;
       case 'embed/status':
       case 'embed/load': {
         const s = await deps.load();

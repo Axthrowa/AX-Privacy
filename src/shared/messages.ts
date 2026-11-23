@@ -86,6 +86,10 @@ export interface Api {
   'embed/load': { req: NoPayload; res: null };
   /** AX-Brain model for the ad scanner; null when protection is off for the site. */
   'brain/model': { req: NoPayload; res: { model: BrainModel } | null };
+  /** The ad scanner hid an element: why (scorer reasons) and its AX-Brain vector. */
+  'brain/hidden': { req: { reasons: string[]; features: number[] }; res: null };
+  /** From the popup: something broke; AX-Brain unlearns this page and rests on the site. */
+  'brain/pause': { req: { tabId: number }; res: null };
 }
 
 /** The autoconsent reports the background records; the content script handles the rest itself. */
@@ -111,6 +115,7 @@ export const CONTENT_TYPES: ReadonlySet<MessageType> = new Set<MessageType>([
   'embed/status',
   'embed/load',
   'brain/model',
+  'brain/hidden',
 ]);
 
 const FINGERPRINT_LEVELS: readonly FingerprintLevel[] = ['off', 'standard', 'strict'];
@@ -231,6 +236,11 @@ function stringList(v: unknown): string[] | null {
 
 const isUrl = (v: unknown): v is string => typeof v === 'string' && v.length <= 2048;
 
+const isFeatureVector = (f: unknown): f is number[] =>
+  Array.isArray(f) &&
+  f.length === FEATURE_COUNT &&
+  f.every((v) => typeof v === 'number' && v >= 0 && v <= 1);
+
 export function parseMessage(raw: unknown): Message | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const m = raw as Record<string, unknown>;
@@ -277,14 +287,20 @@ export function parseMessage(raw: unknown): Message | null {
       return typeof m.tabId === 'number' ? { type: m.type, tabId: m.tabId } : null;
     case 'picker/add': {
       if (typeof m.selector !== 'string' || m.selector.length > 1024) return null;
-      const f = m.features;
-      if (f === undefined) return { type: m.type, selector: m.selector };
-      return Array.isArray(f) &&
-        f.length === FEATURE_COUNT &&
-        f.every((v) => typeof v === 'number' && v >= 0 && v <= 1)
-        ? { type: m.type, selector: m.selector, features: f as number[] }
+      if (m.features === undefined) return { type: m.type, selector: m.selector };
+      return isFeatureVector(m.features)
+        ? { type: m.type, selector: m.selector, features: m.features }
         : null;
     }
+    case 'brain/hidden':
+      return isFeatureVector(m.features) &&
+        Array.isArray(m.reasons) &&
+        m.reasons.length <= 12 &&
+        m.reasons.every((r) => typeof r === 'string' && /^[a-z-]{1,40}$/.test(r))
+        ? { type: m.type, reasons: m.reasons as string[], features: m.features }
+        : null;
+    case 'brain/pause':
+      return Number.isInteger(m.tabId) ? { type: m.type, tabId: m.tabId as number } : null;
     case 'rules/setCustom':
       return typeof m.text === 'string' && m.text.length <= MAX_CUSTOM_TEXT
         ? { type: m.type, text: m.text }
