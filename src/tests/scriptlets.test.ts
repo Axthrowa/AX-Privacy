@@ -11,6 +11,7 @@ import {
   pruneJson,
   requestMatcher,
   SCRIPTLETS,
+  textReplacer,
 } from '../engines/adblock/scriptlet-impl.ts';
 
 const tableOf = (...lines: string[]) => compileScriptlets(lines).table;
@@ -154,5 +155,66 @@ describe('property traps', () => {
     expect(doc.head).toBe(head);
     expect(() => (doc.head as typeof head).appendChild).toThrow(ReferenceError);
     expect((doc.head as typeof head).title).toBe('t');
+  });
+});
+
+describe('set-cookie-reload', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function page(initial: string[] = [], accepts = true) {
+    const jar = new Map(initial.map((c) => c.split('=') as [string, string]));
+    const reload = vi.fn();
+    vi.stubGlobal('location', { reload });
+    vi.stubGlobal('document', {
+      get cookie() {
+        return [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
+      },
+      set cookie(text: string) {
+        if (!accepts) return;
+        const [pair] = text.split(';');
+        const [k, v] = (pair as string).split('=');
+        jar.set(k as string, v as string);
+      },
+    });
+    return { jar, reload };
+  }
+
+  it('reloads once after setting a cookie that was missing', () => {
+    const { jar, reload } = page();
+    SCRIPTLETS['set-cookie-reload']?.('consent', 'true');
+    expect(jar.get('consent')).toBe('true');
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('never reloads when the cookie is already there or refused, so it cannot loop', () => {
+    const set = page(['consent=true']);
+    SCRIPTLETS['set-cookie-reload']?.('consent', 'true');
+    expect(set.reload).not.toHaveBeenCalled();
+    const refused = page([], false);
+    SCRIPTLETS['set-cookie-reload']?.('consent', 'true');
+    expect(refused.reload).not.toHaveBeenCalled();
+    const code = page();
+    SCRIPTLETS['set-cookie-reload']?.('consent', 'alert(1)');
+    expect(code.reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('textReplacer', () => {
+  it('replaces with regex flags or every literal copy', () => {
+    const m3u = '#EXTINF:5\nhttps://x/preroll/a.ts\n#EXTINF:5\nhttps://x/main/b.ts\n';
+    // As lists write it: `\n` is two characters in the rule text.
+    const rule = String.raw`/#EXTINF:[^\n]+\n[^\n]+?\/preroll\/[^\n]+\n/gm`;
+    expect(textReplacer(rule, '')?.(m3u)).toBe('#EXTINF:5\nhttps://x/main/b.ts\n');
+    expect(
+      textReplacer('"ads_disabled":false', '"ads_disabled":true')?.('{"ads_disabled":false}'),
+    ).toBe('{"ads_disabled":true}');
+    expect(textReplacer('/a/', 'b')?.('aa')).toBe('ba');
+  });
+  it('refuses an empty or broken pattern', () => {
+    expect(textReplacer('', 'x')).toBeNull();
+    expect(textReplacer('/(/', 'x')).toBeNull();
+  });
+  it('accepts the trusted variants lists use', () => {
+    expect(canonScriptlet('trusted-rpfr')).toBe('trusted-replace-fetch-response');
   });
 });

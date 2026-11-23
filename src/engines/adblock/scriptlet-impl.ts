@@ -1,3 +1,4 @@
+import { applyJsonEdit, parseJsonEdit, type JsonEdit } from './jsonpath.ts';
 import { decoy } from '../popup/decoy.ts';
 
 /**
@@ -424,6 +425,98 @@ function filterXhrText(
   }
 }
 
+/** `/re/flags` replaces every match (with `g`) or the first; a literal replaces every copy. */
+export function textReplacer(pattern = '', replacement = ''): ((text: string) => string) | null {
+  if (!pattern) return null;
+  const m = /^\/(.+)\/([dgimsuvy]*)$/.exec(pattern);
+  if (!m) return (text) => text.replaceAll(pattern, replacement);
+  try {
+    const re = new RegExp(m[1] ?? '', m[2] ?? '');
+    return (text) => text.replace(re, replacement);
+  } catch {
+    return null;
+  }
+}
+
+/** `trusted-replace-fetch-response`: edits the body text of matching fetches (ad entries, VAST). */
+function replaceFetchResponse(pattern = '', replacement = '', url = ''): void {
+  const edit = textReplacer(pattern, replacement);
+  if (!edit) return;
+  const hit = requestMatcher(url);
+  wrap(window, 'fetch', (native, self, args) => {
+    const out = Reflect.apply(native, self, args) as Promise<Response>;
+    if (!hit(requestProps(args[0], args[1] as RequestInit | undefined))) return out;
+    return out.then(async (res) => {
+      try {
+        const text = await res.clone().text();
+        const next = edit(text);
+        return next === text ? res : new Response(next, res);
+      } catch {
+        return res;
+      }
+    });
+  });
+}
+
+/** Plain `json-edit` rules may only delete; assigning values needs the trusted variant. */
+function jsonEditFor(query: string, trusted: boolean): JsonEdit | null {
+  const edit = parseJsonEdit(query);
+  return edit && (trusted || edit.action === 'delete') ? edit : null;
+}
+
+/** `json-edit`: data pages parse with JSON.parse or Response.json. `matches` tests the JSON text. */
+function jsonEdit(trusted: boolean) {
+  return (query = '', ...rest: string[]): void => {
+    const edit = jsonEditFor(query, trusted);
+    if (!edit) return;
+    const at = rest.indexOf('matches');
+    const text = at >= 0 ? matcher(rest[at + 1]) : null;
+    wrap(JSON, 'parse', (native, self, args) => {
+      const v: unknown = Reflect.apply(native, self, args);
+      if (!text || text(String(args[0]))) applyJsonEdit(v, edit);
+      return v;
+    });
+    if (text) return;
+    wrap(Response.prototype, 'json', (native, self, args) =>
+      (Reflect.apply(native, self, args) as Promise<unknown>).then((v) => {
+        applyJsonEdit(v, edit);
+        return v;
+      }),
+    );
+  };
+}
+
+function jsonEditFetch(trusted: boolean) {
+  return (query = '', ...rest: string[]): void => {
+    const edit = jsonEditFor(query, trusted);
+    if (!edit) return;
+    const hit = propsAfter(rest);
+    wrap(window, 'fetch', (native, self, args) => {
+      const out = Reflect.apply(native, self, args) as Promise<Response>;
+      if (!hit(requestProps(args[0], args[1] as RequestInit | undefined))) return out;
+      return out.then(async (res) => {
+        try {
+          const data: unknown = await res.clone().json();
+          return applyJsonEdit(data, edit) ? new Response(JSON.stringify(data), res) : res;
+        } catch {
+          return res;
+        }
+      });
+    });
+  };
+}
+
+function jsonEditXhr(trusted: boolean) {
+  return (query = '', ...rest: string[]): void => {
+    const edit = jsonEditFor(query, trusted);
+    if (!edit) return;
+    filterXhrText(propsAfter(rest), (body) => {
+      const data: unknown = JSON.parse(body);
+      return applyJsonEdit(data, edit) ? JSON.stringify(data) : body;
+    });
+  };
+}
+
 function propsAfter(rest: readonly string[]): (props: Record<string, string>) => boolean {
   const at = rest.indexOf('propsToMatch');
   return requestMatcher(at >= 0 ? rest[at + 1] : '');
@@ -637,6 +730,61 @@ function setConstant(path: string, c: { ok: boolean; value?: unknown }): void {
   });
 }
 
+const hasCookie = (key: string) => document.cookie.split('; ').some((c) => c.startsWith(key));
+
+/** Sets a consent or "seen it" cookie; true when it was not there and now is. */
+function setCookie(name = '', value = '', path = '/'): boolean {
+  if (!name || !COOKIE_VALUE.test(value)) return false;
+  const key = `${encodeURIComponent(name)}=`;
+  if (hasCookie(key)) return false;
+  const scope = path === 'none' ? '' : `; path=${path === '' ? '/' : path}`;
+  document.cookie = `${key}${value}${scope}; max-age=31536000; SameSite=Lax`;
+  return hasCookie(key);
+}
+
+function trustedSetCookie(name = '', value = ''): boolean {
+  if (!name || /[;\r\n]/.test(name)) return false;
+  const text = literalValue(value);
+  if (/[;\r\n]/.test(text)) return false;
+  const key = `${encodeURIComponent(name)}=`;
+  const before = hasCookie(key);
+  document.cookie = `${key}${encodeURIComponent(text)}; path=/; max-age=31536000; SameSite=Lax`;
+  return !before && hasCookie(key);
+}
+
+/**
+ * The page read the cookie before this ran, so it only counts after a reload. A cookie that is
+ * already there, or that the browser refused, never reloads: no loop.
+ */
+const reloadIf = (changed: boolean) => {
+  if (changed) location.reload();
+};
+
+/** Anti-adblock checks read the computed style of a bait element; report what it expects. */
+function spoofCss(selector = '', ...pairs: string[]): void {
+  if (!selector || pairs.length < 2) return;
+  const spoofed = new Map<string, string>();
+  for (let i = 0; i + 1 < pairs.length; i += 2)
+    spoofed.set(pairs[i] as string, pairs[i + 1] as string);
+  const camel = (p: string) => p.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+  for (const [p, v] of [...spoofed]) spoofed.set(camel(p), v);
+  wrap(window, 'getComputedStyle', (native, self, args) => {
+    const style = native.apply(self, args) as CSSStyleDeclaration;
+    const el = args[0];
+    if (!(el instanceof Element) || !el.matches(selector)) return style;
+    return new Proxy(style, {
+      get(target, prop) {
+        if (typeof prop === 'string' && spoofed.has(prop)) return spoofed.get(prop);
+        if (prop === 'getPropertyValue') {
+          return (name: string) => spoofed.get(name) ?? target.getPropertyValue(name);
+        }
+        const value: unknown = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  });
+}
+
 export const SCRIPTLETS: Readonly<Record<string, (...args: string[]) => void>> = {
   aopr: (path = '') => guardProp(path, () => true, 'read'),
   aopw: (path = '') => guardProp(path, () => true, 'write'),
@@ -742,12 +890,22 @@ export const SCRIPTLETS: Readonly<Record<string, (...args: string[]) => void>> =
       });
     });
   },
-  'set-cookie'(name = '', value = '', path = '/') {
-    if (!name || !COOKIE_VALUE.test(value)) return;
-    const key = `${encodeURIComponent(name)}=`;
-    if (document.cookie.split('; ').some((c) => c.startsWith(key))) return;
-    const scope = path === 'none' ? '' : `; path=${path === '' ? '/' : path}`;
-    document.cookie = `${key}${value}${scope}; max-age=31536000; SameSite=Lax`;
+  'set-cookie'(name, value, path) {
+    setCookie(name, value, path);
+  },
+  'set-cookie-reload': (name, value, path) => reloadIf(setCookie(name, value, path)),
+  'trusted-set-cookie-reload': (name, value) => reloadIf(trustedSetCookie(name, value)),
+  'spoof-css': spoofCss,
+  'json-edit': jsonEdit(false),
+  'trusted-json-edit': jsonEdit(true),
+  'json-edit-fetch-response': jsonEditFetch(false),
+  'trusted-json-edit-fetch-response': jsonEditFetch(true),
+  'json-edit-xhr-response': jsonEditXhr(false),
+  'trusted-json-edit-xhr-response': jsonEditXhr(true),
+  'trusted-replace-fetch-response': replaceFetchResponse,
+  'trusted-replace-xhr-response'(pattern = '', replacement = '', props = '') {
+    const edit = textReplacer(pattern, replacement);
+    if (edit) filterXhrText(requestMatcher(props), edit);
   },
   'href-sanitizer': hrefSanitizer,
   'remove-cookie': removeCookies,
@@ -766,11 +924,8 @@ export const SCRIPTLETS: Readonly<Record<string, (...args: string[]) => void>> =
     });
   },
   'set-attr': setAttr,
-  'trusted-set-cookie'(name = '', value = '') {
-    if (!name || /[;\r\n]/.test(name)) return;
-    const text = literalValue(value);
-    if (/[;\r\n]/.test(text)) return;
-    document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(text)}; path=/; max-age=31536000; SameSite=Lax`;
+  'trusted-set-cookie'(name, value) {
+    trustedSetCookie(name, value);
   },
   'trusted-set-local-storage-item': (key = '', value = '') =>
     localStorage.setItem(key, literalValue(value)),
