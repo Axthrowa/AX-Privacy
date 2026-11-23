@@ -1,6 +1,7 @@
 import { moduleOn } from '../engines/core/control.ts';
 import type { Settings } from '../shared/types.ts';
 import { siteKey } from '../shared/url.ts';
+import { isPageRedirect, isPopunderUrl } from '../engines/popup/signatures.ts';
 import { popupMatcher } from './filters.ts';
 
 /** How long a new tab counts as a popup of its opener; covers ad-server redirect chains. */
@@ -64,7 +65,7 @@ async function check(
   if (!/^https?:/.test(url)) return;
   const s = await load();
   if (!moduleOn(s, siteKey(p.openerUrl), 'network')) return;
-  if (!(await popupMatcher(s))(url, p.openerUrl)) return;
+  if (!(await popupMatcher(s))(url, p.openerUrl) && !isPopunderUrl(url)) return;
   if (await p.byUser) return;
   pending.delete(tabId);
   const incognito = await isPrivateTab(tabId);
@@ -98,6 +99,7 @@ export function installPopupGuard(
       chrome.webNavigation.onCommitted.removeListener(onNav);
     }, WINDOW_MS);
   };
+  installRedirectGuard(load, onPopup);
   chrome.webNavigation.onCreatedNavigationTarget.addListener((d) => {
     watch();
     void (async () => {
@@ -112,4 +114,35 @@ export function installPopupGuard(
       await check(load, d.tabId, d.url, onPopup);
     })();
   });
+}
+
+/** Last committed top-level URL per tab; lost with the worker, which then lets the next one pass. */
+const lastPage = new Map<number, string>();
+
+/**
+ * Pop-under scripts also turn the current tab into the ad with a script redirect. When a page
+ * redirects its own tab cross-site to a `$popup` match or a pop-under URL, the tab goes back.
+ */
+function installRedirectGuard(
+  load: () => Promise<Settings>,
+  onPopup?: (url: string, incognito: boolean) => void,
+): void {
+  chrome.webNavigation.onCommitted.addListener(
+    (d) => {
+      if (d.frameId !== 0) return;
+      const prev = lastPage.get(d.tabId);
+      lastPage.set(d.tabId, d.url);
+      if (!prev || !isPageRedirect(d) || siteKey(prev) === siteKey(d.url)) return;
+      void (async () => {
+        const s = await load();
+        if (!moduleOn(s, siteKey(prev), 'network')) return;
+        if (!(await popupMatcher(s))(d.url, prev) && !isPopunderUrl(d.url)) return;
+        lastPage.set(d.tabId, prev);
+        await chrome.tabs.update(d.tabId, { url: prev }).catch(() => undefined);
+        onPopup?.(d.url, await isPrivateTab(d.tabId));
+      })();
+    },
+    { url: [{ schemes: ['http', 'https'] }] },
+  );
+  chrome.tabs.onRemoved.addListener((tabId) => lastPage.delete(tabId));
 }
