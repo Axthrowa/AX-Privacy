@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
+      - run: npm audit --omit=dev
       - run: npm run check
       - run: npm run build
       - run: npm run pack
@@ -27,5 +28,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: AX Privacy ${{ github.ref_name }}
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS
           generate_release_notes: true
