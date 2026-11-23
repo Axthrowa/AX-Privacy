@@ -80,6 +80,10 @@ export interface Api {
   'security/proceed': { req: { url: string }; res: null };
   /** A top-level http: page has a password field. */
   'security/insecurePassword': { req: NoPayload; res: null };
+  /** The top page's password form posts to another site (its host). */
+  'security/passwordElsewhere': { req: { host: string }; res: null };
+  /** The top page reads like a fake "your PC is infected, call us" alert. */
+  'security/supportScam': { req: NoPayload; res: null };
   /** Click-to-load: whether embeds are held back in this tab. */
   'embed/status': { req: NoPayload; res: { blocked: boolean } };
   /** The user clicked an embed placeholder: embeds load in this tab until it closes. */
@@ -110,6 +114,8 @@ export const CONTENT_TYPES: ReadonlySet<MessageType> = new Set<MessageType>([
   'popup/userOpen',
   'consent/msg',
   'security/insecurePassword',
+  'security/passwordElsewhere',
+  'security/supportScam',
   'video/segments',
   'video/warned',
   'embed/status',
@@ -255,6 +261,7 @@ export function parseMessage(raw: unknown): Message | null {
     case 'settings/export':
     case 'cosmetic/start':
     case 'security/insecurePassword':
+    case 'security/supportScam':
     case 'video/warned':
     case 'video/warnings':
     case 'embed/status':
@@ -298,6 +305,10 @@ export function parseMessage(raw: unknown): Message | null {
         m.reasons.length <= 12 &&
         m.reasons.every((r) => typeof r === 'string' && /^[a-z-]{1,40}$/.test(r))
         ? { type: m.type, reasons: m.reasons as string[], features: m.features }
+        : null;
+    case 'security/passwordElsewhere':
+      return typeof m.host === 'string' && /^[a-z0-9.-]{1,253}$/i.test(m.host)
+        ? { type: m.type, host: m.host.toLowerCase() }
         : null;
     case 'brain/pause':
       return Number.isInteger(m.tabId) ? { type: m.type, tabId: m.tabId as number } : null;

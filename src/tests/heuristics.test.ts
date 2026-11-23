@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeUrl, assessRisk, punycodeDecode } from '../engines/security/heuristics.ts';
+import {
+  analyzeUrl,
+  assessRisk,
+  isSupportScam,
+  passwordTarget,
+  punycodeDecode,
+} from '../engines/security/heuristics.ts';
 
 const ids = (url: string) => analyzeUrl(url).map((f) => f.id);
 
@@ -67,5 +73,57 @@ describe('assessRisk', () => {
     const r = assessRisk(null, { insecurePassword: false, bypassed: true });
     expect(r.level).toBe('high');
     expect(r.findings[0]?.id).toBe('warning-bypassed');
+  });
+});
+
+describe('passwordTarget', () => {
+  it('names the host only when the form posts to another site', () => {
+    expect(passwordTarget('https://www.bank.example/login', 'https://evil.test/collect.php')).toBe(
+      'evil.test',
+    );
+    expect(passwordTarget('https://www.bank.example/login', '/session')).toBeNull();
+    expect(
+      passwordTarget('https://www.bank.example/login', 'https://auth.bank.example/'),
+    ).toBeNull();
+    expect(passwordTarget('https://shop.co.uk/login', 'https://other.co.uk/x')).toBe('other.co.uk');
+    expect(passwordTarget('https://a.example/', 'javascript:void 0')).toBeNull();
+    expect(passwordTarget('https://a.example/', 'mailto:x@y.z')).toBeNull();
+  });
+
+  it('adds a low-severity finding naming the target', () => {
+    const r = assessRisk('https://a.example/', {
+      insecurePassword: false,
+      bypassed: false,
+      passwordTarget: 'evil.test',
+    });
+    expect(r.level).toBe('low');
+    expect(r.findings.map((f) => f.id)).toEqual(['password-elsewhere']);
+    expect(r.findings[0]?.text).toContain('evil.test');
+  });
+});
+
+describe('isSupportScam', () => {
+  it('flags fake infection alerts that push a phone number', () => {
+    expect(
+      isSupportScam(
+        'Windows Defender Security Center. Your computer has been blocked. Error code: 0x80070424. Call toll free +1 (888) 555-0199. Do not close this page.',
+      ),
+    ).toBe(true);
+    expect(
+      isSupportScam(
+        'Bilgisayarınız kilitlendi! Virüs tespit edildi. Hemen arayın: 0850 123 45 67. Bu sayfayı kapatmayın.',
+      ),
+    ).toBe(true);
+  });
+
+  it('leaves real support pages and news alone', () => {
+    // A phone number with one scary word is not enough.
+    expect(isSupportScam('Microsoft Support: call 0850 222 00 00 for your licence.')).toBe(false);
+    expect(
+      isSupportScam('A new virus variant spreads in Europe, health officials said on Monday.'),
+    ).toBe(false);
+    expect(
+      isSupportScam('Antivirus review: Windows Defender catches malware well. Score 9.1/10.'),
+    ).toBe(false);
   });
 });

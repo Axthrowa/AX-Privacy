@@ -209,7 +209,10 @@ const route = createRouter({
   tabReport: async (tabId) => {
     // Without detailed reports nothing tracks navigations, so the tab itself says where it is.
     const current = (await chrome.tabs.get(tabId)).url;
-    const { insecurePassword, ...report } = await reports.report(tabId, current);
+    const { insecurePassword, passwordTarget, supportScam, ...report } = await reports.report(
+      tabId,
+      current,
+    );
     const url = report.url ?? current ?? null;
     const page = { ...report, url, site: report.site ?? siteKey(url ?? undefined) };
     const bypassed = await wasProceeded(page.url);
@@ -220,12 +223,18 @@ const route = createRouter({
         report.brain || pausedUntil
           ? { count: 0, reasons: {}, ...report.brain, pausedUntil }
           : null,
-      risk: assessRisk(page.url, { insecurePassword, bypassed }),
+      risk: assessRisk(page.url, { insecurePassword, bypassed, passwordTarget, supportScam }),
     };
   },
   consent: (msg, ctx) => handleConsent(msg, ctx, recordConsent),
   proceed,
   pageList: async (url) => blockingList(await loadSettings(), url),
+  supportScam: async (tabId) => {
+    const url = (await chrome.tabs.get(tabId)).url;
+    if (url) await reports.supportScam(tabId, url);
+  },
+  passwordElsewhere: async (tabId, host) =>
+    reports.passwordElsewhere(tabId, host, (await chrome.tabs.get(tabId)).url),
   insecurePassword: async (tabId) =>
     reports.insecurePassword(tabId, (await chrome.tabs.get(tabId)).url),
   embedsLoaded,

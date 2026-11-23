@@ -26,6 +26,8 @@ describe('TabReports', () => {
       url: 'https://www.news.example/article',
       consent: null,
       insecurePassword: false,
+      passwordTarget: null,
+      supportScam: false,
       brain: null,
       hosts: [
         { host: 'tracker.test', thirdParty: true, loaded: 0, blocked: 2 },
@@ -60,6 +62,8 @@ describe('TabReports', () => {
       hosts: [],
       consent: null,
       insecurePassword: false,
+      passwordTarget: null,
+      supportScam: false,
       brain: null,
     });
     await b.closed(2);

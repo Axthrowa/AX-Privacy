@@ -16,12 +16,19 @@ interface Entry {
   insecurePassword?: boolean;
   /** The page the password field was on: without navigation events, this is what expires it. */
   insecureUrl?: string;
+  /** Host a password form posts to on `passwordUrl`, another site than the page's. */
+  passwordTarget?: string;
+  passwordUrl?: string;
+  /** Page that read like a fake tech support alert. */
+  scamUrl?: string;
   /** Like `insecureUrl`, the page URL expires it when navigation events are not watched. */
   brain?: { url: string; count: number; reasons: Record<string, number>; features: number[][] };
 }
 
 export type PageReport = Omit<TabReport, 'risk' | 'brain'> & {
   insecurePassword: boolean;
+  passwordTarget: string | null;
+  supportScam: boolean;
   brain: Omit<BrainReport, 'pausedUntil'> | null;
 };
 
@@ -118,6 +125,19 @@ export class TabReports {
     this.touch(tabId);
   }
 
+  async supportScam(tabId: number, url: string): Promise<void> {
+    const e = await this.entry(tabId);
+    e.scamUrl = url;
+    this.touch(tabId);
+  }
+
+  async passwordElsewhere(tabId: number, host: string, url?: string): Promise<void> {
+    const e = await this.entry(tabId);
+    e.passwordTarget = host;
+    e.passwordUrl = url;
+    this.touch(tabId);
+  }
+
   async brainHidden(
     tabId: number,
     url: string,
@@ -158,6 +178,11 @@ export class TabReports {
       insecurePassword:
         (e.insecurePassword ?? false) &&
         (e.insecureUrl === undefined || e.insecureUrl === currentUrl),
+      supportScam: e.scamUrl !== undefined && e.scamUrl === currentUrl,
+      passwordTarget:
+        e.passwordTarget && (e.passwordUrl === undefined || e.passwordUrl === currentUrl)
+          ? e.passwordTarget
+          : null,
       brain:
         e.brain && (currentUrl === undefined || e.brain.url === currentUrl)
           ? { count: e.brain.count, reasons: e.brain.reasons }

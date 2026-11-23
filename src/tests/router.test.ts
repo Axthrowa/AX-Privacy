@@ -48,6 +48,8 @@ function setup(initial: Partial<Settings> = {}) {
     proceed: vi.fn(async () => undefined),
     pageList: vi.fn(async (): Promise<string | null> => 'Özel kurallar'),
     insecurePassword: vi.fn(async () => undefined),
+    passwordElsewhere: vi.fn<(tabId: number, host: string) => Promise<void>>(async () => undefined),
+    supportScam: vi.fn<(tabId: number) => Promise<void>>(async () => undefined),
     embedsLoaded: vi.fn(async (tabId: number) => tabId === 9),
     loadEmbeds: vi.fn(async () => undefined),
     youtubeWarned: vi.fn(async () => undefined),
@@ -213,6 +215,28 @@ describe('router', () => {
     });
     deps.load.mockResolvedValue({ ...(await deps.load()), pausedSites: ['a.example'] });
     expect(await route({ type: 'brain/model' }, content)).toBeNull();
+  });
+
+  it('records a cross-site password form from the top frame only', async () => {
+    const { route, deps } = setup();
+    const content = {
+      kind: 'content',
+      url: 'https://a.example/',
+      tabUrl: 'https://a.example/',
+      tabId: 2,
+      frameId: 0,
+    } as SenderContext;
+    await route(
+      { type: 'security/passwordElsewhere', host: 'evil.test' },
+      { ...content, frameId: 4 },
+    );
+    expect(deps.passwordElsewhere).not.toHaveBeenCalled();
+    await route({ type: 'security/passwordElsewhere', host: 'evil.test' }, content);
+    expect(deps.passwordElsewhere).toHaveBeenCalledWith(2, 'evil.test');
+    await route({ type: 'security/supportScam' }, { ...content, frameId: 4 });
+    expect(deps.supportScam).not.toHaveBeenCalled();
+    await route({ type: 'security/supportScam' }, content);
+    expect(deps.supportScam).toHaveBeenCalledWith(2);
   });
 
   it('rests AX-Brain on a site the user paused, and keeps hide reports private', async () => {

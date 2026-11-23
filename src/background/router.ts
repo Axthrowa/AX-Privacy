@@ -81,6 +81,8 @@ export interface RouterDeps {
   /** List that would block this page, or null. Proceed refuses anything else. */
   pageList(url: string): Promise<string | null>;
   insecurePassword(tabId: number): Promise<void>;
+  passwordElsewhere(tabId: number, host: string): Promise<void>;
+  supportScam(tabId: number): Promise<void>;
   /** Whether click-to-load embeds were already let through in this tab. */
   embedsLoaded(tabId: number): Promise<boolean>;
   loadEmbeds(tabId: number): Promise<void>;
@@ -377,6 +379,14 @@ export function createRouter(deps: RouterDeps) {
       case 'security/insecurePassword':
         if (ctx.tabId !== undefined && ctx.frameId === 0 && ctx.url.startsWith('http:')) {
           await deps.insecurePassword(ctx.tabId);
+        }
+        return null;
+      case 'security/supportScam':
+        if (ctx.tabId !== undefined && ctx.frameId === 0) await deps.supportScam(ctx.tabId);
+        return null;
+      case 'security/passwordElsewhere':
+        if (ctx.tabId !== undefined && ctx.frameId === 0) {
+          await deps.passwordElsewhere(ctx.tabId, msg.host);
         }
         return null;
       case 'brain/model': {

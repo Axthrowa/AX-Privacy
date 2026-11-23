@@ -7,6 +7,7 @@ import {
 import { decodeTokens, knownFeatures } from '../engines/adblock/generic-tokens.ts';
 import { domKey, startKey, type CachedStyle } from '../shared/cosmetic-cache.ts';
 import { send } from '../shared/messages.ts';
+import { isSupportScam, passwordTarget } from '../engines/security/heuristics.ts';
 import { hostMatches } from '../shared/site.ts';
 import type { ExtendedRule, Settings } from '../shared/types.ts';
 
@@ -186,6 +187,40 @@ if (location.protocol === 'http:' && window === window.top) {
     once: true,
   });
   addEventListener('focusin', (e) => check(e.target), true);
+}
+
+// Fake "your PC is infected, call this number" pages: checked once the text has rendered. The
+// forced fullscreen that makes them look like the desktop is undone; the popup explains why.
+if (window === window.top) {
+  addEventListener(
+    'load',
+    () =>
+      setTimeout(() => {
+        const text = document.body?.innerText.slice(0, 20_000) ?? '';
+        if (!isSupportScam(text)) return;
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+        void send('security/supportScam', {}).catch(() => undefined);
+      }, 1500),
+    { once: true },
+  );
+}
+
+// A password form posting to another site: reported once, when a password field gets focus.
+if (window === window.top) {
+  let reported = false;
+  addEventListener(
+    'focusin',
+    (e) => {
+      const field = e.target;
+      if (reported || !(field instanceof HTMLInputElement) || field.type !== 'password') return;
+      const action = field.form?.getAttribute('action');
+      const host = action ? passwordTarget(location.href, field.form?.action ?? '') : null;
+      if (!host) return;
+      reported = true;
+      void send('security/passwordElsewhere', { host }).catch(() => undefined);
+    },
+    true,
+  );
 }
 
 void (async () => {
