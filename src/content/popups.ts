@@ -6,6 +6,7 @@ import {
   shouldBlockOpen,
 } from '../engines/popup/click.ts';
 import { decoy } from '../engines/popup/decoy.ts';
+import { guardLeavePrompt } from '../engines/popup/leave.ts';
 import { allowsNotificationPrompt, isAdServiceWorker, rateLimiter } from '../engines/popup/push.ts';
 
 // uBO Lite's prevent-window-open (scriptlets.js) blocks window.open and answers with a decoy
@@ -198,6 +199,17 @@ if (sw) {
     isAdServiceWorker(String(url))
       ? Promise.reject(new DOMException('Blocked by AX Privacy', 'SecurityError'))
       : native(url, options);
+}
+
+// "Leave site?" only after the user changed something here; pop-under scripts ask it otherwise.
+{
+  let edited = false;
+  const mark = (e: Event) => {
+    if (e.isTrusted) edited = true;
+  };
+  addEventListener('input', mark, true);
+  addEventListener('change', mark, true);
+  guardLeavePrompt(window, () => edited);
 }
 
 // Browser lockers flood history so Back never leaves the page.
