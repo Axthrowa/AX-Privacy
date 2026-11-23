@@ -1,4 +1,5 @@
 import { L } from '../shared/i18n.ts';
+import type { BrainModel } from '../engines/brain/brain.ts';
 import { pickedRule } from '../filters/custom.ts';
 import { moduleOn } from '../engines/core/control.ts';
 import { planFor } from '../engines/video/sponsorblock.ts';
@@ -59,6 +60,9 @@ export interface RouterDeps {
   startPicker(tabId: number): Promise<void>;
   /** True once per `startPicker` for that tab. */
   takePicker(tabId: number): Promise<boolean>;
+  /** One AX-Brain training step from an element the user picked as an ad. */
+  trainBrain(features: number[]): Promise<void>;
+  brainModel(): Promise<BrainModel>;
   cosmeticStart(s: Settings, ctx: SenderContext): Promise<ExtendedRule[]>;
   cosmeticDom(s: Settings, ctx: SenderContext, features: DomFeatures): Promise<ExtendedRule[]>;
   noteUserOpen(tabId: number, url: string): void;
@@ -222,6 +226,8 @@ export function createRouter(deps: RouterDeps) {
           if (lines.includes(rule)) return s;
           return { ...s, customRules: [...lines.filter(Boolean), rule].join('\n') };
         }, 'filters');
+        // Private windows leave no trace, not even in the model.
+        if (msg.features && !ctx.incognito) await deps.trainBrain(msg.features);
         return { rule };
       }
       case 'rules/report':
@@ -364,6 +370,11 @@ export function createRouter(deps: RouterDeps) {
           await deps.insecurePassword(ctx.tabId);
         }
         return null;
+      case 'brain/model': {
+        const s = await deps.load();
+        if (!moduleOn(s, siteKey(ctx.tabUrl ?? ctx.url), 'network')) return null;
+        return { model: await deps.brainModel() };
+      }
       case 'embed/status':
       case 'embed/load': {
         const s = await deps.load();

@@ -31,6 +31,7 @@ import { embedsLoaded, loadEmbeds } from './embeds.ts';
 import { installSecurityGuard, proceed, wasProceeded } from './security.ts';
 import { syncSiteDataCleanup } from './site-data.ts';
 import { sponsorSegments } from './sponsor.ts';
+import { loadBrain, trainBrain } from './brain.ts';
 import { setTabReports, sessionStore, TabReports } from './tab-report.ts';
 
 const stats = new StatsRecorder();
@@ -167,6 +168,8 @@ const route = createRouter({
       files: [CONTENT_SCRIPT_FILES.picker],
     });
   },
+  trainBrain,
+  brainModel: loadBrain,
   takePicker: async (tabId) => {
     const session = (await chrome.storage.session.get(PICKER_KEY))[PICKER_KEY] as
       { tabId: number; until: number } | undefined;

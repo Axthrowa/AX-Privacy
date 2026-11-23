@@ -14,3 +14,11 @@ public/content/generic-tokens.js
 docs/site-check.json
 docs/resource-check.json
 docs/BRAVE_EXTENSION_AUDIT.md
+# Legacy v4 JS line (archived after the TS port)
+/*.js
+!/eslint.config.js
+scripts/*.js
+popup
+rules
+*.md
+/manifest.json

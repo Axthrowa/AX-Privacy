@@ -16,6 +16,21 @@ describe('parseMessage', () => {
       paused: true,
     });
   });
+  it('accepts picker features only as 12 numbers in [0, 1]', () => {
+    const features = new Array<number>(12).fill(0.5);
+    expect(parseMessage({ type: 'picker/add', selector: '.ad', features })).toEqual({
+      type: 'picker/add',
+      selector: '.ad',
+      features,
+    });
+    expect(parseMessage({ type: 'picker/add', selector: '.ad' })).toEqual({
+      type: 'picker/add',
+      selector: '.ad',
+    });
+    for (const bad of [[1], new Array(12).fill(2), new Array(12).fill('1'), 'x']) {
+      expect(parseMessage({ type: 'picker/add', selector: '.ad', features: bad })).toBeNull();
+    }
+  });
   it('rejects unknown types and wrong field types', () => {
     expect(parseMessage(null)).toBeNull();
     expect(parseMessage('global/set')).toBeNull();

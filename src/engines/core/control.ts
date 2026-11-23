@@ -114,6 +114,7 @@ export const CONTENT_SCRIPT_FILES = {
   'video-ads': 'content/video-ads.js',
   'video-generic': 'content/video-generic.js',
   'click-to-load': 'content/click-to-load.js',
+  'brain-scan': 'content/brain-scan.js',
 } as const;
 /**
  * Main-world scripts cannot receive a value from the worker synchronously, so the fingerprint
@@ -492,7 +493,7 @@ export function contentScripts(
   const genericCustom = /^(?:~[^#\n]*)?##/m.test(s.customRules);
   const onlyBuiltin = !genericCustom && !s.userLists.some((l) => l.enabled);
   if (onlyBuiltin) cosmetic.js = [GENERIC_TOKENS_JS, CONTENT_SCRIPT_FILES.cosmetic];
-  const scripts = [cosmetic, script('popups', 'MAIN'), scriptlets];
+  const scripts = [cosmetic, script('brain-scan'), script('popups', 'MAIN'), scriptlets];
   if (s.privacy.gpc) scripts.push(script('gpc', 'MAIN', undefined, 'privacy'));
   if (s.privacy.hideLocale) scripts.push(script('locale', 'MAIN', undefined, 'privacy'));
   if (s.privacy.cleanLinks) {

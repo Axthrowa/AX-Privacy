@@ -180,7 +180,12 @@ describe('contentScripts', () => {
     expect(script?.js).toEqual(['content/generic-tokens.js', 'content/cosmetic.js']);
   });
   it('adds consent and main-world fingerprint scripts only when chosen', () => {
-    expect(contentScripts(on).map((s) => s.id)).toEqual(['cosmetic', 'popups', 'scriptlets']);
+    expect(contentScripts(on).map((s) => s.id)).toEqual([
+      'cosmetic',
+      'brain-scan',
+      'popups',
+      'scriptlets',
+    ]);
     const scripts = contentScripts({
       ...on,
       pausedSites: ['a.com'],
@@ -188,6 +193,7 @@ describe('contentScripts', () => {
     });
     expect(scripts.map((s) => s.id)).toEqual([
       'cosmetic',
+      'brain-scan',
       'popups',
       'scriptlets',
       'consent',
@@ -206,6 +212,7 @@ describe('contentScripts', () => {
     const standard = { ...on.privacy, fingerprint: 'standard' as const };
     expect(contentScripts({ ...on, privacy: standard }).map((s) => s.id)).toEqual([
       'cosmetic',
+      'brain-scan',
       'popups',
       'scriptlets',
       'fp-noise',
@@ -229,6 +236,7 @@ describe('contentScripts', () => {
     const scripts = contentScripts({ ...on, pausedSites: ['a.com'], video });
     expect(scripts.map((s) => s.id)).toEqual([
       'cosmetic',
+      'brain-scan',
       'popups',
       'scriptlets',
       'yt-ads',
@@ -264,15 +272,16 @@ describe('contentScripts', () => {
     const scripts = contentScripts({ ...on, video });
     expect(scripts.map((s) => s.id)).toEqual([
       'cosmetic',
+      'brain-scan',
       'popups',
       'scriptlets',
       'yt-skip',
       'video-ads',
     ]);
-    expect(scripts[3]).toMatchObject({ js: ['content/yt-skip.js'] });
-    expect(scripts[3]?.matches).toContain('*://*.youtube.com/*');
-    expect(scripts[3]?.matches).not.toContain('*://*.twitch.tv/*');
-    expect(scripts[4]?.matches).toEqual([
+    expect(scripts[4]).toMatchObject({ js: ['content/yt-skip.js'] });
+    expect(scripts[4]?.matches).toContain('*://*.youtube.com/*');
+    expect(scripts[4]?.matches).not.toContain('*://*.twitch.tv/*');
+    expect(scripts[5]?.matches).toEqual([
       '*://youtube.com/*',
       '*://*.youtube.com/*',
       '*://youtube-nocookie.com/*',
@@ -285,7 +294,7 @@ describe('contentScripts', () => {
       else expect(s.world).toBeUndefined();
     }
     // Each chosen job is spelled by a file that runs before the script.
-    expect(scripts[4]?.js).toEqual(['content/ad-mode/mute.js', 'content/video-ads.js']);
+    expect(scripts[5]?.js).toEqual(['content/ad-mode/mute.js', 'content/video-ads.js']);
     const both = contentScripts({ ...on, video: { ...video, adSpeedUp: true } });
     expect(both.find((s) => s.id === 'video-ads')?.js).toEqual([
       'content/ad-mode/mute.js',

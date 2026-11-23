@@ -1,3 +1,4 @@
+import { createDefaultModel } from '../engines/brain/brain.ts';
 import { describe, expect, it, vi } from 'vitest';
 import {
   BRIEF_PAUSE_MS,
@@ -15,6 +16,8 @@ function setup(initial: Partial<Settings> = {}) {
     schedulePauseEnd: vi.fn(async () => undefined),
     startPicker: vi.fn<(tabId: number) => Promise<void>>(async () => undefined),
     takePicker: vi.fn<(tabId: number) => Promise<boolean>>(async () => false),
+    trainBrain: vi.fn<(features: number[]) => Promise<void>>(async () => undefined),
+    brainModel: vi.fn(async () => createDefaultModel()),
     load: vi.fn(async () => structuredClone(stored)),
     save: vi.fn(async (s: Settings) => {
       stored = structuredClone(s);
@@ -195,6 +198,33 @@ describe('router', () => {
     expect(get().customRules).toBe('a.example##.ad');
     expect(deps.applyFilters).toHaveBeenCalled();
     await expect(route(msg, content)).rejects.toThrow('başlatılmamış');
+  });
+
+  it('serves the AX-Brain model only where protection is on', async () => {
+    const { route, deps } = setup();
+    const content = { kind: 'content', url: 'https://a.example/' } as SenderContext;
+    expect(await route({ type: 'brain/model' }, content)).toEqual({
+      model: createDefaultModel(),
+    });
+    deps.load.mockResolvedValue({ ...(await deps.load()), pausedSites: ['a.example'] });
+    expect(await route({ type: 'brain/model' }, content)).toBeNull();
+  });
+
+  it('trains AX-Brain from a saved pick, never in a private window', async () => {
+    const { route, deps } = setup();
+    deps.takePicker.mockImplementation(async () => true);
+    const features = new Array<number>(12).fill(0).map((_, i) => (i === 4 ? 1 : 0));
+    const content = {
+      kind: 'content',
+      url: 'https://a.example/',
+      tabUrl: 'https://a.example/',
+      tabId: 5,
+      frameId: 0,
+    } as SenderContext;
+    await route({ type: 'picker/add', selector: '.ad', features }, { ...content, incognito: true });
+    expect(deps.trainBrain).not.toHaveBeenCalled();
+    await route({ type: 'picker/add', selector: '.ad2', features }, content);
+    expect(deps.trainBrain).toHaveBeenCalledWith(features);
   });
 
   it('pauses a site for a while and brings protection back by itself', async () => {

@@ -16,6 +16,7 @@ import type {
   YoutubeWarnings,
 } from './types.ts';
 import { isValidSite, MAX_KEPT_SITES, siteList } from './site.ts';
+import { FEATURE_COUNT, type BrainModel } from '../engines/brain/brain.ts';
 import { channelList, isSkipMode, isSponsorCategory, SPONSOR_CATEGORIES } from './sponsor.ts';
 
 type NoPayload = Record<never, never>;
@@ -44,7 +45,8 @@ export interface Api {
   /** From the popup: opens the element picker in that tab and allows it to save one rule. */
   'picker/start': { req: { tabId: number }; res: null };
   /** From the picker in the top frame; refused unless the popup started it. */
-  'picker/add': { req: { selector: string }; res: { rule: string } };
+  /** `features`: AX-Brain vector of the picked element; the brain learns from it. */
+  'picker/add': { req: { selector: string; features?: number[] }; res: { rule: string } };
   'picker/cancel': { req: NoPayload; res: null };
   'lists/get': { req: NoPayload; res: ListsView };
   'lists/setEnabled': { req: { id: string; enabled: boolean }; res: ListsView };
@@ -82,6 +84,8 @@ export interface Api {
   'embed/status': { req: NoPayload; res: { blocked: boolean } };
   /** The user clicked an embed placeholder: embeds load in this tab until it closes. */
   'embed/load': { req: NoPayload; res: null };
+  /** AX-Brain model for the ad scanner; null when protection is off for the site. */
+  'brain/model': { req: NoPayload; res: { model: BrainModel } | null };
 }
 
 /** The autoconsent reports the background records; the content script handles the rest itself. */
@@ -106,6 +110,7 @@ export const CONTENT_TYPES: ReadonlySet<MessageType> = new Set<MessageType>([
   'video/warned',
   'embed/status',
   'embed/load',
+  'brain/model',
 ]);
 
 const FINGERPRINT_LEVELS: readonly FingerprintLevel[] = ['off', 'standard', 'strict'];
@@ -244,6 +249,7 @@ export function parseMessage(raw: unknown): Message | null {
     case 'video/warnings':
     case 'embed/status':
     case 'embed/load':
+    case 'brain/model':
       return { type: m.type };
     case 'popup/state':
       return typeof m.url === 'string' ? { type: m.type, url: m.url } : null;
@@ -269,10 +275,16 @@ export function parseMessage(raw: unknown): Message | null {
         : null;
     case 'picker/start':
       return typeof m.tabId === 'number' ? { type: m.type, tabId: m.tabId } : null;
-    case 'picker/add':
-      return typeof m.selector === 'string' && m.selector.length <= 1024
-        ? { type: m.type, selector: m.selector }
+    case 'picker/add': {
+      if (typeof m.selector !== 'string' || m.selector.length > 1024) return null;
+      const f = m.features;
+      if (f === undefined) return { type: m.type, selector: m.selector };
+      return Array.isArray(f) &&
+        f.length === FEATURE_COUNT &&
+        f.every((v) => typeof v === 'number' && v >= 0 && v <= 1)
+        ? { type: m.type, selector: m.selector, features: f as number[] }
         : null;
+    }
     case 'rules/setCustom':
       return typeof m.text === 'string' && m.text.length <= MAX_CUSTOM_TEXT
         ? { type: m.type, text: m.text }

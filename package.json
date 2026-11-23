@@ -18,8 +18,18 @@
     "test:popup-vignette": "node scripts/test-popup-vignette.js",
     "test:universal-ad-scorer": "node scripts/test-universal-ad-scorer.js",
     "test:ax-brain": "node scripts/test-ax-brain.js",
-    "test": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater && npm run test:cosmetic-compiler && npm run test:popup-vignette && npm run test:universal-ad-scorer && npm run test:ax-brain",
-    "check": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater && npm run test:cosmetic-compiler && npm run test:popup-vignette && npm run test:universal-ad-scorer && npm run test:ax-brain"
+    "test": "vitest run",
+    "build": "node scripts/build.ts",
+    "pack": "node scripts/pack.ts",
+    "filters": "node scripts/filters.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:legacy": "npm run validate:rules && npm run test:punycode && npm run test:twitch-gql && npm run test:youtube-pruner && npm run test:filter-updater && npm run test:cosmetic-compiler && npm run test:popup-vignette && npm run test:universal-ad-scorer && npm run test:ax-brain",
+    "e2e": "playwright test --project brave",
+    "e2e:chromium": "playwright test --project chromium",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run test:legacy"
   },
   "dependencies": {
     "@duckduckgo/autoconsent": "^17.2.0",
@@ -48,5 +58,8 @@
     "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

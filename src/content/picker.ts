@@ -1,6 +1,7 @@
 import { similarSelector, uniqueSelector } from '../engines/adblock/picker-selector.ts';
 import { L } from '../shared/i18n.ts';
 import { send } from '../shared/messages.ts';
+import { extractFeatures } from '../engines/brain/brain.ts';
 
 // Injected into the top frame only when the user asks, from the popup. Nothing here runs otherwise.
 declare global {
@@ -195,7 +196,13 @@ function save(): void {
   if (!picked) return;
   const s = selector();
   saveButton.disabled = true;
-  send('picker/add', { selector: s })
+  let features: number[] | undefined;
+  try {
+    features = extractFeatures(picked, { currentHost: location.hostname });
+  } catch {
+    // Learning is a bonus; the rule is still saved without it.
+  }
+  send('picker/add', { selector: s, features })
     .then(() => {
       for (const match of document.querySelectorAll(s)) {
         (match as HTMLElement).style?.setProperty('display', 'none', 'important');
