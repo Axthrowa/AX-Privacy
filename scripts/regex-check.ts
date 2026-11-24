@@ -35,9 +35,11 @@ export async function rejectedRegexes(queries: readonly RegexQuery[]): Promise<S
     }),
   );
   await writeFile(join(ext, 'b.js'), '');
+  const browser = BROWSERS.find((p) => p && existsSync(p));
   const context = await chromium.launchPersistentContext(profile, {
-    // Elsewhere (CI), Playwright's own Chromium answers the same question.
-    executablePath: BROWSERS.find((p) => p && existsSync(p)),
+    // Elsewhere (CI), Playwright's own Chromium answers the same question. Its default headless
+    // shell loads no extensions, so the full build is asked for by channel.
+    ...(browser ? { executablePath: browser } : { channel: 'chromium' }),
     headless: true,
     args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
   });
