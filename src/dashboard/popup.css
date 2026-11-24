@@ -921,6 +921,11 @@ body::-webkit-scrollbar-thumb {
   border-color: rgba(239, 68, 68, 0.4);
 }
 
+.popup-container .risk.official {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
 .popup-container .risk ul {
   margin: 6px 0 6px 16px;
 }

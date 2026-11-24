@@ -12,6 +12,7 @@ import {
   CONTENT_TYPES,
   type ConsentMessage,
   type DomFeatures,
+  type LoginVerdict,
   type Message,
   type SenderKind,
 } from '../shared/messages.ts';
@@ -110,7 +111,9 @@ export interface RouterDeps {
   /** Crypto mining on the tab's page, from any of its frames. */
   miner(tabId: number, stopped: boolean): Promise<void>;
   /** A sign-in page named a brand it is not on (checked again here against the tab's address). */
-  loginBrand(tabId: number, brand: string): Promise<void>;
+  /** Whether the tab's page may take a password; a claimed brand is recorded for the popup. */
+  login(tabId: number, url: string, brand: string | null): Promise<LoginVerdict>;
+  allowLogin(url: string): Promise<void>;
   /** Whether click-to-load embeds were already let through in this tab. */
   embedsLoaded(tabId: number): Promise<boolean>;
   loadEmbeds(tabId: number): Promise<void>;
@@ -432,9 +435,12 @@ export function createRouter(deps: RouterDeps) {
           await deps.insecurePassword(ctx.tabId);
         }
         return null;
-      case 'security/loginBrand':
-        if (ctx.tabId !== undefined && ctx.frameId === 0)
-          await deps.loginBrand(ctx.tabId, msg.brand);
+      case 'security/login':
+        return ctx.tabId !== undefined && ctx.frameId === 0
+          ? deps.login(ctx.tabId, ctx.url, msg.brand)
+          : { block: false, reasons: [] };
+      case 'security/allowLogin':
+        if (ctx.frameId === 0) await deps.allowLogin(ctx.url);
         return null;
       case 'security/miner':
         if (ctx.tabId !== undefined) await deps.miner(ctx.tabId, msg.stopped);

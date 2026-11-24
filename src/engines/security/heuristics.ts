@@ -1,9 +1,11 @@
 import { parse } from 'tldts';
 import { L } from '../../shared/i18n.ts';
 import POPULAR_LIST from './brands.json' with { type: 'json' };
+import { govClaim, officialGov } from './official.ts';
 import { BRANDS } from './page-checks.ts';
 
 export { BRANDS, isSupportScam, passwordTarget } from './page-checks.ts';
+export { officialGov } from './official.ts';
 
 export type Severity = 'high' | 'medium' | 'low';
 export type RiskLevel = Severity | 'none';
@@ -12,6 +14,7 @@ export interface Finding {
   id:
     | 'warning-bypassed'
     | 'homograph'
+    | 'fake-gov'
     | 'lookalike'
     | 'lookalike-popular'
     | 'login-brand'
@@ -32,7 +35,25 @@ export interface RiskReport {
   /** Worst finding; 'none' means nothing was found, not that the site is safe. */
   level: RiskLevel;
   findings: Finding[];
+  /** Government zone or domain of an official site ("gov.tr"); null for every other site. */
+  official: string | null;
 }
+
+/** Signs of a fake site strong enough to stop a sign-in until the user says otherwise. */
+const LOGIN_BLOCKERS: ReadonlySet<Finding['id']> = new Set([
+  'warning-bypassed',
+  'homograph',
+  'fake-gov',
+  'lookalike',
+  'login-brand',
+  'brand-subdomain',
+  'userinfo',
+  'support-scam',
+]);
+
+/** Findings that should keep the user from typing a password on the page. */
+export const loginBlockers = (r: RiskReport): Finding[] =>
+  r.findings.filter((f) => LOGIN_BLOCKERS.has(f.id));
 
 /** Cyrillic and Greek letters drawn like Latin ones, plus digits used as letters. */
 const CONFUSABLE: Readonly<Record<string, string>> = {
@@ -253,6 +274,9 @@ export function analyzeUrl(url: string): Finding[] {
     return findings;
   }
 
+  // Government zones are closed registries: the address cannot imitate anyone.
+  if (officialGov(host)) return findings;
+
   const p = parse(host, { allowPrivateDomains: true });
   const domain = p.domain ?? host;
   const label = p.domainWithoutSuffix ?? '';
@@ -284,6 +308,17 @@ export function analyzeUrl(url: string): Finding[] {
     : label;
   const name = skeleton(plain);
   const tokens = name.split(/[-.]/);
+  const gov = govClaim(skeleton(host));
+  if (gov) {
+    findings.push({
+      id: 'fake-gov',
+      severity: 'high',
+      text: L(
+        `Adres kendini devlet sitesi gibi gösteriyor ("${gov}") ama ${domain} bir devlet alan adı değil. Resmi devlet siteleri gov.tr gibi yalnız devletin alabildiği uzantılarda olur. Kimlik, şifre veya kart bilgisi girmeyin.`,
+        `The address presents itself as a government site ("${gov}"), but ${domain} is not a government domain. Official government sites use zones only a government can register, such as gov.uk or gov.tr. Do not enter your ID, password or card details.`,
+      ),
+    });
+  }
   for (const brand of Object.keys(BRANDS)) {
     if (isOfficial(brand, domain)) continue;
     // Same first letter keeps real words out ("finance" is not a "binance" typo).
@@ -432,5 +467,16 @@ export function assessRisk(
     (worst, f) => (ORDER.indexOf(f.severity) > ORDER.indexOf(worst) ? f.severity : worst),
     'none',
   );
-  return { level, findings };
+  const host = url ? safeHost(url) : null;
+  return { level, findings, official: host ? officialGov(host) : null };
+}
+
+/** Over plain http the page may not come from the official server, so it is not called official. */
+function safeHost(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' ? u.hostname : null;
+  } catch {
+    return null;
+  }
 }

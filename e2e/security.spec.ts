@@ -154,3 +154,46 @@ test('a tab the page opens to a blocked address is closed; one the user opens sh
   await expect(tab).toHaveURL(/\/blocked\.html\?/);
   expect(hits.filter((h) => h.startsWith(BAD))).toEqual([]);
 });
+
+test('sign-in on a fake government address is stopped until the user lifts it', async ({
+  context,
+  worker,
+}) => {
+  await expect
+    .poll(() =>
+      worker.evaluate(async () =>
+        (await chrome.scripting.getRegisteredContentScripts()).map((s) => s.id),
+      ),
+    )
+    .toContain('cosmetic');
+  const fake = `${host('turkiye-gov-tr.nexus-test.example')}/login`;
+  const page = await context.newPage();
+  await page.goto(fake);
+  const field = page.locator('input[type="password"]');
+  await expect(page.locator('ax-login-guard')).toBeAttached();
+  await expect(field).toHaveJSProperty('readOnly', true);
+  await field.click({ force: true });
+  await page.keyboard.type('secret');
+  await expect(field).toHaveValue('');
+  // The form does not send while the lock is on.
+  await page.evaluate(() => document.querySelector('form')?.requestSubmit());
+  await page.waitForTimeout(300);
+  expect(hits.filter((h) => h.includes('/login?'))).toEqual([]);
+
+  // A page script cannot lift the lock; a real click can, for the rest of the session.
+  const anyway = page.getByRole('button', { name: /yine de giriş yap/ });
+  await anyway.evaluate((b: HTMLButtonElement) => b.click());
+  await expect(field).toHaveJSProperty('readOnly', true);
+  await anyway.click();
+  await expect(page.locator('ax-login-guard')).toHaveCount(0);
+  await expect(field).toHaveJSProperty('readOnly', false);
+  await page.reload();
+  await page.waitForTimeout(500);
+  await expect(page.locator('ax-login-guard')).toHaveCount(0);
+
+  // An ordinary site with a sign-in form is left alone.
+  await page.goto(`${host(SITE)}/login`);
+  await page.waitForTimeout(500);
+  await expect(page.locator('ax-login-guard')).toHaveCount(0);
+  await expect(page.locator('input[type="password"]')).toHaveJSProperty('readOnly', false);
+});

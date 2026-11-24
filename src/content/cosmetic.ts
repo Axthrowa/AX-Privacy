@@ -13,6 +13,7 @@ import {
   passwordTarget,
 } from '../engines/security/page-checks.ts';
 import { hostMatches } from '../shared/site.ts';
+import { blockLogin } from './login-guard.ts';
 import type { ExtendedRule, Settings } from '../shared/types.ts';
 
 declare global {
@@ -232,22 +233,34 @@ function claimedName(): string {
     .slice(0, 500);
 }
 
-// A sign-in page dressed as a brand whose domains it is not on: checked when a password field
-// gets focus, so pages that only mention a brand are left alone.
+// Sign-in on a fake-looking site (lookalike or fake government address, a page dressed as a brand
+// it is not on) is stopped. Asked only on pages with a password field, so others never wake the
+// worker; at load too, because password managers fill fields without focusing them.
 if (window === window.top) {
   let checked = false;
+  const check = () => {
+    if (checked) return;
+    checked = true;
+    const brand = loginBrandMismatch(location.href, claimedName());
+    void send('security/login', { brand })
+      .then((v) => {
+        if (v.block) blockLogin(v.reasons, () => send('security/allowLogin', {}));
+      })
+      .catch(() => undefined);
+  };
   addEventListener(
     'focusin',
     (e) => {
-      if (checked || !(e.target instanceof HTMLInputElement) || e.target.type !== 'password') {
-        return;
-      }
-      checked = true;
-      const brand = loginBrandMismatch(location.href, claimedName());
-      if (brand) void send('security/loginBrand', { brand }).catch(() => undefined);
+      if (e.target instanceof HTMLInputElement && e.target.type === 'password') check();
     },
     true,
   );
+  const early = () => {
+    if (document.querySelector('input[type="password"]')) check();
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', early, { once: true });
+  } else early();
 }
 
 // A password form posting to another site: reported once, when a password field gets focus.

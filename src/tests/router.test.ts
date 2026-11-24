@@ -29,7 +29,8 @@ function setup(initial: Partial<Settings> = {}) {
     brainTrackers: vi.fn(async () => []),
     brainSignal: vi.fn(async () => undefined),
     miner: vi.fn(async () => undefined),
-    loginBrand: vi.fn(async () => undefined),
+    login: vi.fn(async () => ({ block: false, reasons: [] })),
+    allowLogin: vi.fn(async () => undefined),
     brainNano: vi.fn<() => Promise<{ on: boolean; availability: NanoAvailability }>>(async () => ({
       on: false,
       availability: 'unavailable',
@@ -60,7 +61,7 @@ function setup(initial: Partial<Settings> = {}) {
       hosts: [],
       consent: null,
       brain: null,
-      risk: { level: 'none' as const, findings: [] },
+      risk: { level: 'none' as const, findings: [], official: null },
     })),
     consent: vi.fn(async () => null),
     proceed: vi.fn(async () => undefined),

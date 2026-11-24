@@ -62,6 +62,7 @@ describe('assessRisk', () => {
     ).toEqual({
       level: 'none',
       findings: [],
+      official: null,
     });
   });
 

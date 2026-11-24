@@ -32,7 +32,9 @@ Chromium tabanlı tarayıcılar (Brave, Chrome, Edge) ve Firefox için Manifest 
 
 - URL takip parametresi temizleme, üçüncü taraf çerez silme, çerez bildirimi reddi, WebRTC IP sızıntısı koruması, parmak izi gürültüsü.
 - Profiller: Dengeli, Sıkı ve Paranoyak (üçüncü taraf betikler engellenir, site başına izin popup'tan).
-- Homograph (taklit alan adı) uyarısı.
+- Taklit alan adı ve başka alfabe harfli adres (homograph) uyarısı; sahte görünen adreste simgede kırmızı "!".
+- Resmi devlet sitesi tanıma (gov.tr, gov.uk, .gov, gouv.fr ...) ve sahte devlet adresi uyarısı.
+- Sahte sitede giriş engeli: şifre alanı kilitlenir, form gönderilmez; kullanıcı isterse o site için açar.
 
 ### Video
 

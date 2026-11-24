@@ -4,6 +4,7 @@ import {
   contentScripts,
   controlRules,
   isProtected,
+  moduleOn,
   newFpSeed,
   sitesOff,
 } from '../engines/core/control.ts';
@@ -14,7 +15,7 @@ import { exportSettings, importSettings, loadSettings, saveSettings } from '../s
 import { parseStatsDump, StatsRecorder } from './stats.ts';
 import { clearCosmeticCache, cosmeticDom, cosmeticStart } from './cosmetic.ts';
 import { SCRIPTLET_DELTA_KEY, updateBuiltinLists } from './list-updates.ts';
-import { assessRisk } from '../engines/security/heuristics.ts';
+import { analyzeUrl, assessRisk, loginBlockers } from '../engines/security/heuristics.ts';
 import { loginBrandMismatch } from '../engines/security/page-checks.ts';
 import {
   applyFilters,
@@ -60,6 +61,7 @@ import {
 
 const stats = new StatsRecorder();
 const WARNINGS_KEY = 'youtubeWarnings';
+const BADGE_COLOR = '#5f6368';
 const youtubeWarnings = async (): Promise<YoutubeWarnings> =>
   ((await chrome.storage.local.get(WARNINGS_KEY))[WARNINGS_KEY] as YoutubeWarnings | undefined) ?? {
     count: 0,
@@ -177,12 +179,28 @@ async function setBadge(s: Settings, tab: chrome.tabs.Tab): Promise<void> {
   if (tab.id === undefined) return;
   const site = siteKey(tab.url);
   const off = site !== null && !isProtected(s, site);
+  // A fake-looking address gets a red "!" without the popup being opened.
+  const warn =
+    !off &&
+    site !== null &&
+    moduleOn(s, site, 'security') &&
+    analyzeUrl(tab.url ?? '').some((f) => f.severity !== 'low');
   // The tab may close between query and update.
   // null gives the tab back to the browser's own blocked-request count.
   await chrome.action
-    .setBadgeText({ tabId: tab.id, text: off ? 'OFF' : (null as unknown as string) })
+    .setBadgeText({ tabId: tab.id, text: off ? 'OFF' : warn ? '!' : (null as unknown as string) })
+    .catch(() => undefined);
+  await chrome.action
+    .setBadgeBackgroundColor({ tabId: tab.id, color: warn ? '#d93025' : BADGE_COLOR })
     .catch(() => undefined);
 }
+
+/** Hosts the user chose to sign in on despite the warning; ends with the browser session. */
+const LOGIN_ALLOWED_KEY = 'axLoginAllowed';
+const loginAllowed = async (): Promise<string[]> =>
+  ((await chrome.storage.session.get(LOGIN_ALLOWED_KEY))[LOGIN_ALLOWED_KEY] as
+    string[] | undefined) ?? [];
+const NO_BLOCK = { block: false, reasons: [] };
 
 // Startup and settings changes both rewrite the browser's rules: one at a time, so a stale
 // startup pass cannot wipe rules a settings change just added.
@@ -324,11 +342,27 @@ const route = createRouter({
     const url = (await chrome.tabs.get(tabId)).url;
     if (url) await reports.supportScam(tabId, url);
   },
-  loginBrand: async (tabId, brand) => {
-    const url = (await chrome.tabs.get(tabId)).url;
-    // The page's word alone could flag any site; the tab's address must really be another one.
-    if (url && loginBrandMismatch(url, brand) === brand)
-      await reports.loginBrand(tabId, url, brand);
+  login: async (tabId, url, brand) => {
+    const s = await loadSettings();
+    const site = siteKey(url);
+    if (!isProtected(s, site) || !moduleOn(s, site, 'security')) return NO_BLOCK;
+    // The page's word alone could flag any site; the address must really be another one.
+    const claimed = brand && loginBrandMismatch(url, brand) === brand ? brand : null;
+    if (claimed) await reports.loginBrand(tabId, url, claimed);
+    if ((await loginAllowed()).includes(new URL(url).hostname)) return NO_BLOCK;
+    const risk = assessRisk(url, {
+      insecurePassword: false,
+      bypassed: await wasProceeded(url),
+      loginBrand: claimed,
+    });
+    const hits = loginBlockers(risk);
+    return { block: hits.length > 0, reasons: hits.map((f) => f.text) };
+  },
+  allowLogin: async (url) => {
+    const host = new URL(url).hostname;
+    const hosts = await loginAllowed();
+    if (!hosts.includes(host))
+      await chrome.storage.session.set({ [LOGIN_ALLOWED_KEY]: [...hosts, host].slice(-200) });
   },
   miner: async (tabId, stopped) => {
     const url = (await chrome.tabs.get(tabId)).url;
@@ -412,7 +446,7 @@ const VERSION_KEY = 'appliedVersion';
 /** Migrates settings and rewrites everything the browser holds for us: rules and scripts. */
 function setUpThisVersion(): void {
   void ensureListAlarm();
-  void chrome.action.setBadgeBackgroundColor({ color: '#5f6368' });
+  void chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR });
   // Counted by the browser, so showing it costs no listener and no wake-up.
   void chrome.declarativeNetRequest.setExtensionActionOptions?.({
     displayActionCountAsBadgeText: true,

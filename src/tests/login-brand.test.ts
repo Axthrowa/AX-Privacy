@@ -24,12 +24,16 @@ describe('sign-in page brand check', () => {
   });
 
   it('accepts only known brands from the page and reports a high finding', () => {
-    expect(parseMessage({ type: 'security/loginBrand', brand: 'paypal' })).toEqual({
-      type: 'security/loginBrand',
+    expect(parseMessage({ type: 'security/login', brand: 'paypal' })).toEqual({
+      type: 'security/login',
       brand: 'paypal',
     });
-    expect(parseMessage({ type: 'security/loginBrand', brand: 'anything' })).toBeNull();
-    expect(parseMessage({ type: 'security/loginBrand', brand: '__proto__' })).toBeNull();
+    expect(parseMessage({ type: 'security/login', brand: null })).toEqual({
+      type: 'security/login',
+      brand: null,
+    });
+    expect(parseMessage({ type: 'security/login', brand: 'anything' })).toBeNull();
+    expect(parseMessage({ type: 'security/login', brand: '__proto__' })).toBeNull();
     const r = assessRisk('https://paypal-help.example/', {
       insecurePassword: false,
       bypassed: false,

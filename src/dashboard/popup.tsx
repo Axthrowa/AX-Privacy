@@ -43,6 +43,19 @@ const RISK_LABEL: Record<Exclude<RiskLevel, 'none'>, string> = {
 };
 
 function Security({ risk }: { risk: TabReport['risk'] }) {
+  if (risk.official && risk.level === 'none') {
+    return (
+      <div className="risk official" role="status">
+        <strong>{L('Resmi devlet sitesi', 'Official government site')}</strong>
+        <p>
+          {L(
+            `Adres yalnız devletin alabildiği "${risk.official}" alanında, sahte olamaz. Yine de sayfanın içeriği için dikkatli olun.`,
+            `The address is in "${risk.official}", which only a government can register, so it cannot be faked. Still take care with what the page asks.`,
+          )}
+        </p>
+      </div>
+    );
+  }
   if (risk.level === 'none') {
     return (
       <p className="note">
@@ -833,7 +846,9 @@ function Popup() {
         </span>
       </div>
 
-      {report?.url && report.risk.level !== 'none' && <Security risk={report.risk} />}
+      {report?.url && (report.risk.level !== 'none' || report.risk.official) && (
+        <Security risk={report.risk} />
+      )}
 
       <section className="card ax-brain-card">
         <div className="card-meta">

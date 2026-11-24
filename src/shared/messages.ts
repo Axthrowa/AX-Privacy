@@ -32,6 +32,12 @@ import { channelList, isSkipMode, isSponsorCategory, SPONSOR_CATEGORIES } from '
 
 type NoPayload = Record<never, never>;
 
+/** Whether a page's sign-in is stopped, with the reasons shown on the page. */
+export interface LoginVerdict {
+  block: boolean;
+  reasons: string[];
+}
+
 export interface DomFeatures {
   classes: string[];
   ids: string[];
@@ -97,7 +103,13 @@ export interface Api {
   /** From the page: crypto mining seen; `stopped` when its workers were ended. */
   'security/miner': { req: { stopped: boolean }; res: null };
   /** From the page: a sign-in page names `brand` but is not on its domains. */
-  'security/loginBrand': { req: { brand: string }; res: null };
+  /**
+   * A page with a password field asks whether sign-in should be stopped. `brand` is the brand its
+   * title or logo claims while the address is none of that brand's (checked again in the background).
+   */
+  'security/login': { req: { brand: string | null }; res: LoginVerdict };
+  /** The user chose to sign in anyway: the page's host is let through for this browser session. */
+  'security/allowLogin': { req: NoPayload; res: null };
   /** The top page reads like a fake "your PC is infected, call us" alert. */
   'security/supportScam': { req: NoPayload; res: null };
   /** Click-to-load: whether embeds are held back in this tab. */
@@ -161,7 +173,8 @@ export const CONTENT_TYPES: ReadonlySet<MessageType> = new Set<MessageType>([
   'security/insecurePassword',
   'security/passwordElsewhere',
   'security/miner',
-  'security/loginBrand',
+  'security/login',
+  'security/allowLogin',
   'security/supportScam',
   'video/segments',
   'video/warned',
@@ -331,6 +344,7 @@ export function parseMessage(raw: unknown): Message | null {
     case 'settings/export':
     case 'cosmetic/start':
     case 'security/insecurePassword':
+    case 'security/allowLogin':
     case 'security/supportScam':
     case 'video/warned':
     case 'video/warnings':
@@ -444,8 +458,8 @@ export function parseMessage(raw: unknown): Message | null {
         m.reasons.every((r) => typeof r === 'string' && /^[a-z-]{1,40}$/.test(r))
         ? { type: m.type, reasons: m.reasons as string[], features: m.features }
         : null;
-    case 'security/loginBrand':
-      return typeof m.brand === 'string' && Object.hasOwn(BRANDS, m.brand)
+    case 'security/login':
+      return m.brand === null || (typeof m.brand === 'string' && Object.hasOwn(BRANDS, m.brand))
         ? { type: m.type, brand: m.brand }
         : null;
     case 'security/miner':
