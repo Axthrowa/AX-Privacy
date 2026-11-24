@@ -43,12 +43,16 @@ async function inject(ctx: SenderContext, css: string): Promise<void> {
  * Generic and hostname-specific hiding for a frame at document_start. Only the first visit to a host
  * gets here; after that the content script reads the stored result itself.
  */
-export async function cosmeticStart(s: Settings, ctx: SenderContext): Promise<ExtendedRule[]> {
+export async function cosmeticStart(
+  s: Settings,
+  ctx: SenderContext,
+  generic = true,
+): Promise<ExtendedRule[]> {
   const engine = await cosmeticEngine(s);
   if (!engine) return [];
   const { active, styles, extended } = engine.getCosmeticsFilters({
     ...page(ctx.url),
-    getBaseRules: true,
+    getBaseRules: generic,
     getInjectionRules: false,
     getExtendedRules: true,
     getRulesFromHostname: true,

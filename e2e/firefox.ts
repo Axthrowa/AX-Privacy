@@ -55,7 +55,15 @@ const server = createServer((req, res) => {
     );
   }
 });
-await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+// Port 80 when free: list rules with a path (`||host/path`) do not match an address carrying a
+// port, so on any other port surrogate redirects fall back to the host-wide block rules.
+await new Promise<void>((done, fail) => {
+  server.once('error', (e: NodeJS.ErrnoException) => {
+    if (e.code !== 'EADDRINUSE' && e.code !== 'EACCES') return fail(e);
+    server.listen(0, '127.0.0.1', done);
+  });
+  server.listen(80, '127.0.0.1', done);
+});
 const port = (server.address() as AddressInfo).port;
 
 const profile = await mkdtemp(join(tmpdir(), 'nexus-firefox-'));
@@ -216,12 +224,13 @@ try {
       s.onerror = () => done('error');
       document.head.append(s);
     })`);
-  const ad = await load(`http://pagead2.googlesyndication.com:${port}/pagead/js/adsbygoogle.js`);
+  // A host-wide block with no surrogate (Peter Lowe's list).
+  const ad = await load(`http://101com.com:${port}/ad.js`);
   const own = await load(`/static/app.js`);
   check('network blocking (ad blocked, first party loads)', ad === 'error' && own === 'load', {
     ad,
     own,
-    reachedServer: hits.filter((h) => h.startsWith('pagead2')),
+    reachedServer: hits.filter((h) => h.startsWith('101com')),
   });
 
   await navigate(`http://www.youtube.com:${port}/watch?v=nexus`);
@@ -255,15 +264,16 @@ try {
 
   await navigate(site);
   const before = hits.length;
-  // shortcut: Firefox does not load the surrogate, so these rules act as plain blocks there: the ad
-  // stays out, but a page calling it can break. Assert the surrogate here once that is solved.
   const redirected = await load(
     `http://pagead2.googlesyndication.com:${port}/pagead/js/adsbygoogle.js`,
   );
+  const stub = await evaluate<string>('typeof window.adsbygoogle');
   check(
-    'a surrogate rule keeps the real ad script from reaching the server',
-    hits.length === before,
-    { redirected, hits: hits.slice(before) },
+    port === 80
+      ? 'the surrogate loads in place of the real ad script'
+      : 'a surrogate rule keeps the real ad script out (port in the address: plain block)',
+    hits.length === before && (port !== 80 || (redirected === 'load' && stub === 'object')),
+    { port, redirected, stub, hits: hits.slice(before) },
   );
 
   await navigate(`http://www.nexus-test.example:${port}/guard`);

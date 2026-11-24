@@ -150,10 +150,29 @@ export function createDefaultModel(): BrainModel {
   };
 }
 
-/** Accepts a stored model only when its shape matches; anything else falls back to the default. */
-export function normalizeModel(value: unknown): BrainModel {
+/**
+ * How far personal training may move each weight and the bias from the shipped model. Without it a
+ * long run of one-sided clicks walks the model away from what it was calibrated on.
+ */
+export const MAX_DRIFT = 2;
+const BASE = createDefaultModel();
+const weightIn = (w: number, i: number) => {
+  const b = BASE.weights[i] ?? 0;
+  return clamp(w, Math.max(-4, b - MAX_DRIFT), Math.min(4, b + MAX_DRIFT));
+};
+const biasIn = (v: number) =>
+  clamp(v, Math.max(-5, BASE.bias - MAX_DRIFT), Math.min(2, BASE.bias + MAX_DRIFT));
+/** The user may set the hiding threshold in this range. */
+export const THRESHOLD_MIN = 0.5;
+export const THRESHOLD_MAX = 0.99;
+
+/**
+ * A model of the right shape, pulled into the same bounds `train` keeps, or null. Imported files
+ * go through here too, so a hand-edited one cannot make AX-Brain hide everything.
+ */
+export function parseModel(value: unknown): BrainModel | null {
   const fallback = createDefaultModel();
-  if (!value || typeof value !== 'object') return fallback;
+  if (!value || typeof value !== 'object') return null;
   const m = value as Partial<BrainModel>;
   if (
     (m.version ?? 0) < fallback.version ||
@@ -162,19 +181,26 @@ export function normalizeModel(value: unknown): BrainModel {
     !m.weights.every(Number.isFinite) ||
     !Number.isFinite(m.bias)
   ) {
-    return fallback;
+    return null;
   }
   return {
     version: fallback.version,
-    weights: [...m.weights],
-    bias: m.bias as number,
-    threshold: Number.isFinite(m.threshold) ? (m.threshold as number) : fallback.threshold,
+    weights: m.weights.map(weightIn),
+    bias: biasIn(m.bias as number),
+    threshold: Number.isFinite(m.threshold)
+      ? clamp(m.threshold as number, THRESHOLD_MIN, THRESHOLD_MAX)
+      : fallback.threshold,
     learningRate: Number.isFinite(m.learningRate)
-      ? (m.learningRate as number)
+      ? clamp(m.learningRate as number, 0.001, 0.5)
       : fallback.learningRate,
-    sampleCount: Number.isFinite(m.sampleCount) ? (m.sampleCount as number) : 0,
+    sampleCount: Number.isFinite(m.sampleCount) ? Math.max(0, m.sampleCount as number) : 0,
     lastUpdated: Number.isFinite(m.lastUpdated) ? (m.lastUpdated as number) : Date.now(),
   };
+}
+
+/** Accepts a stored model only when its shape matches; anything else falls back to the default. */
+export function normalizeModel(value: unknown): BrainModel {
+  return parseModel(value) ?? createDefaultModel();
 }
 
 export function sigmoid(z: number): number {
@@ -194,8 +220,8 @@ export function predict(features: readonly number[], model: BrainModel): Predict
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /**
- * One online SGD step. Weights stay in [-4, 4] and bias in [-5, 2] so a burst of
- * clicks cannot push the model into blocking everything.
+ * One online SGD step. Weights stay in [-4, 4] and bias in [-5, 2], and each within MAX_DRIFT of
+ * the shipped model, so a burst of clicks cannot push the model into blocking everything.
  */
 export function train(
   features: readonly number[],
@@ -206,13 +232,13 @@ export function train(
   const error = label - predict(features, model).probability;
   const weights = model.weights.map((w, i) => {
     const next = w + learningRate * error * (features[i] ?? 0);
-    return Number.isFinite(next) ? clamp(next, -4, 4) : 0;
+    return Number.isFinite(next) ? weightIn(next, i) : (BASE.weights[i] ?? 0);
   });
   const bias = model.bias + learningRate * error;
   return {
     ...model,
     weights,
-    bias: Number.isFinite(bias) ? clamp(bias, -5, 2) : -2,
+    bias: Number.isFinite(bias) ? biasIn(bias) : BASE.bias,
     sampleCount: model.sampleCount + 1,
     lastUpdated: Date.now(),
   };

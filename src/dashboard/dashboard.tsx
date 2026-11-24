@@ -11,8 +11,12 @@ import type {
 import { isValidSite } from '../shared/site.ts';
 import { siteProfile } from '../engines/core/control.ts';
 import { About } from './About.tsx';
+import { Brain } from './Brain.tsx';
 import { detectBrave } from './brave.ts';
 import { Lists } from './Lists.tsx';
+import { Log } from './Log.tsx';
+import { Matrix } from './Matrix.tsx';
+import { RuleEditor } from './RuleEditor.tsx';
 import { mount } from './mount.tsx';
 import { Overview } from './Overview.tsx';
 import { Privacy } from './Privacy.tsx';
@@ -23,6 +27,7 @@ import { Welcome } from './Welcome.tsx';
 const NAV = [
   ['overview', L('Özet', 'Overview')],
   ['ads', L('Reklam', 'Ads')],
+  ['brain', 'AX-Brain'],
   ['privacy', L('Gizlilik', 'Privacy')],
   ['tracking', L('İzleme', 'Tracking')],
   ['fingerprint', L('Parmak izi', 'Fingerprint')],
@@ -33,6 +38,7 @@ const NAV = [
   ['lists', L('Listeler', 'Lists')],
   ['sites', L('Siteler', 'Sites')],
   ['advanced', L('Gelişmiş', 'Advanced')],
+  ['log', L('Filtre günlüğü', 'Filter log')],
   ['statistics', L('İstatistik', 'Statistics')],
   ['about', L('Hakkında', 'About')],
 ] as const;
@@ -122,8 +128,11 @@ function Dashboard() {
   return (
     <>
       <header>
-        <img src="icons/icon-48.png" alt="" width={36} height={36} />
-        <h1>AX Privacy</h1>
+        <span className="brand-icon" aria-hidden="true">
+          🛡️
+        </span>
+        <h1>AX-Privacy</h1>
+        <span className="brand-version">v{chrome.runtime.getManifest().version}</span>
         <button
           type="button"
           className="secondary"
@@ -177,6 +186,7 @@ function Dashboard() {
             />
           </>
         )}
+        {show('brain') && <Brain settings={settings} guard={guard} />}
         {show('welcome') && <Welcome settings={settings} guard={guard} />}
         {show('privacy') && <Privacy settings={settings} guard={guard} />}
         {show('tracking') && lists && (
@@ -238,6 +248,7 @@ function Dashboard() {
             setError={setError}
           />
         )}
+        {show('advanced') && <Matrix settings={settings} guard={guard} />}
         {show('advanced') && (
           <Rules
             draft={draft}
@@ -248,6 +259,7 @@ function Dashboard() {
             guard={guard}
           />
         )}
+        {show('log') && <Log />}
         {show('statistics') && overview}
         {show('about') && <About settings={settings} guard={guard} />}
       </main>
@@ -291,13 +303,7 @@ function Rules({
           </>,
         )}
       </p>
-      <textarea
-        aria-label={L('Özel kurallar', 'Custom rules')}
-        value={draft}
-        spellCheck={false}
-        rows={10}
-        onChange={(e) => setDraft(e.target.value)}
-      />
+      <RuleEditor value={draft} onChange={setDraft} />
       <button
         type="button"
         onClick={() =>
@@ -445,9 +451,33 @@ function ModuleToggles({
   return (
     <div className="modules">
       <Toggle
-        label={L('Ağ ve gizleme', 'Network and hiding')}
+        label={L('Ağ engeli (tüm katmanlar)', 'Network blocking (all layers)')}
         checked={profile.network}
         onChange={(on) => set({ network: on })}
+      />
+      <Toggle
+        label={L('Siteye özel gizleme', 'Site-specific hiding')}
+        checked={profile.cosmetic}
+        disabled={!profile.network}
+        onChange={(on) => set({ cosmetic: on })}
+      />
+      <Toggle
+        label={L('Genel gizleme', 'Generic hiding')}
+        checked={profile.generic}
+        disabled={!profile.network || !profile.cosmetic}
+        onChange={(on) => set({ generic: on })}
+      />
+      <Toggle
+        label={L('Scriptlet’ler', 'Scriptlets')}
+        checked={profile.scriptlets}
+        disabled={!profile.network}
+        onChange={(on) => set({ scriptlets: on })}
+      />
+      <Toggle
+        label={L('AX-Brain yapay zekâ', 'AX-Brain AI')}
+        checked={profile.brain}
+        disabled={!profile.network}
+        onChange={(on) => set({ brain: on })}
       />
       <Toggle
         label={L('Gizlilik', 'Privacy')}

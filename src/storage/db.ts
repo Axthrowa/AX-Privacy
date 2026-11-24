@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { CompiledRule, ListStats } from '../engines/adblock/network.ts';
+import type { TrackerRecord } from '../engines/brain/trackers.ts';
 
 export interface EngineBlob {
   name: string;
@@ -33,6 +34,8 @@ export interface ListUpdate {
   disableIds: number[];
   popupRules: CompiledRule[];
   documentRules: CompiledRule[];
+  /** `+js()` rows the packaged table lacks (see `tableDelta`). */
+  scriptletDelta?: string;
 }
 
 interface NexusSchema extends DBSchema {
@@ -40,12 +43,13 @@ interface NexusSchema extends DBSchema {
   stats: { key: [string, string]; value: DailyStat; indexes: { byDay: string } };
   lists: { key: string; value: StoredList };
   updates: { key: string; value: ListUpdate };
+  trackers: { key: string; value: TrackerRecord };
 }
 
 export type NexusDB = IDBPDatabase<NexusSchema>;
 
 export function openNexusDB(name = 'nexus'): Promise<NexusDB> {
-  return openDB<NexusSchema>(name, 3, {
+  return openDB<NexusSchema>(name, 4, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         db.createObjectStore('engines', { keyPath: 'name' });
@@ -54,6 +58,7 @@ export function openNexusDB(name = 'nexus'): Promise<NexusDB> {
       }
       if (oldVersion < 2) db.createObjectStore('lists', { keyPath: 'url' });
       if (oldVersion < 3) db.createObjectStore('updates', { keyPath: 'id' });
+      if (oldVersion < 4) db.createObjectStore('trackers', { keyPath: 'domain' });
     },
   });
 }
@@ -121,4 +126,26 @@ export async function pruneStatsBefore(db: NexusDB, day: string): Promise<void> 
     cursor = await cursor.continue();
   }
   await tx.done;
+}
+
+export function allTrackers(db: NexusDB): Promise<TrackerRecord[]> {
+  return db.getAll('trackers');
+}
+
+/** Writes changed records and removes dropped ones in one transaction. */
+export async function saveTrackers(
+  db: NexusDB,
+  put: TrackerRecord[],
+  remove: string[] = [],
+): Promise<void> {
+  const tx = db.transaction('trackers', 'readwrite');
+  await Promise.all([
+    ...put.map((r) => tx.store.put(r)),
+    ...remove.map((d) => tx.store.delete(d)),
+    tx.done,
+  ]);
+}
+
+export function clearTrackers(db: NexusDB): Promise<void> {
+  return db.clear('trackers');
 }

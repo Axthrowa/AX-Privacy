@@ -57,41 +57,46 @@ test('the breakage wizard relaxes one layer at a time and keeps what fixed it', 
   const site = await context.newPage();
   await site.goto(`http://${SITE}:${port}/`);
   const popup = await popupFor(context, worker, extensionId, site);
-  await expect(popup.locator('.site')).toHaveText('nexus-test.example');
+  await expect(popup.locator('.site-domain')).toHaveText('nexus-test.example');
 
+  await popup.getByText('Sayfa raporu ve sorun giderme').click();
   await popup.getByRole('button', { name: 'Bu sitede sorun var' }).click();
   await popup.getByRole('button', { name: 'Başla' }).click();
-  await expect(popup.getByText('Adım 1/4:')).toBeVisible();
+  // One layer off at a time, in the plan's order (Fix.tsx STEPS); the last step pauses the site.
+  const first = await popup.getByText(/^Adım 1\/\d+:/).textContent();
+  const total = Number(/\/(\d+):/.exec(first ?? '')?.[1]);
   await expect
     .poll(async () => (await settings(worker)).siteProfiles['nexus-test.example'])
-    .toMatchObject({ privacy: false, video: true, network: true });
+    .toMatchObject({ generic: false, network: true });
 
-  await popup.getByRole('button', { name: 'Hayır, devam et' }).click();
-  await expect(popup.getByText('Adım 2/4:')).toBeVisible();
-  await popup.getByRole('button', { name: 'Hayır, devam et' }).click();
-  await expect(popup.getByText('Adım 3/4:')).toBeVisible();
+  // Keep going until ad and tracker blocking is off too, the step before pausing.
+  for (let at = 2; at < total; at++) {
+    await popup.getByRole('button', { name: 'Hayır, devam et' }).click();
+    await expect(popup.getByText(`Adım ${at}/${total}:`)).toBeVisible();
+  }
   await expect
     .poll(async () => (await settings(worker)).siteProfiles['nexus-test.example'])
-    .toMatchObject({ privacy: false, video: false, network: false, security: true });
+    .toMatchObject({ generic: true, privacy: true, video: true, network: false, security: true });
   await popup.getByRole('button', { name: 'Evet, düzeldi' }).click();
   await expect(popup.getByText('reklam ve izleyici engelleme', { exact: true })).toBeVisible();
   await popup.getByRole('button', { name: 'Kapat' }).click();
 
-  // A second run that is undone puts the site back exactly as it was.
+  // A second run skips the layer already off; undoing it puts the site back exactly as it was.
+  // The report section is still open from the first run.
   await popup.getByRole('button', { name: 'Bu sitede sorun var' }).click();
   await popup.getByRole('button', { name: 'Başla' }).click();
-  await popup.getByRole('button', { name: 'Hayır, devam et' }).click();
-  await popup.getByRole('button', { name: 'Hayır, devam et' }).click();
-  await popup.getByRole('button', { name: 'Hayır, devam et' }).click();
-  await expect(popup.getByText('Adım 4/4:')).toBeVisible();
+  for (let at = 2; at <= total - 1; at++) {
+    await popup.getByRole('button', { name: 'Hayır, devam et' }).click();
+  }
+  await expect(popup.getByText(`Adım ${total - 1}/${total - 1}:`)).toBeVisible();
   await expect
     .poll(async () => (await settings(worker)).pausedSites)
     .toContain('nexus-test.example');
   await popup.getByRole('button', { name: 'Vazgeç ve geri al' }).click();
   await expect.poll(async () => (await settings(worker)).pausedSites).toEqual([]);
   expect((await settings(worker)).siteProfiles['nexus-test.example']).toMatchObject({
-    privacy: false,
-    video: false,
+    privacy: true,
+    video: true,
     network: false,
   });
   server.close();
@@ -111,8 +116,8 @@ test('the interface follows an English browser', async ({ browserKind }) => {
     await expect(dash).toHaveTitle('AX Privacy — Dashboard');
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${id}/popup.html`);
-    await expect(popup.getByText('Protection cannot run on this page')).toBeVisible();
-    await expect(popup.getByRole('switch', { name: 'All protection' })).toBeChecked();
+    await expect(popup.getByText('Browser System Page')).toBeVisible();
+    await expect(popup.getByRole('switch', { name: 'Ad & Tracker Blocking' })).toBeChecked();
   } finally {
     await brave.close();
   }

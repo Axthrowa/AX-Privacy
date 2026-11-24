@@ -224,6 +224,12 @@ export function toRe2(source: string): { regex: string; loosened: boolean } | nu
     regex = regex.slice(0, at) + regex.slice(end + 1);
     loosened = true;
   }
+  // Not even a JS regex (`^*x`): no browser accepts it, so it never becomes a rule.
+  try {
+    new RegExp(regex);
+  } catch {
+    return null;
+  }
   return { regex, loosened };
 }
 
@@ -593,7 +599,7 @@ export function compileList(
   const rules: CompiledRule[] = [
     ...[...merged.values()].map(({ base, domains }) => ({
       ...base,
-      condition: { ...base.condition, requestDomains: [...domains].sort() },
+      condition: { ...base.condition, requestDomains: withoutCovered(domains) },
     })),
     ...plain.values(),
   ];
@@ -606,6 +612,57 @@ export function compileList(
         r.condition.resourceTypes?.includes('main_frame')),
   );
   return { rules, popupRules: [...popups.values()], documentRules, stats };
+}
+
+/** Sorted domains minus those a listed parent already covers (`requestDomains` matches subdomains). */
+export function withoutCovered(domains: Iterable<string>): string[] {
+  const all = new Set(domains);
+  const covered = (d: string) => {
+    for (let i = d.indexOf('.'); i >= 0; i = d.indexOf('.', i + 1)) {
+      if (all.has(d.slice(i + 1))) return true;
+    }
+    return false;
+  };
+  return [...all].filter((d) => !covered(d)).sort();
+}
+
+/** The registrable-looking hosts a rule targets, for ranking by crawl frequency. */
+function ruleHosts(r: CompiledRule): string[] {
+  const own = /^\|\|([a-z0-9.-]+)/.exec(r.condition.urlFilter ?? '')?.[1];
+  return [...(r.condition.requestDomains ?? []), ...(own ? [own] : [])];
+}
+
+/**
+ * Keeps at most `budget` rules, the ones whose hosts were requested on the most crawled sites
+ * (`hits`: registrable domain or host -> site count, from scripts/brain-crawl.ts). Allow rules
+ * and rules naming no host always stay; ties keep list order.
+ */
+export function fitBudget(
+  rules: readonly CompiledRule[],
+  budget: number,
+  hits: Readonly<Record<string, number>>,
+): CompiledRule[] {
+  if (rules.length <= budget) return [...rules];
+  const score = (r: CompiledRule) => {
+    if (r.action.type !== 'block' && r.action.type !== 'redirect') return Infinity;
+    const hosts = ruleHosts(r);
+    if (!hosts.length) return Infinity;
+    let best = 0;
+    for (const h of hosts) {
+      for (let d = h; d; d = d.slice(d.indexOf('.') + 1 || d.length)) {
+        best = Math.max(best, hits[d] ?? 0);
+      }
+    }
+    return best;
+  };
+  const kept = new Set(
+    rules
+      .map((r, i) => ({ r, i, s: score(r) }))
+      .sort((a, b) => b.s - a.s || a.i - b.i)
+      .slice(0, budget)
+      .map((x) => x.r),
+  );
+  return rules.filter((r) => kept.has(r));
 }
 
 export function withIds(rules: readonly CompiledRule[], firstId: number): DnrRule[] {

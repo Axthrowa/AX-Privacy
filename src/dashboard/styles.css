@@ -1,13 +1,15 @@
 :root,
 :root[data-theme='dark'] {
+  /* Same palette as the popup (v4 layout). */
   color-scheme: dark;
-  --bg: #0b1410;
-  --panel: #12201a;
-  --line: #1f3a2d;
-  --text: #e6f2ec;
-  --muted: #8fa89b;
-  --accent: #2ecc71;
-  --error: #ff6b6b;
+  --bg: #0b1120;
+  --panel: #111827;
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --on: #3b82f6;
+  --error: #f87171;
 }
 
 :root[data-theme='light'] {
@@ -17,10 +19,19 @@
   --line: #c9d6ce;
   --text: #12201a;
   --muted: #5a7266;
-  --accent: #1b8a4a;
+  --accent: #0369a1;
+  --on: #2563eb;
   --error: #c0392b;
+}
+
+:root {
   font:
-    14px/1.45 system-ui,
+    14px/1.45 -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
     sans-serif;
   background: var(--bg);
   color: var(--text);
@@ -28,12 +39,33 @@
 
 body {
   margin: 0;
+  background: var(--bg);
+}
+
+body.dashboard > #root > header {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 20px 24px 12px;
 }
 
 header {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.brand-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.brand-version {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 
 header button {
@@ -55,16 +87,32 @@ nav {
 
 nav a {
   text-decoration: none;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+
+nav a:hover {
+  color: var(--text);
 }
 
 h1 {
-  font-size: 16px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
   margin: 0;
 }
 
+/* Section titles read like the popup's card labels. */
 h2 {
-  font-size: 15px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--muted);
   margin: 0 0 10px;
 }
 
@@ -75,10 +123,10 @@ code {
 }
 
 button {
-  background: var(--accent);
-  color: #04130b;
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  color: #fff;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 6px 12px;
   font-weight: 600;
   cursor: pointer;
@@ -110,10 +158,60 @@ button.link {
   cursor: default;
 }
 
-.toggle input {
-  accent-color: var(--accent);
-  width: 18px;
-  height: 18px;
+/* The popup's switch, shared by both pages. */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  /* Invisible but the size of the switch, so the whole switch takes the click and focus. */
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #334155;
+  transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 20px;
+}
+
+.slider:before {
+  position: absolute;
+  content: '';
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #ffffff;
+  transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+input:checked + .slider {
+  background-color: var(--on);
+}
+
+input:checked + .slider:before {
+  transform: translateX(16px);
+}
+
+input:focus-visible + .slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .muted,
@@ -149,7 +247,7 @@ body.dashboard main {
 section {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 16px;
 }
 
@@ -201,7 +299,7 @@ button:disabled {
   padding-bottom: 8px;
 }
 
-.lists .toggle span {
+.lists .toggle > span:first-child {
   word-break: break-all;
 }
 
@@ -342,6 +440,8 @@ button.secondary {
 
 .card strong {
   font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
 }
 
 .bars {
@@ -368,7 +468,7 @@ button.secondary {
 }
 
 .bars i.ads {
-  background: var(--accent);
+  background: #10b981;
 }
 .bars i.trackers {
   background: #3d8bfd;
@@ -404,7 +504,9 @@ h3 {
 }
 
 nav a[aria-current='page'] {
-  text-decoration: underline;
+  color: #fff;
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  border-color: transparent;
 }
 
 .modules {
@@ -424,4 +526,78 @@ nav a[aria-current='page'] {
     padding-left: 12px;
     padding-right: 12px;
   }
+}
+
+table.log {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+table.log th,
+table.log td {
+  text-align: left;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+table.log .log-url {
+  word-break: break-all;
+}
+table.log tr.log-blocked td {
+  color: var(--error);
+}
+
+.rule-editor {
+  position: relative;
+  margin-bottom: 8px;
+}
+.rule-editor pre,
+.rule-editor textarea {
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font:
+    13px/1.5 ui-monospace,
+    monospace;
+  white-space: pre;
+  overflow: auto;
+  box-sizing: border-box;
+  width: 100%;
+}
+.rule-editor pre {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  color: var(--text);
+  pointer-events: none;
+  border-color: transparent;
+  scrollbar-width: none;
+}
+.rule-editor textarea {
+  position: relative;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  resize: vertical;
+}
+.tok-comment {
+  color: var(--muted);
+}
+.tok-domain {
+  color: var(--accent);
+}
+.tok-separator,
+.tok-option {
+  color: #a855f7;
+}
+.tok-exception {
+  color: #16a34a;
+}
+.tok-error {
+  color: var(--error);
+  text-decoration: underline wavy;
+}
+.match-line {
+  display: block;
 }

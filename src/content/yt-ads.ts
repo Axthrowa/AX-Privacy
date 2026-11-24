@@ -44,7 +44,11 @@ const toString = Function.prototype.toString;
 Function.prototype.toString = disguise(
   new Proxy(toString, {
     apply(target, thisArg: object, args: []) {
-      return Reflect.apply(target, originals.get(thisArg) ?? thisArg, args) as string;
+      const original = originals.get(thisArg);
+      // Back through the current toString: scriptlets may have wrapped the same built-in too, with
+      // a disguise of their own; each layer then unwraps its proxy in turn.
+      if (original) return Reflect.apply(Function.prototype.toString, original, args) as string;
+      return Reflect.apply(target, thisArg, args) as string;
     },
   }),
   toString,

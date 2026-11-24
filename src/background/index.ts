@@ -5,6 +5,7 @@ import {
   controlRules,
   isProtected,
   newFpSeed,
+  sitesOff,
 } from '../engines/core/control.ts';
 import { parseMessage, senderKind, type Reply } from '../shared/messages.ts';
 import type { ConsentReport, Settings, YoutubeWarnings } from '../shared/types.ts';
@@ -12,8 +13,9 @@ import { siteKey } from '../shared/url.ts';
 import { exportSettings, importSettings, loadSettings, saveSettings } from '../storage/settings.ts';
 import { parseStatsDump, StatsRecorder } from './stats.ts';
 import { clearCosmeticCache, cosmeticDom, cosmeticStart } from './cosmetic.ts';
-import { updateBuiltinLists } from './list-updates.ts';
+import { SCRIPTLET_DELTA_KEY, updateBuiltinLists } from './list-updates.ts';
 import { assessRisk } from '../engines/security/heuristics.ts';
+import { loginBrandMismatch } from '../engines/security/page-checks.ts';
 import {
   applyFilters,
   blockingList,
@@ -33,13 +35,28 @@ import { syncSiteDataCleanup } from './site-data.ts';
 import { sponsorSegments } from './sponsor.ts';
 import {
   BRAIN_KEY,
+  brainPausedSites,
   brainPausedUntil,
+  importBrain,
   loadBrain,
+  setBrainThreshold,
   pauseBrain,
   trainBrain,
   trainBrainAll,
+  unpauseBrain,
 } from './brain.ts';
 import { setTabReports, sessionStore, TabReports } from './tab-report.ts';
+import { nanoAvailability, nanoJudge, nanoOn, setNano } from './nano.ts';
+import {
+  forgetAllTrackers,
+  forgetTracker,
+  installTrackerLearning,
+  trackerLearningStopped,
+  learnedTrackers,
+  notePageSignal,
+  trackerView,
+  type LearnGate,
+} from './trackers.ts';
 
 const stats = new StatsRecorder();
 const WARNINGS_KEY = 'youtubeWarnings';
@@ -55,6 +72,27 @@ const recordConsent = async (tabId: number, r: ConsentReport) => {
 };
 
 const APPLY_KEY = 'applyFingerprint';
+
+let learnGate: Promise<LearnGate> | null = null;
+const startLearning = () =>
+  installTrackerLearning(
+    () =>
+      (learnGate ??= loadSettings().then((s) => ({
+        on: s.enabled && s.shields.cosmetic,
+        skip: new Set([...sitesOff(s, 'brain'), ...sitesOff(s, 'network')]),
+      }))),
+    () => void inQueue(async () => apply(await loadSettings())),
+  );
+startLearning();
+// webRequest is an optional permission: start its listeners as soon as the user grants it.
+chrome.permissions.onAdded.addListener(() => {
+  startLearning();
+  void loadSettings().then(syncListeners);
+});
+chrome.permissions.onRemoved.addListener(() => {
+  trackerLearningStopped();
+  setTabReports(reports, false);
+});
 const FP_SEED_KEY = 'fpSeed';
 
 function scriptsKey(scripts: chrome.scripting.RegisteredContentScript[]): string {
@@ -103,7 +141,8 @@ async function apply(s: Settings): Promise<void> {
     control?: string;
     scripts?: string;
   };
-  const rules = controlRules(s);
+  learnGate = null;
+  const rules = controlRules(s, await learnedTrackers());
   const control = JSON.stringify(rules);
   if (control !== prev.control) {
     await chrome.declarativeNetRequest.updateDynamicRules({
@@ -111,7 +150,13 @@ async function apply(s: Settings): Promise<void> {
       addRules: rules,
     });
   }
-  const scripts = contentScripts(s, await sessionFpSeed());
+  const delta = (await chrome.storage.local.get(SCRIPTLET_DELTA_KEY))[SCRIPTLET_DELTA_KEY] as
+    Record<string, string> | undefined;
+  const scripts = contentScripts(
+    s,
+    await sessionFpSeed(),
+    Object.keys(delta ?? {}).some((id) => s.enabledLists.includes(id)),
+  );
   const key = scriptsKey(scripts);
   if (key !== prev.scripts) {
     const registered = await chrome.scripting.getRegisteredContentScripts();
@@ -180,7 +225,35 @@ const route = createRouter({
   brainPausedUntil,
   brainHidden: (tabId, url, reasons, features) =>
     reports.brainHidden(tabId, url, reasons, features),
-  brainReset: () => chrome.storage.local.remove(BRAIN_KEY),
+  brainReset: async () => {
+    await chrome.storage.local.remove(BRAIN_KEY);
+    await forgetAllTrackers();
+    await inQueue(async () => apply(await loadSettings()));
+  },
+  brainTrackers: trackerView,
+  brainSetThreshold: setBrainThreshold,
+  // Availability needs the offscreen document; it is opened only once the user turned layer 3 on.
+  brainNano: async () => {
+    const on = await nanoOn();
+    return { on, availability: on ? await nanoAvailability() : 'unavailable' };
+  },
+  brainAsk: nanoJudge,
+  brainSetNano: setNano,
+  brainSignal: notePageSignal,
+  brainForgetTracker: async (domain) => {
+    await forgetTracker(domain);
+    await inQueue(async () => apply(await loadSettings()));
+  },
+  brainPausedSites,
+  brainUnpause: unpauseBrain,
+  brainImport: importBrain,
+  brainBroke: async (tabId, url, incognito) => {
+    const site = siteKey(url);
+    if (!site) return;
+    await pauseBrain(site);
+    const features = await reports.takeBrainFeatures(tabId);
+    if (!incognito && features.length) await trainBrainAll(features, 0);
+  },
   brainPause: async (tabId) => {
     const tab = await chrome.tabs.get(tabId);
     const site = siteKey(tab.url);
@@ -200,7 +273,12 @@ const route = createRouter({
   },
   load: loadSettings,
   save: saveSettings,
-  apply: (s) => inQueue(() => apply(s)),
+  apply: (s) =>
+    inQueue(async () => {
+      await apply(s);
+      // Stored page styles were built for the old site profiles (generic hiding on or off).
+      await clearCosmeticCache();
+    }),
   applyFilters: (s) =>
     inQueue(async () => {
       await applyFilters(s);
@@ -217,10 +295,8 @@ const route = createRouter({
   tabReport: async (tabId) => {
     // Without detailed reports nothing tracks navigations, so the tab itself says where it is.
     const current = (await chrome.tabs.get(tabId)).url;
-    const { insecurePassword, passwordTarget, supportScam, ...report } = await reports.report(
-      tabId,
-      current,
-    );
+    const { insecurePassword, passwordTarget, supportScam, miner, loginBrand, ...report } =
+      await reports.report(tabId, current);
     const url = report.url ?? current ?? null;
     const page = { ...report, url, site: report.site ?? siteKey(url ?? undefined) };
     const bypassed = await wasProceeded(page.url);
@@ -231,7 +307,14 @@ const route = createRouter({
         report.brain || pausedUntil
           ? { count: 0, reasons: {}, ...report.brain, pausedUntil }
           : null,
-      risk: assessRisk(page.url, { insecurePassword, bypassed, passwordTarget, supportScam }),
+      risk: assessRisk(page.url, {
+        insecurePassword,
+        bypassed,
+        passwordTarget,
+        supportScam,
+        miner,
+        loginBrand,
+      }),
     };
   },
   consent: (msg, ctx) => handleConsent(msg, ctx, recordConsent),
@@ -240,6 +323,16 @@ const route = createRouter({
   supportScam: async (tabId) => {
     const url = (await chrome.tabs.get(tabId)).url;
     if (url) await reports.supportScam(tabId, url);
+  },
+  loginBrand: async (tabId, brand) => {
+    const url = (await chrome.tabs.get(tabId)).url;
+    // The page's word alone could flag any site; the tab's address must really be another one.
+    if (url && loginBrandMismatch(url, brand) === brand)
+      await reports.loginBrand(tabId, url, brand);
+  },
+  miner: async (tabId, stopped) => {
+    const url = (await chrome.tabs.get(tabId)).url;
+    if (url) await reports.miner(tabId, url, stopped);
   },
   passwordElsewhere: async (tabId, host) =>
     reports.passwordElsewhere(tabId, host, (await chrome.tabs.get(tabId)).url),

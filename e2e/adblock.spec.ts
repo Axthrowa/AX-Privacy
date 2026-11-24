@@ -160,6 +160,7 @@ test('built-in rulesets are enabled and block a real tracker URL', async ({ cont
     'ublock-badware',
     'ublock-privacy',
     'ublock-quick-fixes',
+    'ublock-resource-abuse',
     'ublock-unbreak',
     'urlhaus',
   ]);
@@ -197,6 +198,7 @@ test('turning a list off in the dashboard lets its requests through', async ({
       'brave-unbreak',
       'ublock-badware',
       'ublock-quick-fixes',
+      'ublock-resource-abuse',
       'ublock-unbreak',
       'urlhaus',
     ]);
@@ -240,7 +242,9 @@ test('custom network, $redirect, generic and procedural rules all take effect', 
     ].join('\n'),
   );
   await expect(dash.getByText('2 ağ kuralı, 2 gizleme kuralı etkin')).toBeVisible();
-  await expect(dash.locator('.rejected')).toContainText('yalnızca gömülü listelerden');
+  await expect(
+    dash.locator('.rejected', { hasText: 'yalnızca gömülü listelerden' }).last(),
+  ).toBeVisible();
 
   const page = await openPage(context, worker);
   expect(await loadScript(page, `${host('blocked.nexus-test.example')}/a.js`)).toBe('error');

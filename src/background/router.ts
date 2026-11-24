@@ -1,9 +1,12 @@
 import { L } from '../shared/i18n.ts';
-import type { BrainModel } from '../engines/brain/brain.ts';
+import { parseModel, type BrainModel } from '../engines/brain/brain.ts';
+import type { TrackerView } from '../engines/brain/trackers.ts';
+import type { NanoAvailability, NanoQuestion } from './nano.ts';
 import { pickedRule } from '../filters/custom.ts';
 import { moduleOn } from '../engines/core/control.ts';
 import { planFor } from '../engines/video/sponsorblock.ts';
 import { mergedProfile } from '../storage/settings.ts';
+import { LEVEL_LAYERS } from '../shared/site-level.ts';
 import { BUILTIN_IDS } from '../filters/catalog.ts';
 import {
   CONTENT_TYPES,
@@ -72,8 +75,28 @@ export interface RouterDeps {
     features: number[] | null,
   ): Promise<void>;
   brainPause(tabId: number): Promise<void>;
+  /** AX-Brain off on the tab's site for 7 days, and what it hid there unlearned; no reload. */
+  brainBroke(tabId: number, url: string, incognito: boolean): Promise<void>;
   brainReset(): Promise<void>;
-  cosmeticStart(s: Settings, ctx: SenderContext): Promise<ExtendedRule[]>;
+  brainPausedSites(): Promise<{ site: string; until: number }[]>;
+  brainUnpause(site: string): Promise<void>;
+  /** AX-Brain layer 2: learned trackers for the panel, and forgetting one. */
+  brainTrackers(): Promise<TrackerView[]>;
+  brainForgetTracker(domain: string): Promise<void>;
+  brainSetThreshold(threshold: number): Promise<void>;
+  /** AX-Brain layer 3 (Gemini Nano): state, one question, the switch. */
+  brainNano(): Promise<{ on: boolean; availability: NanoAvailability }>;
+  brainAsk(q: NanoQuestion): Promise<boolean | null>;
+  brainSetNano(on: boolean): Promise<void>;
+  /** A page-side tracking note: `source` is the script or frame that did it. */
+  brainSignal(
+    pageUrl: string,
+    source: string,
+    signal: 'storage' | 'fingerprint',
+    incognito: boolean,
+  ): Promise<void>;
+  brainImport(model: BrainModel): Promise<void>;
+  cosmeticStart(s: Settings, ctx: SenderContext, generic: boolean): Promise<ExtendedRule[]>;
   cosmeticDom(s: Settings, ctx: SenderContext, features: DomFeatures): Promise<ExtendedRule[]>;
   noteUserOpen(tabId: number, url: string): void;
   tabReport(tabId: number): Promise<TabReport>;
@@ -84,6 +107,10 @@ export interface RouterDeps {
   insecurePassword(tabId: number): Promise<void>;
   passwordElsewhere(tabId: number, host: string): Promise<void>;
   supportScam(tabId: number): Promise<void>;
+  /** Crypto mining on the tab's page, from any of its frames. */
+  miner(tabId: number, stopped: boolean): Promise<void>;
+  /** A sign-in page named a brand it is not on (checked again here against the tab's address). */
+  loginBrand(tabId: number, brand: string): Promise<void>;
   /** Whether click-to-load embeds were already let through in this tab. */
   embedsLoaded(tabId: number): Promise<boolean>;
   loadEmbeds(tabId: number): Promise<void>;
@@ -183,6 +210,23 @@ export function createRouter(deps: RouterDeps) {
         if (left.length > 0) await deps.schedulePauseEnd(Math.min(...left));
         return next;
       }
+      case 'site/setLevel':
+        return update((s) => {
+          const off = msg.level === 'off';
+          const pausedSites = off
+            ? [...new Set([...s.pausedSites, msg.site])].sort()
+            : s.pausedSites.filter((x) => x !== msg.site);
+          const pauseUntil = Object.fromEntries(
+            Object.entries(s.pauseUntil).filter(([site]) => site !== msg.site),
+          );
+          // 'off' keeps the layers as they were, so turning the site back on restores them.
+          if (msg.level === 'off') return { ...s, pausedSites, pauseUntil };
+          const merged = mergedProfile(s.siteProfiles[msg.site], LEVEL_LAYERS[msg.level]);
+          const { [msg.site]: old, ...others } = s.siteProfiles;
+          void old;
+          const siteProfiles = merged ? { ...others, [msg.site]: merged } : others;
+          return { ...s, pausedSites, pauseUntil, siteProfiles };
+        }, 'control');
       case 'site/setProfile':
         return update((s) => {
           const merged = mergedProfile(s.siteProfiles[msg.site], msg.profile);
@@ -313,10 +357,16 @@ export function createRouter(deps: RouterDeps) {
       case 'cosmetic/start':
       case 'cosmetic/dom': {
         const s = await deps.load();
-        if (!moduleOn(s, siteKey(ctx.tabUrl ?? ctx.url), 'network')) return { extended: [] };
+        const site = siteKey(ctx.tabUrl ?? ctx.url);
+        if (!moduleOn(s, site, 'network') || !moduleOn(s, site, 'cosmetic')) {
+          return { extended: [] };
+        }
+        // Generic rules are what the DOM scan matches; with them off only site rules remain.
+        const generic = moduleOn(s, site, 'generic');
+        if (msg.type === 'cosmetic/dom' && !generic) return { extended: [] };
         const extended =
           msg.type === 'cosmetic/start'
-            ? await deps.cosmeticStart(s, ctx)
+            ? await deps.cosmeticStart(s, ctx, generic)
             : await deps.cosmeticDom(s, ctx, msg);
         return { extended };
       }
@@ -382,6 +432,13 @@ export function createRouter(deps: RouterDeps) {
           await deps.insecurePassword(ctx.tabId);
         }
         return null;
+      case 'security/loginBrand':
+        if (ctx.tabId !== undefined && ctx.frameId === 0)
+          await deps.loginBrand(ctx.tabId, msg.brand);
+        return null;
+      case 'security/miner':
+        if (ctx.tabId !== undefined) await deps.miner(ctx.tabId, msg.stopped);
+        return null;
       case 'security/supportScam':
         if (ctx.tabId !== undefined && ctx.frameId === 0) await deps.supportScam(ctx.tabId);
         return null;
@@ -393,10 +450,28 @@ export function createRouter(deps: RouterDeps) {
       case 'brain/model': {
         const s = await deps.load();
         const site = siteKey(ctx.tabUrl ?? ctx.url);
-        if (!moduleOn(s, site, 'network')) return null;
+        if (!moduleOn(s, site, 'network') || !moduleOn(s, site, 'brain')) return null;
         if (site && (await deps.brainPausedUntil(site)) !== null) return null;
-        return { model: await deps.brainModel() };
+        const nano = await deps.brainNano();
+        return {
+          model: await deps.brainModel(),
+          nano: nano.on && nano.availability === 'available',
+        };
       }
+      case 'brain/ask': {
+        const s = await deps.load();
+        const site = siteKey(ctx.tabUrl ?? ctx.url);
+        if (!moduleOn(s, site, 'network') || !moduleOn(s, site, 'brain')) return null;
+        return deps.brainAsk({
+          text: msg.text,
+          hosts: msg.hosts,
+          width: msg.width,
+          height: msg.height,
+        });
+      }
+      case 'brain/setNano':
+        await deps.brainSetNano(msg.on);
+        return null;
       case 'brain/hidden':
         if (ctx.tabId === undefined) return null;
         // Private windows: counted for the popup, but nothing is kept to learn from.
@@ -410,9 +485,47 @@ export function createRouter(deps: RouterDeps) {
       case 'brain/pause':
         await deps.brainPause(msg.tabId);
         return null;
+      case 'brain/broke':
+        if (ctx.tabId === undefined) return null;
+        await deps.brainBroke(ctx.tabId, ctx.tabUrl ?? ctx.url, ctx.incognito === true);
+        return null;
       case 'brain/reset':
         await deps.brainReset();
         return null;
+      case 'brain/info':
+        return {
+          model: await deps.brainModel(),
+          paused: await deps.brainPausedSites(),
+          trackers: await deps.brainTrackers(),
+          nano: await deps.brainNano(),
+        };
+      case 'brain/signal':
+        if (ctx.tabUrl === undefined) return null;
+        await deps.brainSignal(ctx.tabUrl, msg.source, msg.signal, ctx.incognito === true);
+        return null;
+      case 'brain/setThreshold':
+        await deps.brainSetThreshold(msg.threshold);
+        return null;
+      case 'brain/forgetTracker':
+        await deps.brainForgetTracker(msg.domain);
+        return null;
+      case 'brain/import': {
+        const model = parseModel(msg.model);
+        if (!model) throw new Error(L('Geçersiz AX-Brain dosyası', 'Invalid AX-Brain file'));
+        await deps.brainImport(model);
+        return model;
+      }
+      case 'brain/unpause':
+        await deps.brainUnpause(msg.site);
+        return null;
+      case 'matrix/set':
+        return update(
+          (s) => ({
+            ...s,
+            matrix: { on: msg.on ?? s.matrix.on, rules: msg.rules ?? s.matrix.rules },
+          }),
+          'control',
+        );
       case 'shields/set':
         return update((s) => ({ ...s, shields: { ...s.shields, ...msg.shields } }), 'control');
       case 'embed/status':

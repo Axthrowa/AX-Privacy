@@ -17,7 +17,7 @@ export async function applyWebRtcPolicy(s: Settings): Promise<void> {
 
 /**
  * The browser's own ad features (Chromium): interest topics, on-device ad auctions and ad
- * measurement, plus `<a ping>` click reports. Off while AX asks for it; given back otherwise.
+ * measurement, plus `<a ping>` click reports and link preloading. Off while AX asks for it; given back otherwise.
  * Firefox has none of these, so nothing happens there.
  */
 export async function applyBrowserPrivacy(s: Settings): Promise<void> {
@@ -27,6 +27,8 @@ export async function applyBrowserPrivacy(s: Settings): Promise<void> {
     [w?.fledgeEnabled, s.privacy.browserAdApis],
     [w?.adMeasurementEnabled, s.privacy.browserAdApis],
     [w?.hyperlinkAuditingEnabled, s.privacy.cleanLinks],
+    // Preloading links the user never opened tells their sites about the visit anyway.
+    [chrome.privacy?.network?.networkPredictionEnabled, s.privacy.cleanLinks],
   ];
   await Promise.all(
     choices.map(async ([setting, off]) => {

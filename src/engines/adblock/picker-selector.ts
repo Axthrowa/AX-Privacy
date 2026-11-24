@@ -41,7 +41,7 @@ export function similarSelector(el: Element): string {
 /** This element only: walks up from it until the path is unique in the document. */
 export function uniqueSelector(el: Element): string {
   const parts: string[] = [];
-  for (let cur: Element | null = el; cur && cur !== document.documentElement;) {
+  for (let cur: Element | null = el; cur && cur !== el.ownerDocument.documentElement;) {
     const parent: Element | null = cur.parentElement;
     let part = own(cur);
     if (parent && !part.startsWith('#')) {
@@ -50,7 +50,7 @@ export function uniqueSelector(el: Element): string {
     }
     parts.unshift(part);
     const selector = parts.join(' > ');
-    if (document.querySelectorAll(selector).length === 1) return selector;
+    if (el.ownerDocument.querySelectorAll(selector).length === 1) return selector;
     cur = parent;
   }
   return parts.join(' > ');

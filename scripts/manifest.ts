@@ -16,6 +16,8 @@ export function toFirefoxManifest(chrome: ChromeManifest): Record<string, unknow
   // Firefox rejects `use_dynamic_url`; its extension URLs are already random per install.
   const resources = rest.web_accessible_resources as { use_dynamic_url?: boolean }[] | undefined;
   for (const entry of resources ?? []) delete entry.use_dynamic_url;
+  // No offscreen documents in Firefox; AX-Brain layer 3 stays off there.
+  rest.permissions = (rest.permissions as string[] | undefined)?.filter((p) => p !== 'offscreen');
   return {
     ...rest,
     background: { scripts: [background.service_worker], type: 'module' },

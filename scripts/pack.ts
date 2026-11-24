@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -37,5 +38,23 @@ for (const name of targets) {
   const bytes = (await stat(dest)).size;
   console.log(`${dest} (${Math.round(bytes / 1024 / 1024)} MB)`);
 }
+// Software bill of materials: every runtime package that ends up in the zips (CycloneDX).
+// Time and serial number are dropped, so the same lock file always gives the same file.
+const sbomName = `ax-privacy-${version}.cdx.json`;
+const sbom = JSON.parse(
+  execFileSync('npm', ['sbom', '--sbom-format', 'cyclonedx', '--omit', 'dev'], {
+    cwd: root,
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+    maxBuffer: 64 * 1024 * 1024,
+  }),
+) as { serialNumber?: string; metadata: { timestamp?: string; component?: { name?: string } } };
+delete sbom.serialNumber;
+delete sbom.metadata.timestamp;
+if (sbom.metadata.component) sbom.metadata.component.name = 'ax-privacy';
+const sbomText = `${JSON.stringify(sbom, null, 2)}\n`;
+await writeFile(resolve(root, 'dist', sbomName), sbomText);
+sums.push(`${createHash('sha256').update(sbomText).digest('hex')}  ${sbomName}`);
+
 await writeFile(resolve(root, 'dist', 'SHA256SUMS'), `${sums.join('\n')}\n`);
 console.log(sums.join('\n'));

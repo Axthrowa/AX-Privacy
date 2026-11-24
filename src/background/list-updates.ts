@@ -8,6 +8,12 @@ import {
   usefulTokens,
 } from '../engines/adblock/generic-tokens.ts';
 import { compileList, type DnrRule } from '../engines/adblock/network.ts';
+import {
+  compileScriptlets,
+  packagedTable,
+  SCRIPTLET_DELTA_KEY,
+  tableDelta,
+} from '../engines/adblock/scriptlets.ts';
 import { BUILTIN_LISTS, strictHosts, type BuiltinList } from '../filters/catalog.ts';
 import { safeCosmeticLines } from '../filters/custom.ts';
 import { includesOf, preprocess } from '../filters/preprocess.ts';
@@ -19,6 +25,7 @@ import { db, fetchPackaged, listBody, requestList, updateEngineName } from './fi
 
 export const STATUS_KEY = 'listUpdateStatus';
 export const EXTRA_TOKENS_KEY = 'genericTokensExtra';
+export { SCRIPTLET_DELTA_KEY };
 /** Set while a run may have stored lists it has not applied yet. */
 const UNAPPLIED_KEY = 'listUpdateUnapplied';
 
@@ -105,7 +112,13 @@ async function updateList(list: BuiltinList): Promise<{ added: number; removed: 
 
   const engine = FiltersEngine.parse(safeCosmeticLines(lines).join('\n'), COSMETIC_ENGINE_CONFIG);
   await saveEngine(updateEngineName(list.id), engine);
+  let scriptletDelta = '';
+  if (list.scriptlets) {
+    const shipped = await (await fetch(chrome.runtime.getURL(`scriptlets/${list.id}.js`))).text();
+    scriptletDelta = tableDelta(compileScriptlets(lines).table, packagedTable(shipped));
+  }
   await putUpdate(d, {
+    scriptletDelta,
     id: list.id,
     version: version(),
     fetchedAt: Date.now(),
@@ -152,6 +165,18 @@ async function rebuildDefaults(): Promise<void> {
   await chrome.storage.local.set({ [EXTRA_TOKENS_KEY]: encodeTokens(extra) });
 }
 
+/** Every list's current `+js()` rows newer than the package, for pages to pick up. */
+async function saveScriptletDeltas(): Promise<void> {
+  const d = await db();
+  const out: Record<string, string> = {};
+  for (const list of BUILTIN_LISTS) {
+    if (!list.scriptlets) continue;
+    const u = await getUpdate(d, list.id);
+    if (u?.version === version() && u.scriptletDelta) out[list.id] = u.scriptletDelta;
+  }
+  await chrome.storage.local.set({ [SCRIPTLET_DELTA_KEY]: out });
+}
+
 let running: Promise<ListUpdateStatus> | null = null;
 
 /** Brings every enabled list up to date. A list that fails keeps what it had. */
@@ -182,6 +207,7 @@ export function updateBuiltinLists(apply: () => Promise<void>): Promise<ListUpda
     }
     if (status.changed.length > 0 || interrupted) {
       await rebuildDefaults();
+      await saveScriptletDeltas();
       await apply();
     }
     await chrome.storage.local.remove(UNAPPLIED_KEY);

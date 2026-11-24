@@ -31,6 +31,42 @@ describe('parseMessage', () => {
       expect(parseMessage({ type: 'picker/add', selector: '.ad', features: bad })).toBeNull();
     }
   });
+  it('accepts brain/broke only with a known reason', () => {
+    expect(parseMessage({ type: 'brain/broke', reason: 'user' })).toEqual({
+      type: 'brain/broke',
+      reason: 'user',
+    });
+    expect(parseMessage({ type: 'brain/broke', reason: 'anything' })).toBeNull();
+  });
+
+  it('accepts a brain/setThreshold value only inside 0.5 to 0.99', () => {
+    expect(parseMessage({ type: 'brain/setThreshold', threshold: 0.8 })).toEqual({
+      type: 'brain/setThreshold',
+      threshold: 0.8,
+    });
+    for (const threshold of [0.2, 1, Number.NaN, '0.8']) {
+      expect(parseMessage({ type: 'brain/setThreshold', threshold })).toBeNull();
+    }
+  });
+
+  it('accepts brain/ask only with short text, a few hostnames and a size', () => {
+    const ok = { type: 'brain/ask', text: 'Bonus', hosts: ['bet.net'], width: 300, height: 250 };
+    expect(parseMessage(ok)).toEqual(ok);
+    expect(parseMessage({ ...ok, text: 'x'.repeat(401) })).toBeNull();
+    expect(parseMessage({ ...ok, hosts: ['a', 'b', 'c', 'd', 'e', 'f'] })).toBeNull();
+    expect(parseMessage({ ...ok, hosts: ['Bad Host'] })).toBeNull();
+    expect(parseMessage({ ...ok, width: 'wide' })).toBeNull();
+    expect(parseMessage({ type: 'brain/setNano', on: 'yes' })).toBeNull();
+  });
+
+  it('accepts brain/signal only with a known kind and a web source', () => {
+    const ok = { type: 'brain/signal', signal: 'fingerprint', source: 'https://t.net/fp.js' };
+    expect(parseMessage(ok)).toEqual(ok);
+    expect(parseMessage({ ...ok, signal: 'cookie' })).toBeNull();
+    expect(parseMessage({ ...ok, source: 'javascript:alert(1)' })).toBeNull();
+    expect(parseMessage({ ...ok, source: `https://t.net/${'x'.repeat(2048)}` })).toBeNull();
+  });
+
   it('accepts brain/hidden reports only with known-shaped reasons and a valid vector', () => {
     const features = new Array<number>(12).fill(0);
     expect(parseMessage({ type: 'brain/hidden', reasons: ['iab-dimension'], features })).toEqual({

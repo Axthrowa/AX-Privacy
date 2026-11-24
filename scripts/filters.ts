@@ -7,7 +7,10 @@
  *   public/engines/default.bin the default lists' engine, merged here so startup never merges
  *   public/scriptlets/<id>.js  `+js()` rules as a string table for the page script
  *   public/rulesets/meta.json  versions and conversion statistics
- * Usage: node scripts/filters.ts [--offline]   (--offline reuses filters-cache/)
+ * Usage: node scripts/filters.ts [--offline] [--hits hosts.json]
+ *   --offline reuses filters-cache/
+ *   --hits    host -> crawled-site counts from scripts/brain-crawl.ts; if the default lists ever
+ *             pass the browser's guaranteed 30,000 static rules, the least-seen rules go first
  */
 import { FiltersEngine } from '@ghostery/adblocker';
 import { execFile } from 'node:child_process';
@@ -19,6 +22,7 @@ import { encodeTokens, usefulTokens } from '../src/engines/adblock/generic-token
 import { compileScriptlets } from '../src/engines/adblock/scriptlets.ts';
 import {
   compileList,
+  fitBudget,
   shrinkCounts,
   withIds,
   type CompiledRule,
@@ -38,6 +42,12 @@ const rulesetDir = resolve(root, 'public/rulesets');
 const engineDir = resolve(root, 'public/engines');
 const scriptletDir = resolve(root, 'public/scriptlets');
 const offline = process.argv.includes('--offline');
+const hitsAt = process.argv.indexOf('--hits');
+const hits = (
+  hitsAt >= 0 ? JSON.parse(await readFile(process.argv[hitsAt + 1] ?? '', 'utf8')) : {}
+) as Record<string, number>;
+/** Chrome's guaranteed static rule count across enabled rulesets. */
+const CORE_BUDGET = 30_000;
 
 const cacheName = (url: string) => url.replace(/^https:\/\//, '').replace(/[^\w.-]+/g, '_');
 
@@ -157,6 +167,14 @@ for (const level of [1, 2, 3] as const) {
 }
 console.log(
   `regex: ${withRegex.length} rules, ${first.size} over the browser's limit, ${dropped.size} dropped`,
+);
+const always = compiled
+  .filter((c) => BUILTIN_LISTS.find((l) => l.id === c.id)?.defaultEnabled)
+  .flatMap((c) => c.rules.filter((r) => !dropped.has(r)));
+const core = new Set(fitBudget(always, CORE_BUDGET, hits));
+for (const r of always) if (!core.has(r)) dropped.add(r);
+console.log(
+  `core: ${always.length} default rules, ${always.length - core.size} over the ${CORE_BUDGET} budget dropped`,
 );
 for (const { id, rules, documentRules } of compiled) {
   const kept = rules.filter((r) => !dropped.has(r));

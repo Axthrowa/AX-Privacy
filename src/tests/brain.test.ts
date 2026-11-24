@@ -5,6 +5,8 @@ import {
   FEATURE_COUNT,
   IMMUNE_ROOTS,
   normalizeModel,
+  MAX_DRIFT,
+  parseModel,
   predict,
   rootDomain,
   train,
@@ -111,6 +113,30 @@ describe('AX-Brain model', () => {
     );
     const trained = train(vec({ 0: 1 }), 1, createDefaultModel());
     expect(normalizeModel(JSON.parse(JSON.stringify(trained))).weights).toEqual(trained.weights);
+  });
+
+  it('parses an imported model into the bounds training keeps', () => {
+    expect(parseModel({ weights: [] })).toBeNull();
+    const m = parseModel({
+      ...createDefaultModel(),
+      weights: new Array<number>(12).fill(-9),
+      threshold: 0.1,
+    });
+    expect(m?.weights).toEqual(createDefaultModel().weights.map((w) => w - MAX_DRIFT));
+    expect(m?.threshold).toBe(0.5);
+  });
+
+  it('personal training stays within MAX_DRIFT of the shipped model', () => {
+    const base = createDefaultModel();
+    let m = base;
+    const all = new Array<number>(FEATURE_COUNT).fill(1);
+    for (let i = 0; i < 500; i++) m = train(all, 0, m, 0.5);
+    m.weights.forEach((w, i) =>
+      expect(w).toBeGreaterThanOrEqual((base.weights[i] ?? 0) - MAX_DRIFT),
+    );
+    expect(m.bias).toBeGreaterThanOrEqual(base.bias - MAX_DRIFT);
+    for (let i = 0; i < 500; i++) m = train(all, 1, m, 0.5);
+    m.weights.forEach((w, i) => expect(w).toBeLessThanOrEqual((base.weights[i] ?? 0) + MAX_DRIFT));
   });
 
   it('1,000 predictions finish in under 15 ms', () => {

@@ -18,19 +18,23 @@ describe('manifest', () => {
       // Opt-in: clear cookies and storage of sites with no open tab (background/site-data.ts).
       'browsingData',
       'declarativeNetRequest',
+      // AX-Brain layer 3: the Prompt API exists in documents only (background/nano.ts).
+      'offscreen',
       // WebRTC address policy (background/location.ts).
       'privacy',
       'storage',
       'scripting',
       'tabs',
       'webNavigation',
-      // Observe-only (no blocking) for the per-page host report.
-      'webRequest',
     ]);
+    // Asked for only when the user turns on detailed reports, tracker learning or the filter log.
+    expect(manifest.optional_permissions).toEqual(['webRequest', 'declarativeNetRequestFeedback']);
     expect(manifest.host_permissions).toEqual(['http://*/*', 'https://*/*']);
     expect(manifest.externally_connectable).toBeUndefined();
     expect(manifest.content_security_policy.extension_pages).toContain("script-src 'self'");
-    expect(manifest.version).toBe(pkg.version);
+    // The build writes the version from package.json; a copy here would drift.
+    expect(manifest.version).toBeUndefined();
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
   it('declares one static ruleset per built-in list, matching the catalog defaults', () => {
@@ -76,7 +80,7 @@ describe('manifest', () => {
     expect(ff.background).toEqual({ scripts: ['background.js'], type: 'module' });
     expect(ff.minimum_chrome_version).toBeUndefined();
     expect(ff.browser_specific_settings.gecko.id).toBe(FIREFOX_ID);
-    expect(ff.permissions).toEqual(manifest.permissions);
+    expect(ff.permissions).toEqual(manifest.permissions.filter((p: string) => p !== 'offscreen'));
     expect(JSON.stringify(ff)).not.toContain('use_dynamic_url');
   });
 });

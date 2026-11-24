@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_SPONSOR_MODES } from '../shared/sponsor.ts';
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_SITE_PROFILE,
   exportSettings,
   importSettings,
   isValidListUrl,
@@ -30,6 +31,7 @@ describe('normalizeSettings', () => {
       'adguard-tr',
       'adguard-urltracking',
       'ublock-badware',
+      'ublock-resource-abuse',
       'urlhaus',
     ]);
   });
@@ -38,7 +40,9 @@ describe('normalizeSettings', () => {
     const old = normalizeSettings({ version: 2, enabledLists: ['easylist'] });
     expect(old.enabledLists).toContain('ublock-unbreak');
     expect(old.enabledLists).not.toContain('ublock');
-    const later = normalizeSettings({ version: 3, enabledLists: ['easylist'] });
+    const v3 = normalizeSettings({ version: 3, enabledLists: ['easylist'] });
+    expect(v3.enabledLists).toEqual(['easylist', 'ublock-resource-abuse']);
+    const later = normalizeSettings({ version: 4, enabledLists: ['easylist'] });
     expect(later.enabledLists).toEqual(['easylist']);
   });
 
@@ -55,6 +59,8 @@ describe('normalizeSettings', () => {
       browserAdApis: true,
       limitClientHints: true,
       clickToLoad: false,
+      blockThirdPartyScripts: false,
+      scriptSites: [],
       clearSiteData: false,
       keepSiteData: [],
       detailedReports: false,
@@ -69,7 +75,7 @@ describe('normalizeSettings', () => {
   it('keeps valid fields, dedupes and sorts sites, drops invalid ones', () => {
     expect(
       normalizeSettings({
-        version: 3,
+        version: 4,
         enabled: false,
         pausedSites: ['b.com', 'a.com', 'b.com', '*.evil', 5],
         enabledLists: ['ublock', 'nope', 'easylist'],
@@ -84,7 +90,7 @@ describe('normalizeSettings', () => {
         isBrave: true,
       }),
     ).toEqual({
-      version: 3,
+      version: 4,
       autoUpdateLists: true,
       pauseUntil: {},
       enabled: false,
@@ -100,6 +106,7 @@ describe('normalizeSettings', () => {
       video: DEFAULT_SETTINGS.video,
       theme: 'dark',
       shields: { cosmetic: true, popups: true },
+      matrix: { on: false, rules: [] },
       siteProfiles: {},
     });
   });
@@ -183,7 +190,15 @@ describe('normalizeSettings', () => {
       normalizeSettings({
         siteProfiles: { 'a.com': { network: false }, 'bad site': { network: false } },
       }).siteProfiles,
-    ).toEqual({ 'a.com': { network: false, privacy: true, video: true, security: true } });
+    ).toEqual({
+      'a.com': {
+        ...DEFAULT_SITE_PROFILE,
+        network: false,
+        privacy: true,
+        video: true,
+        security: true,
+      },
+    });
   });
 
   it('does not share default arrays between calls', () => {

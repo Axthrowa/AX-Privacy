@@ -3,35 +3,27 @@ import { L } from '../shared/i18n.ts';
 import { send } from '../shared/messages.ts';
 import type { SiteProfile } from '../shared/types.ts';
 
-/** From the least protection lost to the most; each step keeps the ones before it. */
-const STEPS: { patch: Partial<SiteProfile> | 'pause'; name: string; done: string }[] = [
-  {
-    patch: { privacy: false },
-    name: L('gizlilik korumaları', 'privacy protections'),
-    done: L(
-      'Bu sitede çerez, parmak izi ve takip başlığı korumaları kapatıldı.',
-      'Cookie, fingerprint and tracking-header protections are off on this site.',
-    ),
-  },
-  {
-    patch: { video: false },
-    name: L('video reklam katmanı', 'video ad layer'),
-    done: L('Video reklam katmanı da kapatıldı.', 'The video ad layer is off too.'),
-  },
-  {
-    patch: { network: false },
-    name: L('reklam ve izleyici engelleme', 'ad and tracker blocking'),
-    done: L(
-      'Reklam ve izleyici engelleme de kapatıldı. Tehlikeli site uyarıları açık kalır.',
-      'Ad and tracker blocking is off too. Dangerous-site warnings stay on.',
-    ),
-  },
-  {
-    patch: 'pause',
-    name: L('tüm koruma', 'all protection'),
-    done: L('AX bu sitede tamamen duraklatıldı.', 'AX is fully paused on this site.'),
-  },
+type Layer = Exclude<keyof SiteProfile, 'security'>;
+
+/**
+ * The plan's order: the layers most likely to break a page and cheapest to lose come first. Each
+ * step turns off only its own layer and puts the earlier ones back, so the one that fixes the
+ * page is the only one left off.
+ */
+export const STEPS: { layer: Layer | 'pause'; name: string }[] = [
+  { layer: 'generic', name: L('genel gizleme', 'generic hiding') },
+  { layer: 'scriptlets', name: L('scriptlet’ler', 'scriptlets') },
+  { layer: 'brain', name: L('AX-Brain yapay zekâ gizlemesi', 'AX-Brain AI hiding') },
+  { layer: 'cosmetic', name: L('siteye özel gizleme', 'site-specific hiding') },
+  { layer: 'privacy', name: L('gizlilik korumaları', 'privacy protections') },
+  { layer: 'video', name: L('video reklam katmanı', 'video ad layer') },
+  { layer: 'network', name: L('reklam ve izleyici engelleme', 'ad and tracker blocking') },
+  { layer: 'pause', name: L('tüm koruma', 'all protection') },
 ];
+
+/** Steps worth trying: a layer already off on this site cannot be what breaks it. */
+export const stepsFor = (profile: SiteProfile) =>
+  STEPS.filter((s) => s.layer === 'pause' || profile[s.layer]);
 
 type Stage = { at: number } | { fixed: number } | { notAx: true };
 
@@ -56,12 +48,17 @@ export function Fix({
   const [stage, setStage] = useState<Stage | null>(null);
   // The site as it was when the wizard opened; later renders get the relaxed profile.
   const [before] = useState(original);
+  const steps = stepsFor(before);
   const apply = (i: number) =>
     run(async () => {
-      const step = STEPS[i];
+      const step = steps[i];
       if (!step) return;
-      if (step.patch === 'pause') await send('site/setPaused', { site, paused: true });
-      else await send('site/setProfile', { site, profile: step.patch });
+      if (step.layer === 'pause') {
+        await send('site/setProfile', { site, profile: before });
+        await send('site/setPaused', { site, paused: true });
+      } else {
+        await send('site/setProfile', { site, profile: { ...before, [step.layer]: false } });
+      }
     }).then(() => setStage({ at: i }));
   const restore = () =>
     run(async () => {
@@ -74,8 +71,8 @@ export function Fix({
       <div className="wizard" role="region" aria-label={L('Sorun giderme', 'Fix a broken site')}>
         <p>
           {L(
-            'AX korumayı bu sitede adım adım gevşetecek ve her adımda sayfayı yenileyecek. Sayfa düzelince durun; düzelten ayar kalır.',
-            'AX will relax protection on this site one step at a time and reload the page after each. Stop when the page works; the setting that fixed it stays.',
+            'AX bu sitede katmanları tek tek kapatıp her seferinde sayfayı yenileyecek: genel gizleme, scriptlet’ler, yapay zekâ, siteye özel gizleme, sonra gizlilik, video ve ağ engeli. Sayfa düzelince durun; yalnızca sorunu çözen katman kapalı kalır.',
+            'AX will turn layers off one at a time on this site and reload the page after each: generic hiding, scriptlets, AI, site-specific hiding, then privacy, video and network blocking. Stop when the page works; only the layer that fixed it stays off.',
           )}
         </p>
         <div className="row">
@@ -91,14 +88,14 @@ export function Fix({
   }
 
   if ('fixed' in stage) {
-    const step = STEPS[stage.fixed];
+    const step = steps[stage.fixed];
     return (
       <div className="wizard" role="status">
         <p>
           {L('Sorunu çözen:', 'Fixed by turning off:')} <strong>{step?.name}</strong>.{' '}
           {L(
-            'Bu sitede böyle kalacak; Kontrol paneli › Siteler bölümünden geri açabilirsiniz.',
-            'It stays this way on this site; you can turn it back on under Dashboard › Sites.',
+            'Bu sitede yalnızca bu katman kapalı kalacak; diğerleri açık. Kontrol paneli › Siteler bölümünden geri açabilirsiniz.',
+            'Only this layer stays off on this site; the rest are on. You can turn it back on under Dashboard › Sites.',
           )}
         </p>
         <div className="row">
@@ -138,13 +135,15 @@ export function Fix({
     );
   }
 
-  const step = STEPS[stage.at];
-  const last = stage.at === STEPS.length - 1;
+  const step = steps[stage.at];
+  const last = stage.at === steps.length - 1;
   return (
     <div className="wizard" role="status">
       <p>
-        {L(`Adım ${stage.at + 1}/${STEPS.length}:`, `Step ${stage.at + 1}/${STEPS.length}:`)}{' '}
-        {step?.done}{' '}
+        {L(`Adım ${stage.at + 1}/${steps.length}:`, `Step ${stage.at + 1}/${steps.length}:`)}{' '}
+        {step?.layer === 'pause'
+          ? L('AX bu sitede tamamen duraklatıldı.', 'AX is fully paused on this site.')
+          : L(`Yalnızca ${step?.name ?? ''} kapatıldı.`, `Only ${step?.name ?? ''} is off.`)}{' '}
         {L(
           'Sayfa yenilendi. Şimdi düzgün çalışıyor mu?',
           'The page was reloaded. Does it work now?',

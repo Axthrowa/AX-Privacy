@@ -15,80 +15,85 @@ test.beforeAll(async () => {
 });
 test.afterAll(() => server.close());
 
-test('overview counts a blocked request, theme changes, and a site can be paused from the form', async ({
-  context,
-  extensionId,
-}) => {
-  const dash = await context.newPage();
-  await dash.goto(`chrome-extension://${extensionId}/dashboard.html#overview`);
-  await dash.evaluate(() =>
-    chrome.runtime.sendMessage({ type: 'privacy/set', privacy: { detailedReports: true } }),
-  );
-  await expect(dash.getByRole('heading', { name: 'Özet' })).toBeVisible();
-  await expect(dash.getByText('bugün · Engellenen istek')).toBeVisible();
-  await expect(dash.getByText('Henüz engellenen istek yok')).toBeVisible();
-  const nav = dash.getByRole('navigation', { name: 'Sayfalar' });
-  for (const name of [
-    'Özet',
-    'Reklam',
-    'Gizlilik',
-    'İzleme',
-    'Parmak izi',
-    'Güvenlik',
-    'Dolandırıcılık',
-    'Video',
-    'Çerez',
-    'Listeler',
-    'Siteler',
-    'Gelişmiş',
-    'İstatistik',
-    'Hakkında',
-  ]) {
-    await expect(nav.getByRole('link', { name, exact: true })).toBeVisible();
-  }
+// Detailed reports need the optional webRequest permission.
+test.describe('with the optional permissions granted', () => {
+  test.use({ grantOptional: true });
 
-  const page = await context.newPage();
-  await page.goto(`${host('site.nexus-test.example')}/`);
-  await page.evaluate(
-    (src) =>
-      new Promise<void>((done) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.onload = () => done();
-        s.onerror = () => done();
-        document.head.append(s);
-      }),
-    `http://www.googletagmanager.com:${port}/gtm.js`,
-  );
-  await expect
-    .poll(async () =>
-      dash.evaluate(async () => {
-        const r = (await chrome.runtime.sendMessage({ type: 'stats/get', days: 7 })) as {
-          data: { totals: { requests: number } };
-        };
-        return r.data.totals.requests;
-      }),
-    )
-    .toBeGreaterThan(0);
-  const hosts = await dash.evaluate(async () => {
-    const r = (await chrome.runtime.sendMessage({ type: 'stats/get', days: 7 })) as {
-      data: { topHosts: { host: string }[] };
-    };
-    return r.data.topHosts.map((h) => h.host);
+  test('overview counts a blocked request, theme changes, and a site can be paused from the form', async ({
+    context,
+    extensionId,
+  }) => {
+    const dash = await context.newPage();
+    await dash.goto(`chrome-extension://${extensionId}/dashboard.html#overview`);
+    await dash.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'privacy/set', privacy: { detailedReports: true } }),
+    );
+    await expect(dash.getByRole('heading', { name: 'Özet' })).toBeVisible();
+    await expect(dash.getByText('bugün · Engellenen istek')).toBeVisible();
+    await expect(dash.getByText('Henüz engellenen istek yok')).toBeVisible();
+    const nav = dash.getByRole('navigation', { name: 'Sayfalar' });
+    for (const name of [
+      'Özet',
+      'Reklam',
+      'Gizlilik',
+      'İzleme',
+      'Parmak izi',
+      'Güvenlik',
+      'Dolandırıcılık',
+      'Video',
+      'Çerez',
+      'Listeler',
+      'Siteler',
+      'Gelişmiş',
+      'İstatistik',
+      'Hakkında',
+    ]) {
+      await expect(nav.getByRole('link', { name, exact: true })).toBeVisible();
+    }
+
+    const page = await context.newPage();
+    await page.goto(`${host('site.nexus-test.example')}/`);
+    await page.evaluate(
+      (src) =>
+        new Promise<void>((done) => {
+          const s = document.createElement('script');
+          s.src = src;
+          s.onload = () => done();
+          s.onerror = () => done();
+          document.head.append(s);
+        }),
+      `http://www.googletagmanager.com:${port}/gtm.js`,
+    );
+    await expect
+      .poll(async () =>
+        dash.evaluate(async () => {
+          const r = (await chrome.runtime.sendMessage({ type: 'stats/get', days: 7 })) as {
+            data: { totals: { requests: number } };
+          };
+          return r.data.totals.requests;
+        }),
+      )
+      .toBeGreaterThan(0);
+    const hosts = await dash.evaluate(async () => {
+      const r = (await chrome.runtime.sendMessage({ type: 'stats/get', days: 7 })) as {
+        data: { topHosts: { host: string }[] };
+      };
+      return r.data.topHosts.map((h) => h.host);
+    });
+    expect(hosts).toContain('www.googletagmanager.com');
+    await dash.reload();
+    await expect(dash.getByText('www.googletagmanager.com')).toBeVisible();
+
+    await expect(dash.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await dash.getByRole('button', { name: 'Açık tema' }).click();
+    await expect(dash.locator('html')).toHaveAttribute('data-theme', 'light');
+
+    await dash.goto(`chrome-extension://${extensionId}/dashboard.html#sites`);
+    await dash.getByLabel('Duraklatılacak site').fill('example.com');
+    await dash.getByRole('button', { name: 'Duraklat' }).click();
+    await expect(dash.getByText('example.com', { exact: true })).toBeVisible();
+    await expect(dash.getByRole('button', { name: 'Korumayı aç' })).toBeVisible();
   });
-  expect(hosts).toContain('www.googletagmanager.com');
-  await dash.reload();
-  await expect(dash.getByText('www.googletagmanager.com')).toBeVisible();
-
-  await expect(dash.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await dash.getByRole('button', { name: 'Açık tema' }).click();
-  await expect(dash.locator('html')).toHaveAttribute('data-theme', 'light');
-
-  await dash.goto(`chrome-extension://${extensionId}/dashboard.html#sites`);
-  await dash.getByLabel('Duraklatılacak site').fill('example.com');
-  await dash.getByRole('button', { name: 'Duraklat' }).click();
-  await expect(dash.getByText('example.com', { exact: true })).toBeVisible();
-  await expect(dash.getByRole('button', { name: 'Korumayı aç' })).toBeVisible();
 });
 
 test('settings export and import restore a pause without taking the Brave flag', async ({

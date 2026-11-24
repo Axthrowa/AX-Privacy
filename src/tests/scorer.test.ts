@@ -24,6 +24,12 @@ function el(o: MockOpts): Element {
     className: o.className ?? '',
     textContent: o.text ?? '',
     getAttribute: (n: string) => o.attrs?.[n] ?? null,
+    hasAttribute: (n: string) => n in (o.attrs ?? {}),
+    attributes: Object.keys(o.attrs ?? {}).map((name) => ({ name })),
+    parentElement: null,
+    children: [],
+    shadowRoot: null,
+    getRootNode: () => ({}),
     closest: (sel: string) => ((o.inside ?? []).some((k) => sel.includes(k)) ? {} : null),
     querySelector: (sel: string) =>
       (o.contains ?? []).some((k) => sel.includes(k))
@@ -122,9 +128,23 @@ describe('scoreElement: ads are hidden', () => {
     const f = new Array<number>(FEATURE_COUNT).fill(0);
     f[0] = 1;
     for (let i = 0; i < 40; i++) model = train(f, 1, model, 0.5);
-    const r = scoreElement(subject, { ...ctx, model });
+    const r = scoreElement(subject, { ...ctx, model, mlp: null });
     expect(r.reasons).toContain('ax-brain-model');
     expect(r.shouldHide).toBe(true);
+  });
+
+  it('AX-Brain alone does not hide below 0.85, it only adds weight', () => {
+    const subject = el({});
+    const ctx = base({ computedStyle: style({ position: 'sticky' }), rect: rect(0, 0, 300, 50) });
+    // sigmoid(0.85) ≈ 0.70: over the 0.65 threshold, under the bar for acting alone.
+    const unsure = {
+      ...createDefaultModel(),
+      weights: new Array<number>(FEATURE_COUNT).fill(0),
+      bias: 0.85,
+    };
+    const r = scoreElement(subject, { ...ctx, model: unsure, mlp: null });
+    expect(r.reasons).toContain('ax-brain-model');
+    expect(r.shouldHide).toBe(false);
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "ax-privacy",
-  "version": "4.1.0",
+  "version": "5.0.0",
   "description": "Gelişmiş reklam engelleme, AX-Brain yerel öğrenen kalkan, URL izleyici temizleyici, yerel tehdit kalkanı, Twitch SSAI, YouTube kalkanı ve kırılmaz pop-up koruması.",
   "private": true,
   "license": "GPL-3.0-or-later",
@@ -18,7 +18,9 @@
     "e2e:chromium": "playwright test --project chromium",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test",
     "release": "npm run filters && npm run build && npm run check && npm run pack",
-    "filters:offline": "node scripts/filters.ts --offline"
+    "filters:offline": "node scripts/filters.ts --offline",
+    "brands": "node scripts/brands.ts",
+    "repro": "node scripts/repro.ts"
   },
   "dependencies": {
     "@duckduckgo/autoconsent": "^17.2.0",

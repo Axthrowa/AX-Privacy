@@ -28,6 +28,8 @@ describe('TabReports', () => {
       insecurePassword: false,
       passwordTarget: null,
       supportScam: false,
+      miner: null,
+      loginBrand: null,
       brain: null,
       hosts: [
         { host: 'tracker.test', thirdParty: true, loaded: 0, blocked: 2 },
@@ -64,6 +66,8 @@ describe('TabReports', () => {
       insecurePassword: false,
       passwordTarget: null,
       supportScam: false,
+      miner: null,
+      loginBrand: null,
       brain: null,
     });
     await b.closed(2);

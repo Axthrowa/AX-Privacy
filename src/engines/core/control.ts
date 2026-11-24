@@ -1,11 +1,12 @@
 import { BUILTIN_LISTS } from '../../filters/catalog.ts';
 import type { Settings, SiteProfile } from '../../shared/types.ts';
-import { DEFAULT_SITE_PROFILE } from '../../storage/settings.ts';
+import { DEFAULT_SITE_PROFILE, PROFILE_KEYS } from '../../storage/settings.ts';
 import { isIp } from '../../shared/url.ts';
 import { AD_MUTE_SITES } from '../video/ad-state.ts';
 import { VAST_REQUEST_REGEX } from '../video/generic.ts';
 import { TWITCH_SITES, YOUTUBE_SITES } from '../video/youtube.ts';
 import { CDN_COOKIE_HOSTS } from './cdn-cookies.ts';
+import { MATRIX_FIRST_ID, MAX_MATRIX_RULES, matrixRules, parseMatrix } from './matrix.ts';
 import { PROTECTED_HOSTS, PROTECTED_PATTERNS } from './protected-hosts.ts';
 
 /** Client Hints that tell device details beyond the default ones (brand, mobile, platform). */
@@ -40,6 +41,11 @@ export const RULE_EMPTY_VAST = 14;
 export const RULE_CLIENT_HINTS = 15;
 /** Click-to-load: one rule per embed regex, 16 to 19. */
 export const RULE_CLICK_TO_LOAD = 16;
+/** AX-Brain layer 2: one rule per action over every learned tracker. */
+export const RULE_LEARNED_COOKIES = 20;
+export const RULE_LEARNED_BLOCK = 21;
+/** Paranoid profile: scripts from other sites, except on sites the user allowed. */
+export const RULE_THIRD_PARTY_SCRIPTS = 22;
 export const CONTROL_RULE_IDS = [
   RULE_GLOBAL_OFF,
   RULE_PAUSED_SITES,
@@ -60,7 +66,13 @@ export const CONTROL_RULE_IDS = [
   RULE_CLICK_TO_LOAD + 1,
   RULE_CLICK_TO_LOAD + 2,
   RULE_CLICK_TO_LOAD + 3,
+  RULE_LEARNED_COOKIES,
+  RULE_LEARNED_BLOCK,
+  RULE_THIRD_PARTY_SCRIPTS,
+  ...Array.from({ length: MAX_MATRIX_RULES }, (_, i) => MATRIX_FIRST_ID + i),
 ];
+/** Above list exceptions, so an unbreak rule does not quietly let every script through. */
+export const SCRIPT_RULE_PRIORITY = 50;
 /** Above filter-list exceptions (which would otherwise skip header removal), below pausing. */
 export const COOKIE_RULE_PRIORITY = 100;
 /**
@@ -101,6 +113,7 @@ export const CONTENT_SCRIPT_FILES = {
   'fp-strict': 'content/fp-strict.js',
   popups: 'content/popups.js',
   scriptlets: 'content/scriptlets.js',
+  'scriptlets-delta': 'content/scriptlets-delta.js',
   gpc: 'content/gpc.js',
   locale: 'content/locale.js',
   'tw-ads': 'content/tw-ads.js',
@@ -115,6 +128,9 @@ export const CONTENT_SCRIPT_FILES = {
   'video-generic': 'content/video-generic.js',
   'click-to-load': 'content/click-to-load.js',
   'brain-scan': 'content/brain-scan.js',
+  'brain-signals': 'content/brain-signals.js',
+  'miner-guard': 'content/miner-guard.js',
+  'miner-relay': 'content/miner-relay.js',
 } as const;
 /**
  * Main-world scripts cannot receive a value from the worker synchronously, so the fingerprint
@@ -158,7 +174,16 @@ const ALLOW_ALL = 'allowAllRequests' as RuleActionType;
 const MAIN_FRAME = 'main_frame' as ResourceType;
 const SUB_FRAME = 'sub_frame' as ResourceType;
 
-export function controlRules(s: Settings): Rule[] {
+/** Trackers AX-Brain learned, per action (see `engines/brain/trackers.ts`). */
+export interface LearnedTrackers {
+  cookie: string[];
+  block: string[];
+}
+
+export function controlRules(
+  s: Settings,
+  learned: LearnedTrackers = { cookie: [], block: [] },
+): Rule[] {
   const rules: Rule[] = [];
   if (!s.enabled) {
     rules.push({
@@ -402,6 +427,70 @@ export function controlRules(s: Settings): Rule[] {
       }),
     );
   }
+  // Learned trackers follow AX-Brain: off where it or the network layer is off for the page.
+  if (s.enabled && s.shields.cosmetic) {
+    const skip = [...new Set([...sitesOff(s, 'brain'), ...sitesOff(s, 'network')])].sort();
+    const except = skip.length > 0 ? { excludedInitiatorDomains: skip } : {};
+    if (learned.cookie.length > 0 && !s.privacy.blockThirdPartyCookies) {
+      rules.push({
+        id: RULE_LEARNED_COOKIES,
+        priority: COOKIE_RULE_PRIORITY,
+        action: {
+          type: 'modifyHeaders' as RuleActionType,
+          requestHeaders: [
+            {
+              header: 'cookie',
+              operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation,
+            },
+          ],
+          responseHeaders: [
+            {
+              header: 'set-cookie',
+              operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation,
+            },
+          ],
+        },
+        condition: {
+          requestDomains: learned.cookie,
+          domainType: 'thirdParty' as chrome.declarativeNetRequest.DomainType,
+          excludedResourceTypes: [MAIN_FRAME],
+          ...except,
+        },
+      });
+    }
+    // Lowest priority: any list exception (an unbreak rule) wins over a learned block.
+    if (learned.block.length > 0) {
+      rules.push({
+        id: RULE_LEARNED_BLOCK,
+        priority: 1,
+        action: { type: 'block' as RuleActionType },
+        condition: {
+          requestDomains: learned.block,
+          domainType: 'thirdParty' as chrome.declarativeNetRequest.DomainType,
+          excludedResourceTypes: [MAIN_FRAME],
+          ...except,
+        },
+      });
+    }
+  }
+  if (s.enabled && s.matrix.on) rules.push(...matrixRules(parseMatrix(s.matrix.rules)));
+  if (s.enabled && s.privacy.blockThirdPartyScripts) {
+    // Payment, bank and captcha pages and scripts are never cut: a broken checkout costs money.
+    const skip = [
+      ...new Set([...s.privacy.scriptSites, ...sitesOff(s, 'privacy'), ...PROTECTED_HOSTS]),
+    ].sort();
+    rules.push({
+      id: RULE_THIRD_PARTY_SCRIPTS,
+      priority: SCRIPT_RULE_PRIORITY,
+      action: { type: 'block' as RuleActionType },
+      condition: {
+        domainType: 'thirdParty' as chrome.declarativeNetRequest.DomainType,
+        resourceTypes: ['script' as ResourceType],
+        excludedInitiatorDomains: skip,
+        excludedRequestDomains: [...PROTECTED_HOSTS],
+      },
+    });
+  }
   if (s.enabled && s.video.nocookieEmbeds) {
     rules.push({
       id: RULE_NOCOOKIE_EMBEDS,
@@ -429,7 +518,7 @@ export type SiteModule = keyof SiteProfile;
 
 export function siteProfile(s: Settings, site: string | null): SiteProfile {
   if (!s.enabled || site === null || s.pausedSites.includes(site)) {
-    return { network: false, privacy: false, video: false, security: false };
+    return Object.fromEntries(PROFILE_KEYS.map((k) => [k, false])) as unknown as SiteProfile;
   }
   return { ...DEFAULT_SITE_PROFILE, ...s.siteProfiles[site] };
 }
@@ -454,20 +543,26 @@ export function profileOnlyOff(s: Settings, m: SiteModule): string[] {
 export function contentScripts(
   s: Settings,
   fpSeed: readonly number[] = [],
+  /** Updated lists brought `+js()` rows the package lacks (background/list-updates.ts). */
+  scriptletDelta = false,
 ): chrome.scripting.RegisteredContentScript[] {
   if (!s.enabled) return [];
-  const exclude = (m: SiteModule) => [...ALWAYS_EXCLUDED, ...sitesOff(s, m).flatMap(sitePatterns)];
+  const exclude = (...ms: SiteModule[]) => [
+    ...ALWAYS_EXCLUDED,
+    ...[...new Set(ms.flatMap((m) => sitesOff(s, m)))].flatMap(sitePatterns),
+  ];
   const youtube = YOUTUBE_SITES.flatMap(sitePatterns);
   const script = (
     id: keyof typeof CONTENT_SCRIPT_FILES,
     world: 'ISOLATED' | 'MAIN' = 'ISOLATED',
     matches = ['http://*/*', 'https://*/*'],
     module: SiteModule = 'network',
+    ...also: SiteModule[]
   ): chrome.scripting.RegisteredContentScript => ({
     id,
     js: [CONTENT_SCRIPT_FILES[id]],
     matches,
-    excludeMatches: exclude(module),
+    excludeMatches: exclude(module, ...also),
     runAt: 'document_start' as chrome.extensionTypes.RunAt,
     allFrames: true,
     persistAcrossSessions: true,
@@ -478,7 +573,7 @@ export function contentScripts(
     }),
   });
   // The data files run first in the same pass, so hooks are in place before any page script.
-  const scriptlets = script('scriptlets', 'MAIN');
+  const scriptlets = script('scriptlets', 'MAIN', undefined, 'network', 'scriptlets');
   scriptlets.js = [
     ...BUILTIN_LISTS.filter((l) => l.scriptlets && s.enabledLists.includes(l.id)).map(
       (l) => `scriptlets/${l.id}.js`,
@@ -488,15 +583,27 @@ export function contentScripts(
   // Lists prune YouTube's player data too; the YouTube switch has to mean that as well.
   if (!s.video.youtubeAds)
     scriptlets.excludeMatches = [...(scriptlets.excludeMatches ?? []), ...youtube];
-  const cosmetic = script('cosmetic');
+  const cosmetic = script('cosmetic', 'ISOLATED', undefined, 'network', 'cosmetic');
   // Host-scoped custom rules (all the picker writes) are found by hostname, not through this table.
   const genericCustom = /^(?:~[^#\n]*)?##/m.test(s.customRules);
   const onlyBuiltin = !genericCustom && !s.userLists.some((l) => l.enabled);
   if (onlyBuiltin) cosmetic.js = [GENERIC_TOKENS_JS, CONTENT_SCRIPT_FILES.cosmetic];
   const scripts = [
-    ...(s.shields.cosmetic ? [cosmetic, script('brain-scan')] : []),
+    ...(s.shields.cosmetic
+      ? [
+          cosmetic,
+          script('brain-scan', 'ISOLATED', undefined, 'network', 'brain'),
+          script('brain-signals', 'MAIN', undefined, 'network', 'brain'),
+        ]
+      : []),
     ...(s.shields.popups ? [script('popups', 'MAIN')] : []),
     scriptlets,
+    ...(scriptletDelta
+      ? [script('scriptlets-delta', 'ISOLATED', undefined, 'network', 'scriptlets')]
+      : []),
+    // Crypto miners the lists missed (engines/security/miner.ts).
+    script('miner-guard', 'MAIN', undefined, 'security'),
+    script('miner-relay', 'ISOLATED', undefined, 'security'),
   ];
   if (s.privacy.gpc) scripts.push(script('gpc', 'MAIN', undefined, 'privacy'));
   if (s.privacy.hideLocale) scripts.push(script('locale', 'MAIN', undefined, 'privacy'));

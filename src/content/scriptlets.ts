@@ -23,11 +23,31 @@ const youtubeBackedOff = () => {
     return false;
   }
 };
-const calls = youtubeBackedOff() ? [] : callsFor(tables, host);
-for (const [name, ...args] of calls) {
-  try {
-    SCRIPTLETS[name]?.(...args);
-  } catch {
-    // One rule failing must not stop the others or disturb the page.
+const run = (calls: ReturnType<typeof callsFor>) => {
+  for (const [name, ...args] of calls) {
+    try {
+      SCRIPTLETS[name]?.(...args);
+    } catch {
+      // One rule failing must not stop the others or disturb the page.
+    }
   }
-}
+};
+const calls = youtubeBackedOff() ? [] : callsFor(tables, host);
+run(calls);
+
+// Rows from list updates newer than this build (content/scriptlets-delta.ts), once per page. The
+// page could send this event too, but only to run packaged scriptlets on itself.
+const done = new Set(calls.map((c) => JSON.stringify(c)));
+const onDelta = (e: Event) => {
+  document.removeEventListener('ax-sl-delta', onDelta);
+  if (youtubeBackedOff()) return;
+  try {
+    const detail = (e as CustomEvent<unknown>).detail;
+    const more = typeof detail === 'string' ? (JSON.parse(detail) as unknown) : null;
+    if (!Array.isArray(more) || !more.every((t) => typeof t === 'string')) return;
+    run(callsFor(more as string[], host).filter((c) => !done.has(JSON.stringify(c))));
+  } catch {
+    // A malformed delta changes nothing.
+  }
+};
+document.addEventListener('ax-sl-delta', onDelta);

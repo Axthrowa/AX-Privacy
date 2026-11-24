@@ -38,6 +38,37 @@ export async function brainPausedUntil(site: string): Promise<number | null> {
   return typeof until === 'number' && until > Date.now() ? until : null;
 }
 
+/** Sites still resting, soonest first. */
+export async function brainPausedSites(): Promise<{ site: string; until: number }[]> {
+  const now = Date.now();
+  return Object.entries(await pausedSites())
+    .filter(([, until]) => typeof until === 'number' && until > now)
+    .map(([site, until]) => ({ site, until }))
+    .sort((a, b) => a.until - b.until);
+}
+
+export async function unpauseBrain(site: string): Promise<void> {
+  const { [site]: gone, ...rest } = await pausedSites();
+  void gone;
+  await chrome.storage.local.set({ [PAUSED_KEY]: rest });
+}
+
+/** The user's hiding threshold; the caller has already checked the range. */
+export function setBrainThreshold(threshold: number): Promise<void> {
+  const run = queue.then(async () => {
+    const model = await loadBrain();
+    await chrome.storage.local.set({ [BRAIN_KEY]: { ...model, threshold } });
+  });
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+export function importBrain(model: BrainModel): Promise<void> {
+  const run = queue.then(() => chrome.storage.local.set({ [BRAIN_KEY]: model }));
+  queue = run.catch(() => undefined);
+  return run;
+}
+
 export async function pauseBrain(site: string): Promise<void> {
   const now = Date.now();
   // Expired entries are dropped here, so the map never grows past the sites paused this week.

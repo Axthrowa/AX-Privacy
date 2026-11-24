@@ -1,5 +1,9 @@
 import { parse } from 'tldts';
 import { L } from '../../shared/i18n.ts';
+import POPULAR_LIST from './brands.json' with { type: 'json' };
+import { BRANDS } from './page-checks.ts';
+
+export { BRANDS, isSupportScam, passwordTarget } from './page-checks.ts';
 
 export type Severity = 'high' | 'medium' | 'low';
 export type RiskLevel = Severity | 'none';
@@ -9,13 +13,17 @@ export interface Finding {
     | 'warning-bypassed'
     | 'homograph'
     | 'lookalike'
+    | 'lookalike-popular'
+    | 'login-brand'
     | 'brand-subdomain'
     | 'brand-in-name'
     | 'userinfo'
     | 'ip-host'
     | 'insecure-password'
     | 'password-elsewhere'
-    | 'support-scam';
+    | 'support-scam'
+    | 'miner-stopped'
+    | 'miner-suspected';
   severity: Severity;
   text: string;
 }
@@ -25,43 +33,6 @@ export interface RiskReport {
   level: RiskLevel;
   findings: Finding[];
 }
-
-/**
- * Brands phishing pages commonly imitate, keyed by the name a lookalike would copy, with the
- * registrable domains the brand really uses. Heuristic only: a match is a reason to look twice.
- */
-export const BRANDS: Readonly<Record<string, readonly string[]>> = {
-  google: ['google.com', 'google.com.tr', 'youtube.com', 'gmail.com'],
-  youtube: ['youtube.com', 'google.com'],
-  gmail: ['gmail.com', 'google.com'],
-  paypal: ['paypal.com', 'paypal.me'],
-  apple: ['apple.com', 'icloud.com'],
-  icloud: ['icloud.com', 'apple.com'],
-  microsoft: ['microsoft.com', 'live.com', 'office.com', 'microsoftonline.com'],
-  outlook: ['outlook.com', 'live.com', 'office.com'],
-  amazon: ['amazon.com', 'amazon.com.tr'],
-  facebook: ['facebook.com', 'fb.com'],
-  instagram: ['instagram.com'],
-  whatsapp: ['whatsapp.com', 'whatsapp.net'],
-  netflix: ['netflix.com'],
-  steamcommunity: ['steamcommunity.com', 'steampowered.com'],
-  steampowered: ['steampowered.com', 'steamcommunity.com'],
-  binance: ['binance.com', 'binance.tr'],
-  coinbase: ['coinbase.com'],
-  metamask: ['metamask.io'],
-  ziraatbank: ['ziraatbank.com.tr'],
-  garantibbva: ['garantibbva.com.tr'],
-  akbank: ['akbank.com'],
-  isbank: ['isbank.com.tr'],
-  yapikredi: ['yapikredi.com.tr'],
-  halkbank: ['halkbank.com.tr'],
-  vakifbank: ['vakifbank.com.tr'],
-  enpara: ['enpara.com'],
-  edevlet: ['turkiye.gov.tr'],
-  trendyol: ['trendyol.com'],
-  hepsiburada: ['hepsiburada.com'],
-  sahibinden: ['sahibinden.com'],
-};
 
 /** Cyrillic and Greek letters drawn like Latin ones, plus digits used as letters. */
 const CONFUSABLE: Readonly<Record<string, string>> = {
@@ -179,6 +150,60 @@ function editDistanceAtMostOne(a: string, b: string): boolean {
   return edits + (a.length - i) + (b.length - j) <= 1;
 }
 
+/** Edit distance of a and b, or max + 1 once it is known to be larger. */
+export function editDistanceWithin(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      const v = Math.min(
+        (prev[j] ?? 0) + 1,
+        (cur[j - 1] ?? 0) + 1,
+        (prev[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      cur.push(v);
+      best = Math.min(best, v);
+    }
+    if (best > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length] ?? max + 1;
+}
+
+/**
+ * About 5,000 widely used sites (scripts/brands.ts) with their real domains, by name length. A new
+ * domain one or two letters away from one of them is a common phishing trick.
+ */
+const POPULAR = new Map<string, readonly string[]>(POPULAR_LIST as [string, string[]][]);
+const POPULAR_BY_LENGTH = new Map<number, string[]>();
+for (const label of POPULAR.keys()) {
+  const list = POPULAR_BY_LENGTH.get(label.length) ?? [];
+  list.push(label);
+  POPULAR_BY_LENGTH.set(label.length, list);
+}
+
+/** Two edits only for longer names: short ones are two letters from many real words. */
+const allowedEdits = (length: number) => (length >= 9 ? 2 : 1);
+
+/** The popular site `name` imitates, or null. Known sites never imitate each other. */
+export function popularLookalike(name: string, domain: string): string | null {
+  if (name.length < 6 || POPULAR.has(name) || name in BRANDS) return null;
+  const max = allowedEdits(name.length);
+  for (let len = name.length - max; len <= name.length + max; len++) {
+    for (const brand of POPULAR_BY_LENGTH.get(len) ?? []) {
+      // Same first letter keeps real words out, as for the hand-picked brands.
+      if (brand[0] !== name[0] || POPULAR.get(brand)?.includes(domain)) continue;
+      const bound = Math.min(max, allowedEdits(brand.length));
+      if (editDistanceWithin(name, brand, bound) <= bound) {
+        return brand;
+      }
+    }
+  }
+  return null;
+}
+
 const isOfficial = (brand: string, domain: string) => BRANDS[brand]?.includes(domain) ?? false;
 
 function isPublicIp(host: string): boolean {
@@ -288,6 +313,21 @@ export function analyzeUrl(url: string): Finding[] {
     }
   }
 
+  if (!findings.some((f) => f.id === 'lookalike' || f.id === 'brand-in-name')) {
+    const like = popularLookalike(name, domain);
+    if (like) {
+      findings.push({
+        id: 'lookalike-popular',
+        // Thousands of names: a near miss is a reason to check the address, not a verdict.
+        severity: 'low',
+        text: L(
+          `Alan adı yaygın bir siteye ("${like}") çok benziyor; doğru adreste olduğunuzdan emin olun.`,
+          `The domain looks very much like a popular site ("${like}"); make sure you are on the right address.`,
+        ),
+      });
+    }
+  }
+
   const sub = p.subdomain ? skeleton(p.subdomain).split(/[.-]/) : [];
   const inSub = Object.keys(BRANDS).find((b) => sub.includes(b) && !isOfficial(b, domain));
   if (inSub) {
@@ -305,46 +345,6 @@ export function analyzeUrl(url: string): Finding[] {
 
 const ORDER: RiskLevel[] = ['none', 'low', 'medium', 'high'];
 
-const SCAM_PHRASES = [
-  /virus|malware|trojan|spyware|vir[uü]s|zararl[ıi] yaz[ıi]l[ıi]m/i,
-  /(windows|microsoft|apple)\s*(defender|security|support|destek)/i,
-  /(computer|pc|browser) (has been |is )?(blocked|locked|infected)|bilgisayar[ıi]n[ıi]z (engellendi|kilitlendi)/i,
-  /call\s*(now|immediately|toll[- ]free|support)|hemen\s*aray[ıi]n|destek hatt[ıi]/i,
-  /do not (close|restart|shut down)|kapatmay[ıi]n|yeniden ba[sş]latmay[ıi]n/i,
-  /error\s*(code|#)\s*[:#]?\s*[0-9a-z]{3,}|hata kodu/i,
-];
-/** Toll-free and international support numbers as scam pages print them. */
-const PHONE = /\+?\d[\d\s().-]{8,}\d/;
-
-/**
- * A fake "your computer is infected, call this number" page: a phone number plus at least two
- * scam phrases. Text only; a real support page rarely talks about infections and blocked PCs.
- */
-export function isSupportScam(text: string): boolean {
-  if (!PHONE.test(text)) return false;
-  let hits = 0;
-  for (const phrase of SCAM_PHRASES) if (phrase.test(text) && ++hits >= 2) return true;
-  return false;
-}
-
-/**
- * Host a password form on `pageUrl` sends to, when that is another site; null otherwise.
- * Phishing kits post stolen passwords to a server of their own.
- */
-export function passwordTarget(pageUrl: string, action: string): string | null {
-  let page: URL;
-  let target: URL;
-  try {
-    page = new URL(pageUrl);
-    target = new URL(action, pageUrl);
-  } catch {
-    return null;
-  }
-  if (target.protocol !== 'http:' && target.protocol !== 'https:') return null;
-  const site = (h: string) => parse(h, { allowPrivateDomains: true }).domain ?? h;
-  return site(target.hostname) === site(page.hostname) ? null : target.hostname;
-}
-
 export function assessRisk(
   url: string | null,
   page: {
@@ -352,6 +352,8 @@ export function assessRisk(
     bypassed: boolean;
     passwordTarget?: string | null;
     supportScam?: boolean;
+    miner?: 'stopped' | 'seen' | null;
+    loginBrand?: string | null;
   },
 ): RiskReport {
   const findings = url ? analyzeUrl(url) : [];
@@ -382,6 +384,36 @@ export function assessRisk(
       text: L(
         'Sahte teknik destek uyarısı: bilgisayarınızda virüs olduğunu söyleyip telefon numarası veriyor. Numarayı aramayın, sekmeyi kapatın.',
         'Fake tech support alert: it claims your computer is infected and gives a phone number. Do not call it; close the tab.',
+      ),
+    });
+  }
+  if (page.loginBrand) {
+    findings.unshift({
+      id: 'login-brand',
+      severity: 'high',
+      text: L(
+        `Bu giriş sayfası kendini "${page.loginBrand}" olarak tanıtıyor ama adresi onun sitelerinden biri değil. Şifrenizi girmeyin.`,
+        `This sign-in page presents itself as "${page.loginBrand}", but its address is none of that brand's sites. Do not enter your password.`,
+      ),
+    });
+  }
+  if (page.miner === 'stopped') {
+    findings.push({
+      id: 'miner-stopped',
+      severity: 'high',
+      text: L(
+        'Bu sayfa işlemcinizle kripto para kazıyordu; AX Privacy kazıyıcıyı durdurdu.',
+        'This page was mining cryptocurrency with your processor; AX Privacy stopped the miner.',
+      ),
+    });
+  } else if (page.miner === 'seen') {
+    findings.push({
+      id: 'miner-suspected',
+      // Video editors and games also run a worker per core with WebAssembly.
+      severity: 'low',
+      text: L(
+        'Bu sayfa her işlemci çekirdeğinde bir iş parçacığı ve WebAssembly çalıştırıyor. Video düzenleyici ya da oyun değilse kripto kazıyor olabilir; fan sesi artıyorsa sekmeyi kapatın.',
+        'This page runs a worker on every processor core with WebAssembly. Unless it is a video editor or a game, it may be mining cryptocurrency; close the tab if your fan speeds up.',
       ),
     });
   }

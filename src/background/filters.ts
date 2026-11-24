@@ -376,19 +376,27 @@ export async function listsView(s: Settings): Promise<ListsView> {
   const reports = await lastReports();
   const active = new Set(await chrome.declarativeNetRequest.getEnabledRulesets());
   return {
-    builtin: BUILTIN_LISTS.map((l) => ({
-      id: l.id,
-      name: l.name,
-      category: l.category,
-      buildOnly: l.buildOnly === true,
-      homepage: l.homepage,
-      license: l.license,
-      enabled: s.enabledLists.includes(l.id),
-      active: active.has(l.id),
-      version: meta.get(l.id)?.version ?? null,
-      builtAt: meta.get(l.id)?.builtAt ?? null,
-      stats: meta.get(l.id)?.stats ?? null,
-    })),
+    builtin: await Promise.all(
+      BUILTIN_LISTS.map(async (l) => {
+        const update = await getUpdate(d, l.id);
+        return {
+          id: l.id,
+          name: l.name,
+          category: l.category,
+          buildOnly: l.buildOnly === true,
+          homepage: l.homepage,
+          license: l.license,
+          enabled: s.enabledLists.includes(l.id),
+          active: active.has(l.id),
+          version: meta.get(l.id)?.version ?? null,
+          builtAt: meta.get(l.id)?.builtAt ?? null,
+          updatedAt:
+            update?.version === chrome.runtime.getManifest().version ? update.fetchedAt : null,
+          region: l.region ?? null,
+          stats: meta.get(l.id)?.stats ?? null,
+        };
+      }),
+    ),
     user: await Promise.all(
       s.userLists.map(async (ref) => {
         const stored = await getList(d, ref.url);

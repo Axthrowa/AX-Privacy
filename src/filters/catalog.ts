@@ -25,6 +25,8 @@ export interface BuiltinList {
   buildOnly?: true;
   /** Ships `+js()` rules, compiled to `scriptlets/<id>.js`. */
   scriptlets?: true;
+  /** Country the list is made for (ISO 3166 code); none for worldwide lists. */
+  region?: string;
 }
 
 export const BUILTIN_LISTS: readonly BuiltinList[] = [
@@ -113,6 +115,7 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
     name: L('AdGuard Türkçe filtresi', 'AdGuard Turkish filter'),
     category: 'regional',
     url: 'https://filters.adtidy.org/extension/ublock/filters/13.txt',
+    region: 'TR',
     buildOnly: true,
     homepage: 'https://github.com/AdguardTeam/AdguardFilters',
     license: 'GPL-3.0',
@@ -166,6 +169,17 @@ export const BUILTIN_LISTS: readonly BuiltinList[] = [
     ),
     category: 'security',
     url: 'https://ublockorigin.github.io/uAssets/filters/badware.txt',
+    homepage: 'https://github.com/uBlockOrigin/uAssets',
+    license: 'GPL-3.0',
+    defaultEnabled: true,
+    scriptlets: true,
+  },
+  {
+    // Crypto miners and other scripts that burn CPU or bandwidth without consent.
+    id: 'ublock-resource-abuse',
+    name: L('uBlock Resource abuse (kripto madencileri)', 'uBlock Resource abuse (crypto miners)'),
+    category: 'security',
+    url: 'https://ublockorigin.github.io/uAssets/filters/resource-abuse.txt',
     homepage: 'https://github.com/uBlockOrigin/uAssets',
     license: 'GPL-3.0',
     defaultEnabled: true,

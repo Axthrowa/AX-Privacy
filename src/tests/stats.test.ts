@@ -3,6 +3,7 @@ import {
   HOST_PREFIX,
   classifyRulesets,
   daysAgo,
+  estimateSavings,
   eachDay,
   summarize,
   localDay,
@@ -106,5 +107,21 @@ describe('private windows', () => {
     expect(set).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('savings estimate', () => {
+  it('adds request sizes over the line speed and the time pop-ups and notices take', () => {
+    const r = estimateSavings({
+      ads: 100,
+      trackers: 200,
+      security: 0,
+      other: 0,
+      pages: 0,
+      popups: 2,
+      consent: 1,
+    });
+    expect(r.bytes).toBe(100 * 30_000 + 200 * 5_000);
+    expect(r.seconds).toBe(Math.round(4_000_000 / 1_250_000 + 10 + 3));
   });
 });

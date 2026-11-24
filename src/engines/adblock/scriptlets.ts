@@ -8,7 +8,7 @@
 export type ScriptletCall = [name: string, ...args: string[]];
 
 /** Names we implement, including the aliases uBO and AdGuard lists use for the same job. */
-const CANON: Readonly<Record<string, string>> = {
+export const CANON: Readonly<Record<string, string>> = {
   aopr: 'aopr',
   'abort-on-property-read': 'aopr',
   aopw: 'aopw',
@@ -89,6 +89,9 @@ const CANON: Readonly<Record<string, string>> = {
   'trusted-replace-fetch-response': 'trusted-replace-fetch-response',
   'trusted-replace-xhr-response': 'trusted-replace-xhr-response',
   'json-edit': 'json-edit',
+  'm3u-prune': 'm3u-prune',
+  'trusted-replace-outbound-text': 'trusted-replace-outbound-text',
+  'trusted-prevent-dom-bypass': 'trusted-prevent-dom-bypass',
   'trusted-json-edit': 'trusted-json-edit',
   'json-edit-fetch-response': 'json-edit-fetch-response',
   'trusted-json-edit-fetch-response': 'trusted-json-edit-fetch-response',
@@ -102,6 +105,32 @@ const CANON: Readonly<Record<string, string>> = {
   'trusted-replace-argument': 'trusted-replace-argument',
   'trusted-prevent-xhr': 'no-xhr-if',
   'trusted-prevent-fetch': 'no-fetch-if',
+  // Replacements still pass `safeReplacement`: list text never becomes page code.
+  'trusted-rpnt': 'rpnt',
+  'trusted-replace-node-text': 'rpnt',
+  'trusted-suppress-native-method': 'trusted-suppress-native-method',
+  'trusted-create-html': 'trusted-create-html',
+  'trusted-click-element': 'trusted-click-element',
+  'trusted-edit-inbound-object': 'trusted-edit-inbound-object',
+  'trusted-prune-inbound-object': 'trusted-prune-inbound-object',
+  'trusted-override-element-method': 'trusted-override-element-method',
+  'edit-object-on-setter': 'edit-object-on-setter',
+  'trusted-edit-object-on-setter': 'trusted-edit-object-on-setter',
+  'jsonl-edit-xhr-response': 'jsonl-edit-xhr-response',
+  'trusted-jsonl-edit-xhr-response': 'trusted-jsonl-edit-xhr-response',
+  'json-edit-fetch-request': 'json-edit-fetch-request',
+  'trusted-json-edit-fetch-request': 'trusted-json-edit-fetch-request',
+  'prevent-clipboard-write': 'prevent-clipboard-write',
+  'disable-newtab-links': 'disable-newtab-links',
+  'prevent-canvas': 'prevent-canvas',
+  'prevent-dialog': 'prevent-dialog',
+  'window-close-if': 'window-close-if',
+  'alert-buster': 'alert-buster',
+  'prevent-navigation': 'prevent-navigation',
+  'popads.net': 'popads.net',
+  'google-ima': 'google-ima',
+  'google-ima3': 'google-ima',
+  fingerprint2: 'fingerprint2',
 };
 
 export function canonScriptlet(name: string): string | null {
@@ -256,4 +285,60 @@ export function callsFor(tables: readonly string[], hostname: string): Scriptlet
   }
   if (allOff) return [];
   return [...found].filter(([key]) => !off.has(key)).map(([, call]) => call);
+}
+
+/** host -> call keys (JSON), read back from a compiled table. */
+function tableEntries(table: string): Map<string, string[]> {
+  const calls = new Map<string, string>();
+  const rows: [string, string][] = [];
+  for (const line of table.split('\n')) {
+    const tab = line.indexOf('\t');
+    if (tab < 0) continue;
+    const key = line.slice(0, tab);
+    const value = line.slice(tab + 1);
+    if (key.startsWith('~')) calls.set(key.slice(1), value);
+    else rows.push([key, value]);
+  }
+  return new Map(
+    rows.map(([host, ids]) => [
+      host,
+      ids
+        .split(',')
+        .map((id) => calls.get(id))
+        .filter((c): c is string => c !== undefined),
+    ]),
+  );
+}
+
+/**
+ * The rows of an updated list's table that the packaged one lacks, as a table of their own. Only
+ * this goes to pages between releases: data naming packaged scriptlets, never code.
+ */
+export function tableDelta(updated: string, packaged: string): string {
+  const old = tableEntries(packaged);
+  const lines: string[] = [];
+  const index = new Map<string, number>();
+  for (const [host, keys] of tableEntries(updated)) {
+    const had = new Set(old.get(host));
+    const ids = keys
+      .filter((k) => !had.has(k))
+      .map((k) => {
+        const id = index.get(k) ?? index.size;
+        index.set(k, id);
+        return id;
+      });
+    if (ids.length) lines.push(`${host}\t${ids.join(',')}`);
+  }
+  if (!lines.length) return '';
+  for (const [key, id] of index) lines.push(`~${id}\t${key}`);
+  return `\n${lines.join('\n')}\n`;
+}
+
+/** List id -> `+js()` rows newer than the package, read by content/scriptlets-delta.ts. */
+export const SCRIPTLET_DELTA_KEY = 'scriptletDelta';
+
+/** The table inside a packaged `scriptlets/<id>.js` data file. */
+export function packagedTable(file: string): string {
+  const m = /\.push\(("(?:[^"\\]|\\.)*")\)/.exec(file);
+  return m?.[1] ? (JSON.parse(m[1]) as string) : '';
 }

@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { L } from '../shared/i18n.ts';
 import { send } from '../shared/messages.ts';
-import { currentProfile, profileSettings } from '../shared/privacy-profiles.ts';
+import { currentProfile, PROFILES, profileSettings } from '../shared/privacy-profiles.ts';
 import type { PrivacyProfile } from '../shared/privacy-profiles.ts';
 import type { FingerprintLevel, PrivacySettings, Settings } from '../shared/types.ts';
 import { Toggle } from './Toggle.tsx';
+import { PermissionNote } from './Permission.tsx';
+import { askPermissions, REQUEST_PERMISSIONS } from '../shared/permissions.ts';
 
 const LEVELS: { value: FingerprintLevel; label: string }[] = [
   { value: 'off', label: L('Kapalı', 'Off') },
@@ -27,6 +29,7 @@ const LEVELS: { value: FingerprintLevel; label: string }[] = [
 const PROFILE_NAMES: Record<PrivacyProfile, string> = {
   balanced: L('Dengeli', 'Balanced'),
   strict: L('Sıkı', 'Strict'),
+  paranoid: L('Paranoyak', 'Paranoid'),
 };
 
 export function Privacy({
@@ -38,6 +41,7 @@ export function Privacy({
 }) {
   const { privacy } = settings;
   const [kept, setKept] = useState(privacy.keepSiteData.join('\n'));
+  const [scriptSites, setScriptSites] = useState(privacy.scriptSites.join('\n'));
   const set = (patch: Partial<PrivacySettings>) =>
     void guard(() => send('privacy/set', { privacy: patch }));
   const profile = currentProfile(privacy);
@@ -54,7 +58,7 @@ export function Privacy({
       </p>
 
       <div className="row" role="group" aria-label={L('Gizlilik profili', 'Privacy profile')}>
-        {(['balanced', 'strict'] as const).map((p) => (
+        {PROFILES.map((p) => (
           <button key={p} type="button" aria-pressed={profile === p} onClick={() => choose(p)}>
             {PROFILE_NAMES[p]}
           </button>
@@ -65,8 +69,8 @@ export function Privacy({
       </div>
       <p className="note">
         {L(
-          'Dengeli: siteleri bozma ihtimali düşük olan her şey açık; üçüncü taraf çerezleri açık kalır. Sıkı: buna ek olarak üçüncü taraf çerezleri engellenir ve parmak izi koruması Sıkı olur; bazı gömülü giriş ve ödeme pencereleri bozulabilir. Aşağıdan tek tek değiştirirseniz profil Özel olur. Dil ve saat dilimi ile ayrıntılı raporlar profillerden etkilenmez.',
-          'Balanced: everything unlikely to break sites is on; third-party cookies stay allowed. Strict: also blocks third-party cookies and sets fingerprint protection to Strict; some embedded sign-in and payment windows may break. Changing anything below one by one makes the profile Custom. Language and time zone, and detailed reports, are not part of the profiles.',
+          'Dengeli: siteleri bozma ihtimali düşük olan her şey açık; üçüncü taraf çerezleri açık kalır. Sıkı: buna ek olarak üçüncü taraf çerezleri engellenir ve parmak izi koruması Sıkı olur; bazı gömülü giriş ve ödeme pencereleri bozulabilir. Paranoyak: Sıkı + başka sitelerden gelen betikler engellenir, izin verdiğiniz siteler hariç; çoğu site bir izin ister. Aşağıdan tek tek değiştirirseniz profil Özel olur. Dil ve saat dilimi ile ayrıntılı raporlar profillerden etkilenmez.',
+          'Balanced: everything unlikely to break sites is on; third-party cookies stay allowed. Strict: also blocks third-party cookies and sets fingerprint protection to Strict; some embedded sign-in and payment windows may break. Paranoid: Strict + scripts from other sites are blocked except on sites you allow; most sites will need that. Changing anything below one by one makes the profile Custom. Language and time zone, and detailed reports, are not part of the profiles.',
         )}
       </p>
 
@@ -81,6 +85,41 @@ export function Privacy({
           'Cookie and Set-Cookie headers are removed from requests to other sites. Embedded sign-in windows, comment widgets and some payment pages may break; pause protection on that site.',
         )}
       </p>
+
+      <Toggle
+        label={L('Başka sitelerin betiklerini engelle', 'Block scripts from other sites')}
+        checked={privacy.blockThirdPartyScripts}
+        onChange={(on) => set({ blockThirdPartyScripts: on })}
+      />
+      <p className="note">
+        {L(
+          'Sayfalar yalnız kendi sitelerinden betik yükleyebilir; reklam, analiz ve sohbet araçları da, video oynatıcılar ve yorumlar da durur. Bir sitede izin vermek için açılır pencereyi kullanın ya da aşağıya yazın. Ödeme, banka ve doğrulama (captcha) siteleri hiç etkilenmez.',
+          'Pages may load scripts only from their own site; ads, analytics and chat widgets stop, and so do video players and comments. Allow a site from the popup or list it below. Payment, bank and captcha sites are never affected.',
+        )}
+      </p>
+      {privacy.blockThirdPartyScripts && (
+        <>
+          <textarea
+            aria-label={L(
+              'Başka sitelerin betiklerine izin verilen siteler',
+              'Sites allowed to load scripts from other sites',
+            )}
+            rows={4}
+            spellCheck={false}
+            placeholder="youtube.com"
+            value={scriptSites}
+            onChange={(e) => setScriptSites(e.target.value)}
+          />
+          <div className="row">
+            <button
+              type="button"
+              onClick={() => set({ scriptSites: scriptSites.split('\n').filter((l) => l.trim()) })}
+            >
+              {L('Siteleri kaydet', 'Save sites')}
+            </button>
+          </div>
+        </>
+      )}
 
       <Toggle
         label={L('Çerez bildirimlerini otomatik reddet', 'Reject cookie notices automatically')}
@@ -148,8 +187,8 @@ export function Privacy({
       />
       <p className="note">
         {L(
-          'Hedefi adresin içinde yazan bilinen yönlendirme bağlantılarında (Google, Facebook, YouTube ve Brave’in listesindeki izleme ağları) doğrudan hedefe gidilir. İzleme sunucusuna hiç uğranmaz. Bağlantıya tıklayınca arka planda izleme adresine giden “ping” bildirimi de kapatılır.',
-          'Known redirect links that carry their target in the address (Google, Facebook, YouTube and the tracking networks in Brave’s list) go straight to the target, never touching the tracking server. The background “ping” a link sends to a tracking address on click is switched off too.',
+          'Hedefi adresin içinde yazan bilinen yönlendirme bağlantılarında (Google, Facebook, YouTube ve Brave’in listesindeki izleme ağları) doğrudan hedefe gidilir. İzleme sunucusuna hiç uğranmaz. Bağlantıya tıklayınca arka planda izleme adresine giden “ping” bildirimi ve tarayıcının açmadığınız bağlantıları önceden yüklemesi de kapatılır.',
+          'Known redirect links that carry their target in the address (Google, Facebook, YouTube and the tracking networks in Brave’s list) go straight to the target, never touching the tracking server. The background “ping” a link sends to a tracking address on click, and the browser preloading links you never opened, are switched off too.',
         )}
       </p>
 
@@ -252,7 +291,13 @@ export function Privacy({
           'Detailed reports and daily statistics',
         )}
         checked={privacy.detailedReports}
-        onChange={(on) => set({ detailedReports: on })}
+        onChange={(on) => {
+          // The browser asks for the permission only inside this click.
+          if (!on) return set({ detailedReports: false });
+          void askPermissions(REQUEST_PERMISSIONS).then(
+            (ok) => ok && set({ detailedReports: true }),
+          );
+        }}
       />
       <p className="note">
         {L(
@@ -260,6 +305,15 @@ export function Privacy({
           'Keeps the domain list in the popup and the blocked-request counter in Overview. The background wakes on every request for this, so it is off by default. Blocking does not depend on it.',
         )}
       </p>
+      {privacy.detailedReports && (
+        <PermissionNote
+          perms={REQUEST_PERMISSIONS}
+          why={L(
+            'Raporlar duruyor: tarayıcının isteğe bağlı “webRequest” izni verilmemiş.',
+            'Reports are paused: the optional “webRequest” browser permission is not granted.',
+          )}
+        />
+      )}
 
       <label className="field">
         <span>{L('Parmak izi koruması', 'Fingerprint protection')}</span>

@@ -7,7 +7,11 @@ import {
 import { decodeTokens, knownFeatures } from '../engines/adblock/generic-tokens.ts';
 import { domKey, startKey, type CachedStyle } from '../shared/cosmetic-cache.ts';
 import { send } from '../shared/messages.ts';
-import { isSupportScam, passwordTarget } from '../engines/security/heuristics.ts';
+import {
+  isSupportScam,
+  loginBrandMismatch,
+  passwordTarget,
+} from '../engines/security/page-checks.ts';
 import { hostMatches } from '../shared/site.ts';
 import type { ExtendedRule, Settings } from '../shared/types.ts';
 
@@ -202,6 +206,47 @@ if (window === window.top) {
         void send('security/supportScam', {}).catch(() => undefined);
       }, 1500),
     { once: true },
+  );
+}
+
+/** What a sign-in page says it is: its title, site name and logo text, never the body. */
+function claimedName(): string {
+  const meta = (sel: string) => document.querySelector<HTMLMetaElement>(sel)?.content ?? '';
+  const logos = [...document.images]
+    // "Sign in with Google" buttons carry small brand icons; the site's own logo is larger.
+    .filter(
+      (img) =>
+        /logo/i.test(`${img.alt} ${img.className} ${img.id} ${img.src}`) &&
+        img.width >= 48 &&
+        !img.closest('button, [role="button"]'),
+    )
+    .slice(0, 3)
+    .map((img) => `${img.alt} ${img.src.split('/').pop() ?? ''}`);
+  return [
+    document.title,
+    meta('meta[property="og:site_name"]'),
+    meta('meta[name="application-name"]'),
+    ...logos,
+  ]
+    .join(' ')
+    .slice(0, 500);
+}
+
+// A sign-in page dressed as a brand whose domains it is not on: checked when a password field
+// gets focus, so pages that only mention a brand are left alone.
+if (window === window.top) {
+  let checked = false;
+  addEventListener(
+    'focusin',
+    (e) => {
+      if (checked || !(e.target instanceof HTMLInputElement) || e.target.type !== 'password') {
+        return;
+      }
+      checked = true;
+      const brand = loginBrandMismatch(location.href, claimedName());
+      if (brand) void send('security/loginBrand', { brand }).catch(() => undefined);
+    },
+    true,
   );
 }
 

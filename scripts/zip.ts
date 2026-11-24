@@ -40,7 +40,11 @@ async function files(dir: string): Promise<string[]> {
 
 /** Zip of `src` with forward-slash names at the archive root. shortcut: no Zip64, one file must stay under 4 GiB. */
 export async function zipDirectory(src: string, dest: string): Promise<void> {
-  const now = new Date();
+  // Fixed time stamps keep the zip byte-identical between builds of the same source:
+  // SOURCE_DATE_EPOCH when the build sets one, otherwise 1980-01-01, the earliest zip date.
+  const epoch = Number(process.env.SOURCE_DATE_EPOCH);
+  const now =
+    Number.isFinite(epoch) && epoch > 315532800 ? new Date(epoch * 1000) : new Date(1980, 0, 1);
   const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
   const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
   const locals: Buffer[] = [];

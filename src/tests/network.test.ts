@@ -4,9 +4,12 @@ import {
   toRe2,
   compileFilter,
   compileList,
+  fitBudget,
   PRIORITY,
   toAsciiDomain,
   withIds,
+  withoutCovered,
+  type CompiledRule,
 } from '../engines/adblock/network.ts';
 
 const opts = { allowRegex: false };
@@ -349,5 +352,33 @@ describe('strict host blocking', () => {
     expect(types('||ads.example^$script', true)).toEqual(['script']);
     expect(types('||ads.example/banner^', true)).toBeUndefined();
     expect(types('@@||ads.example^', true)).toBeUndefined();
+  });
+});
+
+describe('core set', () => {
+  it('drops subdomains a listed parent already covers', () => {
+    expect(
+      withoutCovered(['b.ads.example', 'ads.example', 'x.other.example', 'z.example']),
+    ).toEqual(['ads.example', 'x.other.example', 'z.example']);
+    const { rules } = compileList(['||ads.example^', '||cdn.ads.example^'], opts);
+    expect(rules).toHaveLength(1);
+    expect(rules[0]?.condition.requestDomains).toEqual(['ads.example']);
+  });
+
+  it('keeps the most crawled rules within the budget, allows always', () => {
+    const block = (host: string): CompiledRule => ({
+      priority: 1,
+      action: { type: 'block' },
+      condition: { urlFilter: `||${host}/ad` },
+    });
+    const allow: CompiledRule = {
+      priority: 2,
+      action: { type: 'allow' },
+      condition: { urlFilter: '||rare.example/ok' },
+    };
+    const rules = [block('rare.example'), allow, block('cdn.common.example'), block('mid.example')];
+    const hits = { 'common.example': 50, 'mid.example': 3 };
+    expect(fitBudget(rules, 3, hits)).toEqual([allow, rules[2], rules[3]]);
+    expect(fitBudget(rules, 10, hits)).toEqual(rules);
   });
 });

@@ -1,5 +1,8 @@
 import { applyJsonEdit, parseJsonEdit, type JsonEdit } from './jsonpath.ts';
 import { decoy } from '../popup/decoy.ts';
+// Packaged uBO resources (GPL-3.0), for the `+js()` names that stand for them.
+import GOOGLE_IMA from '../../../public/surrogates/google-ima.js?raw';
+import FINGERPRINT2 from '../../../public/surrogates/fingerprint2.js?raw';
 
 /**
  * Page-world implementations of the `+js()` rules the bundled lists use most.
@@ -147,8 +150,12 @@ function hideToString(): void {
   toStringHidden = true;
   const native = Function.prototype.toString;
   const proxy = new Proxy(native, {
-    apply: (target, self: object, args: []) =>
-      Reflect.apply(target, originals.get(self) ?? self, args),
+    apply: (target, self: object, args: []) => {
+      const original = originals.get(self);
+      // Back through the current toString, so yt-ads' own disguise unwraps its layer as well.
+      if (original) return Reflect.apply(Function.prototype.toString, original, args) as string;
+      return Reflect.apply(target, self, args);
+    },
   });
   originals.set(proxy, native);
   Function.prototype.toString = proxy;
@@ -441,8 +448,102 @@ export function textReplacer(pattern = '', replacement = ''): ((text: string) =>
 /** `trusted-replace-fetch-response`: edits the body text of matching fetches (ad entries, VAST). */
 function replaceFetchResponse(pattern = '', replacement = '', url = ''): void {
   const edit = textReplacer(pattern, replacement);
+  if (edit) editFetchText(requestMatcher(url), edit);
+}
+
+/** Drops ad segments from HLS playlists: a matching line goes with the `#EXTINF` before it. */
+export function m3uPruner(pattern = ''): ((text: string) => string) | null {
+  if (!pattern) return null;
+  const re = /^\/(.+)\/([dgimsuvy]*)$/.exec(pattern);
+  // A pattern that spans lines removes its whole match instead.
+  if (re && (re[1] ?? '').includes('\\n')) {
+    try {
+      const whole = new RegExp(re[1] ?? '', `${(re[2] ?? '').replace('g', '')}g`);
+      return (text) => text.replace(whole, '');
+    } catch {
+      return null;
+    }
+  }
+  const hit = matcher(pattern);
+  return (text) => {
+    const lines = text.split('\n');
+    const out: string[] = [];
+    for (const line of lines) {
+      if (line.startsWith('#') || !hit(line)) {
+        out.push(line);
+        continue;
+      }
+      if (out.at(-1)?.startsWith('#EXTINF')) out.pop();
+    }
+    return out.join('\n');
+  };
+}
+
+function m3uPrune(pattern = '', url = ''): void {
+  const edit = m3uPruner(pattern);
   if (!edit) return;
   const hit = requestMatcher(url);
+  // Only playlists: the body of every other matching request stays untouched.
+  const playlist = (text: string) => (text.startsWith('#EXTM3U') ? edit(text) : text);
+  editFetchText(hit, playlist);
+  filterXhrText(hit, playlist);
+}
+
+/** `a.b.c` from the page's globals: the object holding `c`, and `c`. */
+function ownerOf(path: string, root: unknown = globalThis): [Owner, string] | null {
+  const parts = path.split('.');
+  const prop = parts.pop();
+  let owner: unknown = root;
+  for (const part of parts) owner = isObject(owner) ? (owner as Owner)[part] : undefined;
+  return prop && isObject(owner) ? [owner as Owner, prop] : null;
+}
+
+/** Rewrites what a page function returns, e.g. the JSON a player sends to ask for ads. */
+function replaceOutboundText(path = '', pattern = '', replacement = '', ...rest: string[]): void {
+  const edit = textReplacer(pattern, replacement);
+  const target = ownerOf(path);
+  if (!edit || !target) return;
+  const at = rest.indexOf('condition');
+  const when = at >= 0 ? matcher(rest[at + 1]) : () => true;
+  wrap(target[0], target[1], (native, self, args) => {
+    const out: unknown = Reflect.apply(native, self, args);
+    return typeof out === 'string' && when(out) ? edit(out) : out;
+  });
+}
+
+/**
+ * Pages take a pristine copy of a hooked function from a fresh iframe. After `insert` (a DOM
+ * method) adds a frame, its copy of `shared` is replaced with this window's.
+ */
+function preventDomBypass(insert = '', shared = ''): void {
+  const method = ownerOf(insert);
+  if (!method || !shared) return;
+  // A prototype cannot be reassigned; the constructor that owns it can.
+  const path = shared.endsWith('.prototype') ? shared.slice(0, -'.prototype'.length) : shared;
+  const mine = ownerOf(path);
+  if (!mine) return;
+  const share = (frame: HTMLIFrameElement) => {
+    try {
+      const theirs = frame.contentWindow && ownerOf(path, frame.contentWindow);
+      if (theirs) theirs[0][theirs[1]] = mine[0][mine[1]];
+    } catch {
+      // Cross-origin frame: it cannot reach this window's functions either.
+    }
+  };
+  wrap(method[0], method[1], (native, self, args) => {
+    const out: unknown = Reflect.apply(native, self, args);
+    for (const node of args) {
+      if (node instanceof HTMLIFrameElement) share(node);
+      else if (node instanceof Element) node.querySelectorAll('iframe').forEach(share);
+    }
+    return out;
+  });
+}
+
+function editFetchText(
+  hit: (props: Record<string, string>) => boolean,
+  edit: (text: string) => string,
+): void {
   wrap(window, 'fetch', (native, self, args) => {
     const out = Reflect.apply(native, self, args) as Promise<Response>;
     if (!hit(requestProps(args[0], args[1] as RequestInit | undefined))) return out;
@@ -785,7 +886,336 @@ function spoofCss(selector = '', ...pairs: string[]): void {
   });
 }
 
+/**
+ * One argument of `trusted-suppress-native-method`'s signature: a JSON string or number matches
+ * that value, a JSON object matches an argument with those properties, `/re/` or text tests the
+ * argument as text. Pieces are separated by `|`, one per argument.
+ */
+export function argMatcher(piece: string): (arg: unknown) => boolean {
+  const p = piece.trim();
+  if (p === '' || p === '*') return () => true;
+  if (/^["{[\d-]/.test(p)) {
+    try {
+      const want: unknown = JSON.parse(p);
+      if (isObject(want)) {
+        return (arg) =>
+          isObject(arg) && Object.entries(want).every(([k, v]) => (arg as Owner)[k] === v);
+      }
+      return (arg) => arg === want || String(arg) === String(want);
+    } catch {
+      // Not JSON after all: read it as text below.
+    }
+  }
+  const hit = matcher(p);
+  return (arg) => hit(String(arg));
+}
+
+/** `inlineScript` in a stack pattern means the page's own inline code. */
+const stackHit = (pattern = '') =>
+  pattern === 'inlineScript'
+    ? () => (new Error().stack ?? '').includes(location.href)
+    : pattern
+      ? (
+          (m) => () =>
+            m(new Error().stack ?? '')
+        )(matcher(pattern))
+      : () => true;
+
+function suppressNativeMethod(path = '', signature = '', how = 'abort', stack = ''): void {
+  const target = ownerOf(path);
+  if (!target) return;
+  const pieces = signature.split('|').map(argMatcher);
+  const fromStack = stackHit(stack);
+  wrap(target[0], target[1], (native, self, args) => {
+    if (pieces.every((m, i) => m(args[i])) && fromStack()) {
+      if (how === 'abort') throw new ReferenceError(path);
+      return undefined;
+    }
+    return Reflect.apply(native, self, args);
+  });
+}
+
+/** Markup from a list, with everything that could run removed: scripts, frames, on* handlers. */
+export function inertHtml(html: string): DocumentFragment {
+  const tpl = document.createElement('template');
+  // Parsed in an inert template; nothing in it loads or runs while it is cleaned.
+  const doc = new DOMParser().parseFromString(`<body>${html}`, 'text/html');
+  for (const el of doc.body.querySelectorAll(
+    'script, iframe, frame, object, embed, link, meta, base',
+  )) {
+    el.remove();
+  }
+  for (const el of doc.body.querySelectorAll('*')) {
+    for (const a of [...el.attributes]) {
+      if (/^on/i.test(a.name) || /^\s*(javascript|data):/i.test(a.value))
+        el.removeAttribute(a.name);
+    }
+  }
+  tpl.content.append(...doc.body.childNodes);
+  return tpl.content;
+}
+
+function createHtml(selector = '', html = '', duration = ''): void {
+  if (!selector || !html) return;
+  const ms = Number(duration);
+  const put = () => {
+    const parent = document.querySelector(selector);
+    if (!parent) return false;
+    const nodes = [...inertHtml(html).childNodes];
+    parent.append(...nodes);
+    if (ms > 0) setTimeout(() => nodes.forEach((n) => n.parentNode?.removeChild(n)), ms);
+    return true;
+  };
+  if (put()) return;
+  const observer = new MutationObserver(() => {
+    if (put()) observer.disconnect();
+  });
+  observer.observe(document, { childList: true, subtree: true });
+  setTimeout(() => observer.disconnect(), 10_000);
+}
+
+/** `extraMatch` tokens: `cookie:name`, `localStorageItem:key`, or a plain text pattern on the URL. */
+function extraMatches(spec = ''): boolean {
+  return spec
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .every((t) => {
+      const [kind = '', ...rest] = t.split(':');
+      const value = rest.join(':');
+      if (kind === 'cookie')
+        return document.cookie.split(';').some((c) => matcher(value)(c.trim().split('=')[0] ?? ''));
+      if (kind === 'localStorageItem') {
+        try {
+          return localStorage.getItem(value) !== null;
+        } catch {
+          return false;
+        }
+      }
+      return matcher(t)(location.href);
+    });
+}
+
+/** Clicks each selector in turn as it appears (cookie walls, "continue" buttons), within 10 s. */
+function clickElement(selectors = '', extraMatch = '', delay = ''): void {
+  const queue = selectors
+    .split(/\s*,\s*(?![^[]*\])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!queue.length || !extraMatches(extraMatch)) return;
+  const wait = Math.min(Math.max(Number(delay) || 0, 0), 10_000);
+  const deadline = Date.now() + 10_000;
+  const step = () => {
+    const sel = queue[0];
+    if (!sel || Date.now() > deadline) return;
+    let el: Element | null;
+    try {
+      el = document.querySelector(sel);
+    } catch {
+      queue.length = 0;
+      return;
+    }
+    if (el instanceof HTMLElement) {
+      el.click();
+      queue.shift();
+      setTimeout(step, wait || 50);
+      return;
+    }
+    setTimeout(step, 200);
+  };
+  setTimeout(step, wait);
+}
+
+/** Edits (or prunes) an object a page function receives, e.g. the request JSON.stringify writes. */
+function inbound(path = '', position = '0', edit: (arg: unknown) => void): void {
+  const target = ownerOf(path);
+  const index = Number(position);
+  if (!target || !Number.isInteger(index) || index < 0) return;
+  wrap(target[0], target[1], (native, self, args) => {
+    if (isObject(args[index])) {
+      try {
+        // A copy: the page's own object stays as it was.
+        const copy = structuredClone(args[index]);
+        edit(copy);
+        args[index] = copy;
+      } catch {
+        // Functions and other uncloneable values are passed through untouched.
+      }
+    }
+    return Reflect.apply(native, self, args);
+  });
+}
+
+/** Element methods (link clicks, frame removal) called on elements matching `selector`. */
+function overrideElementMethod(path = '', selector = '', override = ''): void {
+  const target = ownerOf(path);
+  if (!target || !selector) return;
+  wrap(target[0], target[1], (native, self, args) => {
+    let hit: boolean;
+    try {
+      hit = self instanceof Element && self.matches(selector);
+    } catch {
+      hit = false;
+    }
+    if (!hit) return Reflect.apply(native, self, args);
+    if (override === 'throw') throw new Error(path);
+    return undefined;
+  });
+}
+
+/** Watches `a.b.c` being set and edits the value on the way in. */
+function editOnSetter(path = '', query = '', trusted = false): void {
+  const edit = jsonEditFor(query, trusted);
+  const target = ownerOf(path);
+  if (!edit || !target) return;
+  const [owner, prop] = target;
+  const desc = Object.getOwnPropertyDescriptor(owner, prop);
+  if (desc && !desc.configurable) return;
+  let value: unknown = owner[prop];
+  Object.defineProperty(owner, prop, {
+    configurable: true,
+    enumerable: true,
+    get: () => value,
+    set(v: unknown) {
+      if (isObject(v)) applyJsonEdit(v, edit);
+      value = v;
+    },
+  });
+}
+
+function jsonlEditXhr(trusted: boolean) {
+  return (query = '', ...rest: string[]): void => {
+    const edit = jsonEditFor(query, trusted);
+    if (!edit) return;
+    filterXhrText(propsAfter(rest), (body) =>
+      body
+        .split('\n')
+        .map((line) => {
+          if (!line.trim()) return line;
+          try {
+            const data: unknown = JSON.parse(line);
+            return applyJsonEdit(data, edit) ? JSON.stringify(data) : line;
+          } catch {
+            return line;
+          }
+        })
+        .join('\n'),
+    );
+  };
+}
+
+/** Edits the JSON body a page sends with fetch. */
+function jsonEditFetchRequest(trusted: boolean) {
+  return (query = '', ...rest: string[]): void => {
+    const edit = jsonEditFor(query, trusted);
+    if (!edit) return;
+    const hit = propsAfter(rest);
+    wrap(window, 'fetch', (native, self, args) => {
+      const init = args[1] as RequestInit | undefined;
+      if (init && typeof init.body === 'string' && hit(requestProps(args[0], init))) {
+        try {
+          const data: unknown = JSON.parse(init.body);
+          if (applyJsonEdit(data, edit)) args[1] = { ...init, body: JSON.stringify(data) };
+        } catch {
+          // Not JSON: sent as it was.
+        }
+      }
+      return Reflect.apply(native, self, args);
+    });
+  };
+}
+
+/** Clipboard writes a page makes without asking, e.g. "press Win+R and paste" scams. */
+function preventClipboardWrite(pattern = ''): void {
+  const hit = matcher(pattern);
+  const clip = (globalThis as { Clipboard?: { prototype: object } }).Clipboard?.prototype;
+  if (clip) {
+    wrap(clip, 'writeText', (native, self, args) =>
+      hit(String(args[0])) ? Promise.resolve() : Reflect.apply(native, self, args),
+    );
+  }
+  wrap(DataTransfer.prototype, 'setData', (native, self, args) =>
+    hit(String(args[1])) ? undefined : Reflect.apply(native, self, args),
+  );
+}
+
+/** Packaged surrogate code, run in the page the same way a redirect would have loaded it. */
+function runSurrogate(code: string): void {
+  const el = document.createElement('script');
+  scriptTextSetter()(el, code);
+  (document.head ?? document.documentElement).append(el);
+  el.remove();
+}
+
 export const SCRIPTLETS: Readonly<Record<string, (...args: string[]) => void>> = {
+  'trusted-suppress-native-method': suppressNativeMethod,
+  'trusted-create-html': createHtml,
+  'trusted-click-element': clickElement,
+  'trusted-edit-inbound-object'(path = '', position = '0', query = '') {
+    const edit = jsonEditFor(query, true);
+    if (edit) inbound(path, position, (arg) => applyJsonEdit(arg, edit));
+  },
+  'trusted-prune-inbound-object'(path = '', position = '0', paths = '', required = '') {
+    const list = words(paths);
+    if (list.length) inbound(path, position, (arg) => pruneJson(arg, list, words(required)));
+  },
+  'trusted-override-element-method': overrideElementMethod,
+  'edit-object-on-setter': (path, query) => editOnSetter(path, query, false),
+  'trusted-edit-object-on-setter': (path, query) => editOnSetter(path, query, true),
+  'jsonl-edit-xhr-response': jsonlEditXhr(false),
+  'trusted-jsonl-edit-xhr-response': jsonlEditXhr(true),
+  'json-edit-fetch-request': jsonEditFetchRequest(false),
+  'trusted-json-edit-fetch-request': jsonEditFetchRequest(true),
+  'prevent-clipboard-write': preventClipboardWrite,
+  'disable-newtab-links'() {
+    document.addEventListener(
+      'click',
+      (e) => {
+        const a = e.target instanceof Element ? e.target.closest('a[target]') : null;
+        if (!a || a.getAttribute('target') === '_self') return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      true,
+    );
+  },
+  'prevent-canvas'(type = '') {
+    const hit = matcher(type);
+    wrap(HTMLCanvasElement.prototype, 'getContext', (native, self, args) =>
+      hit(String(args[0])) ? null : Reflect.apply(native, self, args),
+    );
+  },
+  'prevent-dialog'(needle = '') {
+    const hit = matcher(needle);
+    for (const m of ['show', 'showModal'] as const) {
+      wrap(HTMLDialogElement.prototype, m, (native, self, args) =>
+        self instanceof HTMLDialogElement && hit(self.textContent ?? '')
+          ? undefined
+          : Reflect.apply(native, self, args),
+      );
+    }
+  },
+  'window-close-if'(needle = '') {
+    // Pages that open themselves as a pop-up and close once done: only those addresses may close.
+    if (matcher(needle)(location.href)) return;
+    wrap(window, 'close', () => undefined);
+  },
+  'alert-buster'() {
+    wrap(window, 'alert', () => undefined);
+  },
+  'prevent-navigation'(needle = '') {
+    const hit = matcher(needle);
+    const nav = (globalThis as { navigation?: EventTarget }).navigation;
+    nav?.addEventListener('navigate', (e) => {
+      const url = (e as Event & { destination?: { url?: string } }).destination?.url ?? '';
+      if (hit(url) && (e as Event & { cancelable: boolean }).cancelable) e.preventDefault();
+    });
+  },
+  'popads.net'() {
+    for (const p of ['_pop', '_pao', 'PopAds', 'popns', '_popIn']) guardProp(p, () => true, 'both');
+  },
+  'google-ima': () => runSurrogate(GOOGLE_IMA),
+  fingerprint2: () => runSurrogate(FINGERPRINT2),
   aopr: (path = '') => guardProp(path, () => true, 'read'),
   aopw: (path = '') => guardProp(path, () => true, 'write'),
   acs(path = '', needle = '') {
@@ -903,6 +1333,9 @@ export const SCRIPTLETS: Readonly<Record<string, (...args: string[]) => void>> =
   'json-edit-xhr-response': jsonEditXhr(false),
   'trusted-json-edit-xhr-response': jsonEditXhr(true),
   'trusted-replace-fetch-response': replaceFetchResponse,
+  'm3u-prune': m3uPrune,
+  'trusted-replace-outbound-text': replaceOutboundText,
+  'trusted-prevent-dom-bypass': preventDomBypass,
   'trusted-replace-xhr-response'(pattern = '', replacement = '', props = '') {
     const edit = textReplacer(pattern, replacement);
     if (edit) filterXhrText(requestMatcher(props), edit);

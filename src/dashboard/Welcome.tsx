@@ -37,11 +37,18 @@ export function Welcome({
         <button type="button" aria-pressed={profile === 'strict'} onClick={() => choose('strict')}>
           {L('Sıkı', 'Strict')}
         </button>
+        <button
+          type="button"
+          aria-pressed={profile === 'paranoid'}
+          onClick={() => choose('paranoid')}
+        >
+          {L('Paranoyak', 'Paranoid')}
+        </button>
       </div>
       <p className="note">
         {L(
-          'Dengeli siteleri bozmadan korur. Sıkı, üçüncü taraf çerezlerini de engeller ve parmak izini daha çok gizler; bazı giriş ve ödeme pencereleri bozulabilir. Sonra Gizlilik bölümünden değiştirebilirsiniz.',
-          'Balanced protects without breaking sites. Strict also blocks third-party cookies and hides more of your fingerprint; some sign-in and payment windows may break. You can change this later under Privacy.',
+          'Dengeli siteleri bozmadan korur. Sıkı, üçüncü taraf çerezlerini de engeller ve parmak izini daha çok gizler; bazı giriş ve ödeme pencereleri bozulabilir. Paranoyak, başka sitelerin betiklerini de engeller; siteleri tek tek izinle açarsınız. Sonra Gizlilik bölümünden değiştirebilirsiniz.',
+          'Balanced protects without breaking sites. Strict also blocks third-party cookies and hides more of your fingerprint; some sign-in and payment windows may break. Paranoid also blocks scripts from other sites; you allow sites one by one. You can change this later under Privacy.',
         )}
       </p>
 

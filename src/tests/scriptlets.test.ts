@@ -3,14 +3,18 @@ import {
   callsFor,
   canonScriptlet,
   compileScriptlets,
+  packagedTable,
   parseArgs,
+  tableDelta,
 } from '../engines/adblock/scriptlets.ts';
 import {
+  argMatcher,
   constant,
   matcher,
   pruneJson,
   requestMatcher,
   SCRIPTLETS,
+  m3uPruner,
   textReplacer,
 } from '../engines/adblock/scriptlet-impl.ts';
 
@@ -84,7 +88,7 @@ describe('scriptlet compiler', () => {
     for (const line of [
       'a.example##+js(rpnt, script, /x/, (()=>{alert(1)})();$1)',
       'a.example##+js(rpnt, script, /x/, y, condition, /z/)',
-      'a.example##+js(trusted-rpnt, script, /x/, y)',
+      'a.example##+js(trusted-rpnt, script, /x/, (function(){})())',
     ]) {
       const out = compileScriptlets([line]);
       expect(out.rules).toBe(0);
@@ -216,5 +220,119 @@ describe('textReplacer', () => {
   });
   it('accepts the trusted variants lists use', () => {
     expect(canonScriptlet('trusted-rpfr')).toBe('trusted-replace-fetch-response');
+  });
+});
+
+describe('m3uPruner', () => {
+  const playlist = [
+    '#EXTM3U',
+    '#EXTINF:5,',
+    'https://redirector.googlevideo.com/videoplayback?dclk_video_ads',
+    '#EXTINF:5,',
+    'https://cdn.example/main/1.ts',
+  ].join('\n');
+
+  it('drops a matching segment with its #EXTINF line', () => {
+    const rule = String.raw`/^https?:\/\/redirector\.googlevideo\.com.*/`;
+    expect(m3uPruner(rule)?.(playlist)).toBe(
+      ['#EXTM3U', '#EXTINF:5,', 'https://cdn.example/main/1.ts'].join('\n'),
+    );
+    expect(m3uPruner('dclk_video_ads')?.(playlist)).not.toContain('dclk');
+  });
+
+  it('never removes tags, and refuses an empty pattern', () => {
+    expect(m3uPruner('EXTINF')?.(playlist)).toBe(playlist);
+    expect(m3uPruner('')).toBeNull();
+  });
+});
+
+describe('trusted-replace-outbound-text', () => {
+  it('rewrites what the function returns when the condition matches', () => {
+    const g = globalThis as unknown as Record<string, unknown>;
+    g.axOutbound = { make: (s: string) => s };
+    SCRIPTLETS['trusted-replace-outbound-text']?.(
+      'axOutbound.make',
+      '"clientScreen":"WATCH"',
+      '"clientScreen":"ADUNIT"',
+      'condition',
+      'contentPlaybackContext',
+    );
+    const make = (g.axOutbound as { make: (s: string) => string }).make;
+    expect(make('{"clientScreen":"WATCH","contentPlaybackContext":{}}')).toBe(
+      '{"clientScreen":"ADUNIT","contentPlaybackContext":{}}',
+    );
+    expect(make('{"clientScreen":"WATCH"}')).toBe('{"clientScreen":"WATCH"}');
+    delete g.axOutbound;
+  });
+});
+
+describe('uBO-level scriptlet coverage', () => {
+  it('has a page implementation for every name the compiler accepts', async () => {
+    const { CANON } = await import('../engines/adblock/scriptlets.ts');
+    const missing = [...new Set(Object.values(CANON))].filter((n) => !(n in SCRIPTLETS));
+    expect(missing).toEqual([]);
+  });
+
+  it('reads the newer uBO names, trusted ones still behind safe replacements', () => {
+    for (const n of [
+      'trusted-suppress-native-method',
+      'trusted-click-element',
+      'trusted-create-html',
+      'trusted-edit-inbound-object',
+      'prevent-clipboard-write',
+      'google-ima.js',
+      'popads.net.js',
+    ]) {
+      expect(canonScriptlet(n)).not.toBeNull();
+    }
+    expect(canonScriptlet('trusted-rpnt')).toBe('rpnt');
+    // Code as a replacement is still refused.
+    expect(
+      compileScriptlets(['a.com##+js(trusted-rpnt, script, x, (function(){alert(1)})())']).skipped,
+    ).toBe(1);
+  });
+
+  it('matches suppress-native-method signatures by JSON value, object shape or pattern', () => {
+    expect(argMatcher('"data-sdk"')('data-sdk')).toBe(true);
+    expect(argMatcher('"data-sdk"')('other')).toBe(false);
+    expect(argMatcher('{"className":"adsbygoogle"}')({ className: 'adsbygoogle', id: 1 })).toBe(
+      true,
+    );
+    expect(argMatcher('{"className":"adsbygoogle"}')('adsbygoogle')).toBe(false);
+    expect(
+      argMatcher(String.raw`/^\[object HTMLImageElement\]$/`)('[object HTMLImageElement]'),
+    ).toBe(true);
+    expect(argMatcher('')(undefined)).toBe(true);
+  });
+});
+
+describe('quick fixes between releases', () => {
+  it('keeps only the rows an updated list added, as a table pages can read', () => {
+    const packaged = compileScriptlets(['a.com##+js(aopr, x)', 'b.com##+js(set, y, true)']).table;
+    const updated = compileScriptlets([
+      'a.com##+js(aopr, x)',
+      'a.com##+js(nostif, ad)',
+      'b.com##+js(set, y, true)',
+      'c.com##+js(aopr, z)',
+    ]).table;
+    const delta = tableDelta(updated, packaged);
+    expect(callsFor([delta], 'a.com')).toEqual([['nostif', 'ad']]);
+    expect(callsFor([delta], 'b.com')).toEqual([]);
+    expect(callsFor([delta], 'c.com')).toEqual([['aopr', 'z']]);
+    expect(tableDelta(packaged, packaged)).toBe('');
+  });
+
+  it('adds the page reader only while a delta exists', async () => {
+    const { contentScripts } = await import('../engines/core/control.ts');
+    const { DEFAULT_SETTINGS } = await import('../storage/settings.ts');
+    const ids = (d: boolean) => contentScripts(DEFAULT_SETTINGS, [], d).map((c) => c.id);
+    expect(ids(false)).not.toContain('scriptlets-delta');
+    expect(ids(true)).toContain('scriptlets-delta');
+  });
+
+  it('reads the table out of a packaged data file', () => {
+    const table = compileScriptlets(['a.com##+js(aopr, "q")']).table;
+    const file = `(self.__nexusSl||=[]).push(${JSON.stringify(table)});`;
+    expect(packagedTable(file)).toBe(table);
   });
 });

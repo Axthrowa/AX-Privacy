@@ -40,6 +40,8 @@ await build({
         popup: resolve(root, 'src/dashboard/popup.html'),
         dashboard: resolve(root, 'src/dashboard/dashboard.html'),
         blocked: resolve(root, 'src/dashboard/blocked.html'),
+        // AX-Brain layer 3 runs the Prompt API here; workers do not get it.
+        nano: resolve(root, 'src/dashboard/nano.html'),
         background: resolve(root, 'src/background/index.ts'),
       },
       output: {
@@ -101,8 +103,20 @@ for (const m of AD_MODES) {
   );
 }
 
+// package.json is the one place the version is written; both manifests take it from there.
+const { version } = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')) as {
+  version: string;
+};
+const manifest = {
+  ...JSON.parse(await readFile(resolve(chromeOut, 'manifest.json'), 'utf8')),
+  version,
+};
+await writeFile(
+  resolve(chromeOut, 'manifest.json'),
+  `${JSON.stringify(manifest, null, 2)}
+`,
+);
 await cp(chromeOut, firefoxOut, { recursive: true });
-const manifest = JSON.parse(await readFile(resolve(chromeOut, 'manifest.json'), 'utf8'));
 await writeFile(
   resolve(firefoxOut, 'manifest.json'),
   `${JSON.stringify(toFirefoxManifest(manifest), null, 2)}\n`,

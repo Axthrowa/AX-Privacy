@@ -7,8 +7,34 @@ import type { RiskLevel } from '../engines/security/heuristics.ts';
 import { hidingRulesFor, problemReport } from '../shared/picked.ts';
 import type { ListsView, PopupState, Settings, TabReport } from '../shared/types.ts';
 import { detectBrave } from './brave.ts';
+import { matrixVerdict, parseMatrix, setCell } from '../engines/core/matrix.ts';
+import { siteKey } from '../shared/url.ts';
 import { Fix } from './Fix.tsx';
 import { mount } from './mount.tsx';
+import { levelOf, SITE_LEVELS, type SiteLevel } from '../shared/site-level.ts';
+
+const LEVEL_NAME: Record<SiteLevel, string> = {
+  off: L('Kapalı', 'Off'),
+  basic: L('Temel', 'Basic'),
+  optimal: L('Optimal', 'Optimal'),
+  full: L('Tam', 'Complete'),
+};
+
+const LEVEL_HINT: Record<SiteLevel, string> = {
+  off: L('Bu sitede AX tamamen duraklatıldı.', 'AX is fully paused on this site.'),
+  basic: L(
+    'Yalnızca ağ engeli: reklam ve izleyici istekleri durur, sayfaya dokunulmaz.',
+    'Network blocking only: ad and tracker requests stop, the page is left alone.',
+  ),
+  optimal: L(
+    'Ağ engeli + siteye özel gizleme + scriptlet’ler.',
+    'Network blocking + site-specific hiding + scriptlets.',
+  ),
+  full: L(
+    'Optimal + genel gizleme + AX-Brain yapay zekâ.',
+    'Optimal + generic hiding + AX-Brain AI.',
+  ),
+};
 
 const RISK_LABEL: Record<Exclude<RiskLevel, 'none'>, string> = {
   high: L('Yüksek risk', 'High risk'),
@@ -58,13 +84,65 @@ const BRAIN_REASON: Record<string, string> = {
   'invisible-click-curtain': L('görünmez tıklama perdesi', 'invisible click curtain'),
   'ad-identifier': L('reklam sınıf adı', 'ad class name'),
   'ax-brain-model': L('öğrenilmiş model', 'learned model'),
+  'ax-brain-nano': L('Gemini Nano onayı', 'Gemini Nano check'),
 };
+
+interface BrainItem {
+  id: number;
+  reasons: string[];
+  label: string;
+}
+
+const isBrainItems = (v: unknown): v is BrainItem[] =>
+  Array.isArray(v) &&
+  v.every(
+    (x: Partial<BrainItem>) =>
+      typeof x.id === 'number' && typeof x.label === 'string' && Array.isArray(x.reasons),
+  );
+
+/** Elements the top frame still holds hidden, each with an undo. Empty where no script runs. */
+function BrainItems({ tabId }: { tabId: number }) {
+  const [items, setItems] = useState<BrainItem[]>([]);
+  useEffect(() => {
+    chrome.tabs
+      .sendMessage(tabId, { type: 'brain/list' }, { frameId: 0 })
+      .then((v: unknown) => setItems(isBrainItems(v) ? v : []))
+      .catch(() => setItems([]));
+  }, [tabId]);
+  if (items.length === 0) return null;
+  return (
+    <ul className="brain-items">
+      {items.map((item) => (
+        <li key={item.id}>
+          <span>
+            <code>{item.label}</code>
+            <small>{item.reasons.map((r) => BRAIN_REASON[r] ?? r).join(', ')}</small>
+          </span>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              void chrome.tabs
+                .sendMessage(tabId, { type: 'brain/restore', id: item.id }, { frameId: 0 })
+                .then(() => setItems((all) => all.filter((x) => x.id !== item.id)))
+                .catch(() => undefined);
+            }}
+          >
+            {L('Geri al', 'Undo')}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function Brain({
   brain,
+  tabId,
   onPause,
 }: {
   brain: NonNullable<TabReport['brain']>;
+  tabId: number;
   onPause: () => void;
 }) {
   if (brain.pausedUntil !== null) {
@@ -92,12 +170,79 @@ function Brain({
       <p className="note">
         {L('Nedenler', 'Reasons')}: {reasons}
       </p>
+      <BrainItems tabId={tabId} />
       <button type="button" className="secondary" onClick={onPause}>
         {L(
           'Yanlış gizledi: bu sitede 7 gün kapat ve yenile',
           'Wrongly hidden: turn off here for 7 days and reload',
         )}
       </button>
+    </details>
+  );
+}
+
+const CELL_ACTIONS = [
+  ['allow', '✓', L('İzin ver', 'Allow')],
+  ['block', '✕', L('Engelle', 'Block')],
+  ['noop', '–', L('Listelere bırak', 'Leave to the lists')],
+] as const;
+
+/** Advanced mode cells: what this site does with each third party it contacted. */
+function MatrixCells({
+  settings,
+  site,
+  report,
+  onChange,
+}: {
+  settings: Settings;
+  site: string;
+  report: TabReport;
+  onChange(rules: string[]): void;
+}) {
+  const rules = parseMatrix(settings.matrix.rules);
+  const third = [
+    ...new Set(
+      report.hosts.filter((h) => h.thirdParty).map((h) => siteKey(`https://${h.host}/`) ?? h.host),
+    ),
+  ].sort();
+  if (third.length === 0) return null;
+  return (
+    <details open>
+      <summary>{L('Gelişmiş mod: üçüncü taraflar', 'Advanced mode: third parties')}</summary>
+      <ul className="hosts matrix-cells">
+        {third.map((target) => {
+          const own = rules.find((r) => r.site === site && r.target === target && r.type === '*');
+          const now = matrixVerdict(rules, site, target, 'script');
+          return (
+            <li key={target}>
+              <span title={now ? L(`Şu an: ${now}`, `Now: ${now}`) : undefined}>{target}</span>
+              <span className="row">
+                {CELL_ACTIONS.map(([action, mark, label]) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className={`level-btn${own?.action === action ? ' level-on' : ''}`}
+                    aria-pressed={own?.action === action}
+                    aria-label={`${target}: ${label}`}
+                    title={label}
+                    onClick={() =>
+                      onChange(
+                        setCell(
+                          settings.matrix.rules,
+                          { site, target, type: '*' },
+                          own?.action === action ? null : action,
+                        ),
+                      )
+                    }
+                  >
+                    {mark}
+                  </button>
+                ))}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </details>
   );
 }
@@ -159,7 +304,7 @@ function Report({ report, matched }: { report: TabReport; matched: number | null
   );
 }
 
-const SECURITY_LISTS = ['ublock-badware', 'urlhaus'];
+const SECURITY_LISTS = ['ublock-badware', 'ublock-resource-abuse', 'urlhaus'];
 
 const formatCount = (n: number) =>
   n >= 1000 ? `${(Math.floor(n / 1000) * 1000).toLocaleString('tr-TR')}+` : String(n);
@@ -391,11 +536,13 @@ function Popup() {
   const { site } = state;
   const chosen = settings && currentProfile(settings.privacy);
   const profileName =
-    chosen === 'strict'
-      ? L('Sıkı', 'Strict')
-      : chosen === 'balanced'
-        ? L('Dengeli', 'Balanced')
-        : L('Özel', 'Custom');
+    chosen === 'paranoid'
+      ? L('Paranoyak', 'Paranoid')
+      : chosen === 'strict'
+        ? L('Sıkı', 'Strict')
+        : chosen === 'balanced'
+          ? L('Dengeli', 'Balanced')
+          : L('Özel', 'Custom');
   const copyReport = async (fixedBy?: string) => {
     if (!settings) return;
     await navigator.clipboard.writeText(
@@ -442,6 +589,10 @@ function Popup() {
   const totalRules = staticRules + (lists?.dynamicRules ?? 0);
   const securityOn =
     settings !== null && SECURITY_LISTS.some((id) => settings.enabledLists.includes(id));
+  const siteLevel =
+    settings && site !== null
+      ? levelOf({ ...DEFAULT_SITE_PROFILE, ...settings.siteProfiles[site] }, state.paused)
+      : null;
   const learned = settings ? (settings.customRules.match(/^[^!\n]*##/gm) ?? []).length : 0;
   const hidden = settings && site !== null ? hidingRulesFor(site, settings.customRules) : [];
 
@@ -457,8 +608,8 @@ function Popup() {
           id: 'all',
           title: L('Reklam & İzleyici Engelleme', 'Ad & Tracker Blocking'),
           desc: L(
-            `${formatCount(totalRules)} reklam ve izleyici kuralını uygular`,
-            `Applies ${formatCount(totalRules)} ad and tracker rules`,
+            `${formatCount(totalRules)} reklam ve izleyici ağını engeller`,
+            `Blocks ${formatCount(totalRules)} ad and tracker networks`,
           ),
           checked: state.enabled,
           set: (on) => send('global/set', { enabled: on }),
@@ -484,8 +635,8 @@ function Popup() {
           id: 'security',
           title: L('Tehlike Uyarı Sistemi', 'Threat Warnings'),
           desc: L(
-            'Zararlı yazılım ve oltalama sitelerini engeller, riskleri bildirir',
-            'Blocks malware and phishing sites and reports risks',
+            'Güvensiz HTTP ve phishing sitelerini bildirir',
+            'Warns about insecure HTTP and phishing sites',
           ),
           checked: securityOn,
           set: async (on) => {
@@ -529,26 +680,17 @@ function Popup() {
     <main className="popup-container">
       <header className="header">
         <div className="brand">
-          <img className="brand-logo" src="icons/icon-32.png" alt="" width={22} height={22} />
+          <span className="brand-icon" aria-hidden="true">
+            🛡️
+          </span>
           <div className="brand-text">
             <span className="brand-name">AX-Privacy</span>
             <span className="brand-version">v{version}</span>
           </div>
         </div>
-        <div className="header-actions">
-          <div className={`status-badge ${badge.cls}`} role="status">
-            <span className="status-indicator" />
-            <span>{badge.text}</span>
-          </div>
-          <button
-            type="button"
-            className="btn-gear"
-            title={L('Kontrol Paneli', 'Dashboard')}
-            aria-label={L('Kontrol Paneli', 'Dashboard')}
-            onClick={() => void chrome.runtime.openOptionsPage()}
-          >
-            ⚙
-          </button>
+        <div className={`status-badge ${badge.cls}`} role="status">
+          <span className="status-indicator" />
+          <span>{badge.text}</span>
         </div>
       </header>
 
@@ -581,6 +723,52 @@ function Popup() {
                   : L('Koruma Duraklatıldı', 'Protection Paused')}
             </span>
           </button>
+          {site !== null && settings && state.enabled && (
+            <div
+              className="level-row"
+              role="radiogroup"
+              aria-label={L('Koruma seviyesi', 'Protection level')}
+            >
+              {SITE_LEVELS.map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  role="radio"
+                  aria-checked={siteLevel === level}
+                  className={`level-btn${siteLevel === level ? ' level-on' : ''}`}
+                  title={LEVEL_HINT[level]}
+                  onClick={() => void run(() => send('site/setLevel', { site, level }))}
+                >
+                  {LEVEL_NAME[level]}
+                </button>
+              ))}
+            </div>
+          )}
+          {site !== null && settings && state.enabled && (
+            <p className="level-hint">
+              {siteLevel
+                ? LEVEL_HINT[siteLevel]
+                : L('Özel: katmanlar elle ayarlandı.', 'Custom: layers set by hand.')}
+            </p>
+          )}
+          {site !== null && settings?.privacy.blockThirdPartyScripts && state.enabled && (
+            <button
+              type="button"
+              className={`level-btn${settings.privacy.scriptSites.includes(site) ? ' level-on' : ''}`}
+              aria-pressed={settings.privacy.scriptSites.includes(site)}
+              onClick={() => {
+                const list = settings.privacy.scriptSites;
+                const scriptSites = list.includes(site)
+                  ? list.filter((s) => s !== site)
+                  : [...list, site];
+                void run(() => send('privacy/set', { privacy: { scriptSites } }));
+              }}
+            >
+              {settings.privacy.scriptSites.includes(site)
+                ? L('Başka sitelerin betiklerine izin verildi', 'Scripts from other sites allowed')
+                : L('Başka sitelerin betiklerine izin ver', 'Allow scripts from other sites')}
+            </button>
+          )}
         </div>
       </section>
 
@@ -642,7 +830,6 @@ function Popup() {
           )}
           <b>{L('eklenti simgesi rozetinde', 'extension icon badge')}</b>
           {L(' gösterilir.', '.')}
-          {matched !== null && L(` Bu sayfada: ${matched}.`, ` This page: ${matched}.`)}
         </span>
       </div>
 
@@ -701,6 +888,7 @@ function Popup() {
           {report?.brain && tab?.id !== undefined && (
             <Brain
               brain={report.brain}
+              tabId={tab.id}
               onPause={() => {
                 if (tab.id === undefined) return;
                 void send('brain/pause', { tabId: tab.id })
@@ -747,6 +935,36 @@ function Popup() {
         />
       )}
 
+      {modules.length > 0 && (
+        <section className="modules-section">
+          <div className="section-title">{L('KORUMA MODÜLLERİ', 'PROTECTION MODULES')}</div>
+          {modules.map((m) => (
+            <div className="module-item" key={m.id}>
+              <div className="module-text">
+                <div className="module-title">{m.title}</div>
+                <div className="module-desc">{m.desc}</div>
+              </div>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label={m.title}
+                  checked={m.checked}
+                  disabled={m.id !== 'all' && !state.enabled}
+                  onChange={(e) =>
+                    void run(async () => {
+                      await m.set(e.target.checked);
+                      if (m.id === 'security') setLists(await send('lists/get', {}));
+                    })
+                  }
+                />
+                <span className="slider" />
+              </label>
+            </div>
+          ))}
+        </section>
+      )}
+
       {canFix && settings && fixing && (
         <section className="card">
           <Fix
@@ -769,6 +987,14 @@ function Popup() {
         <details className="card report-card">
           <summary>{L('Sayfa raporu ve sorun giderme', 'Page report and troubleshooting')}</summary>
           <Report report={report} matched={matched} />
+          {settings?.matrix.on && site !== null && (
+            <MatrixCells
+              settings={settings}
+              site={site}
+              report={report}
+              onChange={(rules) => void run(() => send('matrix/set', { rules }))}
+            />
+          )}
           {canFix && !fixing && !state.paused && ownBlocked && (
             <p className="note">
               {L(
@@ -806,36 +1032,6 @@ function Popup() {
             </button>
           )}
         </details>
-      )}
-
-      {modules.length > 0 && (
-        <section className="modules-section">
-          <div className="section-title">{L('KORUMA MODÜLLERİ', 'PROTECTION MODULES')}</div>
-          {modules.map((m) => (
-            <div className="module-item" key={m.id}>
-              <div className="module-text">
-                <div className="module-title">{m.title}</div>
-                <div className="module-desc">{m.desc}</div>
-              </div>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  role="switch"
-                  aria-label={m.title}
-                  checked={m.checked}
-                  disabled={m.id !== 'all' && !state.enabled}
-                  onChange={(e) =>
-                    void run(async () => {
-                      await m.set(e.target.checked);
-                      if (m.id === 'security') setLists(await send('lists/get', {}));
-                    })
-                  }
-                />
-                <span className="slider" />
-              </label>
-            </div>
-          ))}
-        </section>
       )}
 
       {state.isBrave && (

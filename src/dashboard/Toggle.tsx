@@ -9,13 +9,16 @@ export function Toggle({ label, checked, disabled, onChange }: Props) {
   return (
     <label className={`toggle${disabled ? ' disabled' : ''}`}>
       <span>{label}</span>
-      <input
-        type="checkbox"
-        role="switch"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-      />
+      <span className="switch">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span className="slider" />
+      </span>
     </label>
   );
 }

@@ -1,4 +1,5 @@
 import { BUILTIN_IDS, BUILTIN_LISTS } from '../filters/catalog.ts';
+import { matrixLine, parseMatrix } from '../engines/core/matrix.ts';
 import { isFingerprintLevel } from '../shared/messages.ts';
 import type {
   PrivacySettings,
@@ -21,8 +22,11 @@ const ADDED_IN_V3 = [
   'pgl',
 ];
 
+/** Lists added in settings version 4. */
+const ADDED_IN_V4 = ['ublock-resource-abuse'];
+
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
-  version: 3,
+  version: 4,
   autoUpdateLists: true,
   pauseUntil: {},
   enabled: true,
@@ -43,6 +47,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
     browserAdApis: true,
     limitClientHints: true,
     clickToLoad: false,
+    blockThirdPartyScripts: false,
+    scriptSites: [],
     clearSiteData: false,
     keepSiteData: [],
     detailedReports: false,
@@ -63,6 +69,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   },
   theme: 'dark',
   shields: { cosmetic: true, popups: true },
+  matrix: { on: false, rules: [] },
   siteProfiles: {},
 };
 
@@ -71,6 +78,10 @@ export const DEFAULT_SITE_PROFILE: SiteProfile = {
   privacy: true,
   video: true,
   security: true,
+  cosmetic: true,
+  scriptlets: true,
+  generic: true,
+  brain: true,
 };
 
 const bool = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
@@ -109,6 +120,8 @@ function normalizePrivacy(raw: unknown): PrivacySettings {
     browserAdApis: bool(r.browserAdApis, d.browserAdApis),
     limitClientHints: bool(r.limitClientHints, d.limitClientHints),
     clickToLoad: bool(r.clickToLoad, d.clickToLoad),
+    blockThirdPartyScripts: bool(r.blockThirdPartyScripts, d.blockThirdPartyScripts),
+    scriptSites: siteList(r.scriptSites),
     clearSiteData: bool(r.clearSiteData, d.clearSiteData),
     keepSiteData: siteList(r.keepSiteData),
     hideLocalIps: bool(r.hideLocalIps, d.hideLocalIps),
@@ -154,7 +167,11 @@ export function normalizeSettings(raw: unknown): Settings {
   if (typeof raw !== 'object' || raw === null) return d;
   const r = raw as Partial<Record<keyof Settings | 'customCosmetic', unknown>>;
   const wanted = Array.isArray(r.enabledLists)
-    ? [...(r.enabledLists as unknown[]), ...((r.version as number) < 3 ? ADDED_IN_V3 : [])]
+    ? [
+        ...(r.enabledLists as unknown[]),
+        ...((r.version as number) < 3 ? ADDED_IN_V3 : []),
+        ...((r.version as number) < 4 ? ADDED_IN_V4 : []),
+      ]
     : null;
   const customRules =
     typeof r.customRules === 'string'
@@ -163,7 +180,7 @@ export function normalizeSettings(raw: unknown): Settings {
         ? r.customCosmetic
         : '';
   return {
-    version: 3,
+    version: 4,
     autoUpdateLists: bool(r.autoUpdateLists, d.autoUpdateLists),
     pauseUntil: Object.fromEntries(
       Object.entries(record(r.pauseUntil)).filter(
@@ -187,6 +204,14 @@ export function normalizeSettings(raw: unknown): Settings {
       cosmetic: bool(record(r.shields).cosmetic, d.shields.cosmetic),
       popups: bool(record(r.shields).popups, d.shields.popups),
     },
+    matrix: {
+      on: bool(record(r.matrix).on, false),
+      rules: Array.isArray(record(r.matrix).rules)
+        ? parseMatrix(
+            (record(r.matrix).rules as unknown[]).filter((l) => typeof l === 'string'),
+          ).map(matrixLine)
+        : [],
+    },
     siteProfiles: normalizeProfiles(r.siteProfiles),
   };
 }
@@ -196,6 +221,10 @@ export const PROFILE_KEYS: readonly (keyof SiteProfile)[] = [
   'privacy',
   'video',
   'security',
+  'cosmetic',
+  'scriptlets',
+  'generic',
+  'brain',
 ];
 
 /** All-on profiles are dropped so storage stays small. */

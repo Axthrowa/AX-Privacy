@@ -152,8 +152,8 @@ export function Lists({
                       'Updates only with the extension · ',
                     )}
                   {L(
-                    `Sürüm ${l.version ?? 'bilinmiyor'} · derlendi ${date(l.builtAt)} · lisans ${l.license} · `,
-                    `Version ${l.version ?? 'unknown'} · built ${date(l.builtAt)} · licence ${l.license} · `,
+                    `Bölge ${l.region ?? 'tüm dünya'} · sürüm ${l.version ?? 'bilinmiyor'} · derlendi ${date(l.builtAt)} · son güncelleme ${l.updatedAt === null ? 'yok (paketteki kopya)' : date(l.updatedAt)} · lisans ${l.license} · `,
+                    `Region ${l.region ?? 'worldwide'} · version ${l.version ?? 'unknown'} · built ${date(l.builtAt)} · last update ${l.updatedAt === null ? 'none (packaged copy)' : date(l.updatedAt)} · licence ${l.license} · `,
                   )}
                   <a href={l.homepage} target="_blank" rel="noreferrer">
                     {L('kaynak', 'source')}

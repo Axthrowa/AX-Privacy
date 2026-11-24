@@ -21,6 +21,10 @@ interface Entry {
   passwordUrl?: string;
   /** Page that read like a fake tech support alert. */
   scamUrl?: string;
+  /** Page where crypto mining was seen; `stopped` once its workers were ended. */
+  miner?: { url: string; stopped: boolean };
+  /** Brand a sign-in page on `url` claimed without being on its domains. */
+  loginBrand?: { url: string; brand: string };
   /** Like `insecureUrl`, the page URL expires it when navigation events are not watched. */
   brain?: { url: string; count: number; reasons: Record<string, number>; features: number[][] };
 }
@@ -29,6 +33,8 @@ export type PageReport = Omit<TabReport, 'risk' | 'brain'> & {
   insecurePassword: boolean;
   passwordTarget: string | null;
   supportScam: boolean;
+  miner: 'stopped' | 'seen' | null;
+  loginBrand: string | null;
   brain: Omit<BrainReport, 'pausedUntil'> | null;
 };
 
@@ -131,6 +137,19 @@ export class TabReports {
     this.touch(tabId);
   }
 
+  async loginBrand(tabId: number, url: string, brand: string): Promise<void> {
+    const e = await this.entry(tabId);
+    e.loginBrand = { url, brand };
+    this.touch(tabId);
+  }
+
+  async miner(tabId: number, url: string, stopped: boolean): Promise<void> {
+    const e = await this.entry(tabId);
+    // A later "stop" from another frame wins over an earlier "warn".
+    e.miner = { url, stopped: stopped || (e.miner?.url === url && e.miner.stopped) };
+    this.touch(tabId);
+  }
+
   async passwordElsewhere(tabId: number, host: string, url?: string): Promise<void> {
     const e = await this.entry(tabId);
     e.passwordTarget = host;
@@ -179,6 +198,8 @@ export class TabReports {
         (e.insecurePassword ?? false) &&
         (e.insecureUrl === undefined || e.insecureUrl === currentUrl),
       supportScam: e.scamUrl !== undefined && e.scamUrl === currentUrl,
+      loginBrand: e.loginBrand && e.loginBrand.url === currentUrl ? e.loginBrand.brand : null,
+      miner: e.miner && e.miner.url === currentUrl ? (e.miner.stopped ? 'stopped' : 'seen') : null,
       passwordTarget:
         e.passwordTarget && (e.passwordUrl === undefined || e.passwordUrl === currentUrl)
           ? e.passwordTarget
@@ -207,7 +228,8 @@ export function setTabReports(reports: TabReports, on: boolean): void {
     stopReports = null;
     return;
   }
-  if (stopReports) return;
+  // Without the optional webRequest permission there is nothing to listen to.
+  if (stopReports || !(chrome.webRequest as typeof chrome.webRequest | undefined)) return;
   const completed = (d: chrome.webRequest.OnCompletedDetails) => {
     if (d.tabId >= 0 && d.type !== 'main_frame') void reports.request(d.tabId, d.url);
   };

@@ -1,6 +1,6 @@
 import { test as base, chromium, type BrowserContext, type Worker } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type RequestListener, type Server } from 'node:http';
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
 import type { AddressInfo } from 'node:net';
@@ -17,12 +17,16 @@ export const browserLabel = (kind: BrowserKind) =>
 export const EXTENSION_DIR = resolve(import.meta.dirname, '../dist/chrome');
 /** Content scripts registered with default settings, sorted by id. */
 export const BASE_SCRIPTS = [
+  'brain-scan',
+  'brain-signals',
   'consent',
   'consent-eval',
   'cosmetic',
   'fp-noise',
   'gpc',
   'link-clean',
+  'miner-guard',
+  'miner-relay',
   'popups',
   'scriptlets',
   'tw-ads',
@@ -152,18 +156,41 @@ export async function startHttpsServer(
   return { port: (server.address() as AddressInfo).port, server };
 }
 
+/**
+ * A copy of the built extension whose optional permissions (webRequest, rule feedback) are granted
+ * at install, since a test cannot answer the browser's permission prompt.
+ */
+async function withOptionalGranted(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'nexus-granted-'));
+  await cp(EXTENSION_DIR, dir, { recursive: true });
+  const file = join(dir, 'manifest.json');
+  const m = JSON.parse(await readFile(file, 'utf8')) as {
+    permissions: string[];
+    optional_permissions?: string[];
+  };
+  m.permissions.push(...(m.optional_permissions ?? []));
+  delete m.optional_permissions;
+  await writeFile(file, JSON.stringify(m));
+  return dir;
+}
+
 export const test = base.extend<{
   browserKind: BrowserKind;
+  /** Install with the optional permissions already granted. */
+  grantOptional: boolean;
   context: BrowserContext;
   worker: Worker;
   extensionId: string;
   origin: string;
 }>({
   browserKind: ['brave', { option: true }],
-  context: async ({ browserKind }, use) => {
-    const brave = await launchBrave([EXTENSION_DIR], [], 'tr', browserKind);
+  grantOptional: [false, { option: true }],
+  context: async ({ browserKind, grantOptional }, use) => {
+    const dir = grantOptional ? await withOptionalGranted() : EXTENSION_DIR;
+    const brave = await launchBrave([dir], [], 'tr', browserKind);
     await use(brave.context);
     await brave.close();
+    if (grantOptional) await rm(dir, { recursive: true, force: true, maxRetries: 5 });
   },
   worker: async ({ context }, use) => {
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));

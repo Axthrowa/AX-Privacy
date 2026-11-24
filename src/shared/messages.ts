@@ -17,7 +17,17 @@ import type {
   YoutubeWarnings,
 } from './types.ts';
 import { isValidSite, MAX_KEPT_SITES, siteList } from './site.ts';
-import { FEATURE_COUNT, type BrainModel } from '../engines/brain/brain.ts';
+import { SITE_LEVELS, type SiteLevel } from './site-level.ts';
+import {
+  FEATURE_COUNT,
+  THRESHOLD_MAX,
+  THRESHOLD_MIN,
+  type BrainModel,
+} from '../engines/brain/brain.ts';
+import type { TrackerView } from '../engines/brain/trackers.ts';
+import { BRANDS } from '../engines/security/page-checks.ts';
+import { MAX_MATRIX_RULES, matrixLine, parseMatrix } from '../engines/core/matrix.ts';
+import type { NanoAvailability, NanoQuestion } from '../background/nano.ts';
 import { channelList, isSkipMode, isSponsorCategory, SPONSOR_CATEGORIES } from './sponsor.ts';
 
 type NoPayload = Record<never, never>;
@@ -38,6 +48,7 @@ export interface Api {
   /** Internal: pauses whose time is up end. */
   'site/expirePauses': { req: NoPayload; res: Settings };
   'site/setProfile': { req: { site: string; profile: Partial<SiteProfile> }; res: Settings };
+  'site/setLevel': { req: { site: string; level: SiteLevel }; res: Settings };
   'env/brave': { req: { isBrave: boolean }; res: Settings };
   'rules/setCustom': { req: { text: string }; res: CustomRulesResult };
   'rules/report': { req: NoPayload; res: CustomRulesResult };
@@ -83,6 +94,10 @@ export interface Api {
   'security/insecurePassword': { req: NoPayload; res: null };
   /** The top page's password form posts to another site (its host). */
   'security/passwordElsewhere': { req: { host: string }; res: null };
+  /** From the page: crypto mining seen; `stopped` when its workers were ended. */
+  'security/miner': { req: { stopped: boolean }; res: null };
+  /** From the page: a sign-in page names `brand` but is not on its domains. */
+  'security/loginBrand': { req: { brand: string }; res: null };
   /** The top page reads like a fake "your PC is infected, call us" alert. */
   'security/supportScam': { req: NoPayload; res: null };
   /** Click-to-load: whether embeds are held back in this tab. */
@@ -90,14 +105,40 @@ export interface Api {
   /** The user clicked an embed placeholder: embeds load in this tab until it closes. */
   'embed/load': { req: NoPayload; res: null };
   /** AX-Brain model for the ad scanner; null when protection is off for the site. */
-  'brain/model': { req: NoPayload; res: { model: BrainModel } | null };
+  /** `nano`: layer 3 is on and its model ready, so unsure elements may be asked about. */
+  'brain/model': { req: NoPayload; res: { model: BrainModel; nano: boolean } | null };
+  /** From the page: is this unsure element an ad? Gemini Nano on the device answers (layer 3). */
+  'brain/ask': { req: NanoQuestion; res: boolean | null };
+  /** Layer 3 on or off (UI only). */
+  'brain/setNano': { req: { on: boolean }; res: null };
   /** The ad scanner hid an element: why (scorer reasons) and its AX-Brain vector. */
   'brain/hidden': { req: { reasons: string[]; features: number[] }; res: null };
+  /** From the page: a script read a text canvas back or stored an ID (AX-Brain layer 2). */
+  'brain/signal': { req: { signal: 'storage' | 'fingerprint'; source: string }; res: null };
   /** From the popup: something broke; AX-Brain unlearns this page and rests on the site. */
   'brain/pause': { req: { tabId: number }; res: null };
+  /** From the page: the watchdog or the user rolled AX-Brain's hides back. */
+  'brain/broke': { req: { reason: BrainBreak }; res: null };
   /** Forget what AX-Brain learned (UI only). */
   'brain/reset': { req: NoPayload; res: null };
+  'brain/info': {
+    req: NoPayload;
+    res: {
+      model: BrainModel;
+      paused: { site: string; until: number }[];
+      trackers: TrackerView[];
+      nano: { on: boolean; availability: NanoAvailability };
+    };
+  };
+  /** Drop one learned tracker; its rules go with it (UI only). */
+  'brain/forgetTracker': { req: { domain: string }; res: null };
+  'brain/import': { req: { model: unknown }; res: BrainModel };
+  'brain/unpause': { req: { site: string }; res: null };
+  /** AX-Brain hiding threshold, 0.5 to 0.99 (UI only). */
+  'brain/setThreshold': { req: { threshold: number }; res: null };
   'shields/set': { req: { shields: Partial<ShieldSettings> }; res: Settings };
+  /** Advanced mode switch and its rules (`site target type action` lines). */
+  'matrix/set': { req: { on?: boolean; rules?: string[] }; res: Settings };
 }
 
 /** The autoconsent reports the background records; the content script handles the rest itself. */
@@ -119,14 +160,27 @@ export const CONTENT_TYPES: ReadonlySet<MessageType> = new Set<MessageType>([
   'consent/msg',
   'security/insecurePassword',
   'security/passwordElsewhere',
+  'security/miner',
+  'security/loginBrand',
   'security/supportScam',
   'video/segments',
   'video/warned',
   'embed/status',
   'embed/load',
   'brain/model',
+  'brain/ask',
   'brain/hidden',
+  'brain/signal',
+  'brain/broke',
 ]);
+
+export type BrainBreak = 'user' | 'layout-shift' | 'empty-content' | 'scroll-locked';
+const BRAIN_BREAKS: readonly BrainBreak[] = [
+  'user',
+  'layout-shift',
+  'empty-content',
+  'scroll-locked',
+];
 
 const FINGERPRINT_LEVELS: readonly FingerprintLevel[] = ['off', 'standard', 'strict'];
 
@@ -168,6 +222,7 @@ function parsePrivacy(raw: unknown): Partial<PrivacySettings> | null {
       k === 'browserAdApis' ||
       k === 'limitClientHints' ||
       k === 'clickToLoad' ||
+      k === 'blockThirdPartyScripts' ||
       k === 'clearSiteData' ||
       k === 'detailedReports';
     if (flag && typeof v === 'boolean') {
@@ -176,6 +231,8 @@ function parsePrivacy(raw: unknown): Partial<PrivacySettings> | null {
       out.fingerprint = v;
     } else if (k === 'keepSiteData' && Array.isArray(v) && v.length <= MAX_KEPT_SITES) {
       out.keepSiteData = siteList(v);
+    } else if (k === 'scriptSites' && Array.isArray(v) && v.length <= MAX_KEPT_SITES) {
+      out.scriptSites = siteList(v);
     } else {
       return null;
     }
@@ -183,7 +240,16 @@ function parsePrivacy(raw: unknown): Partial<PrivacySettings> | null {
   return out;
 }
 
-const PROFILE_PATCH: ReadonlySet<string> = new Set(['network', 'privacy', 'video', 'security']);
+const PROFILE_PATCH: ReadonlySet<string> = new Set<keyof SiteProfile>([
+  'network',
+  'privacy',
+  'video',
+  'security',
+  'cosmetic',
+  'scriptlets',
+  'generic',
+  'brain',
+]);
 
 function parseProfile(raw: unknown): Partial<SiteProfile> | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -272,7 +338,53 @@ export function parseMessage(raw: unknown): Message | null {
     case 'embed/load':
     case 'brain/model':
     case 'brain/reset':
+    case 'brain/info':
       return { type: m.type };
+    case 'brain/import':
+      return { type: m.type, model: m.model };
+    case 'brain/unpause':
+      return isValidSite(m.site) ? { type: m.type, site: m.site } : null;
+    case 'brain/setNano':
+      return typeof m.on === 'boolean' ? { type: m.type, on: m.on } : null;
+    case 'brain/ask': {
+      const hosts = Array.isArray(m.hosts) ? m.hosts : null;
+      return typeof m.text === 'string' &&
+        m.text.length <= 400 &&
+        hosts !== null &&
+        hosts.length <= 5 &&
+        hosts.every((h) => typeof h === 'string' && /^[a-z0-9.-]{1,253}$/.test(h)) &&
+        Number.isFinite(m.width) &&
+        Number.isFinite(m.height)
+        ? {
+            type: m.type,
+            text: m.text,
+            hosts: hosts as string[],
+            width: m.width as number,
+            height: m.height as number,
+          }
+        : null;
+    }
+    case 'brain/setThreshold':
+      return typeof m.threshold === 'number' &&
+        m.threshold >= THRESHOLD_MIN &&
+        m.threshold <= THRESHOLD_MAX
+        ? { type: m.type, threshold: m.threshold }
+        : null;
+    case 'brain/forgetTracker':
+      return isValidSite(m.domain) ? { type: m.type, domain: m.domain } : null;
+    case 'matrix/set': {
+      const out: { type: 'matrix/set'; on?: boolean; rules?: string[] } = { type: m.type };
+      if (m.on !== undefined) {
+        if (typeof m.on !== 'boolean') return null;
+        out.on = m.on;
+      }
+      if (m.rules !== undefined) {
+        if (!Array.isArray(m.rules) || m.rules.length > MAX_MATRIX_RULES * 2) return null;
+        if (!m.rules.every((l) => typeof l === 'string' && l.length <= 600)) return null;
+        out.rules = parseMatrix(m.rules as string[]).map(matrixLine);
+      }
+      return out;
+    }
     case 'shields/set': {
       if (typeof m.shields !== 'object' || m.shields === null) return null;
       const raw = m.shields as Record<string, unknown>;
@@ -295,6 +407,10 @@ export function parseMessage(raw: unknown): Message | null {
       return isValidSite(m.site) && typeof m.paused === 'boolean'
         ? { type: m.type, site: m.site, paused: m.paused }
         : null;
+    case 'site/setLevel':
+      return isValidSite(m.site) && SITE_LEVELS.includes(m.level as SiteLevel)
+        ? { type: m.type, site: m.site, level: m.level as SiteLevel }
+        : null;
     case 'site/setProfile': {
       const profile = parseProfile(m.profile);
       return isValidSite(m.site) && profile ? { type: m.type, site: m.site, profile } : null;
@@ -314,6 +430,13 @@ export function parseMessage(raw: unknown): Message | null {
         ? { type: m.type, selector: m.selector, features: m.features }
         : null;
     }
+    case 'brain/signal':
+      return (m.signal === 'storage' || m.signal === 'fingerprint') &&
+        typeof m.source === 'string' &&
+        m.source.length <= 2048 &&
+        /^https?:\/\//.test(m.source)
+        ? { type: m.type, signal: m.signal, source: m.source }
+        : null;
     case 'brain/hidden':
       return isFeatureVector(m.features) &&
         Array.isArray(m.reasons) &&
@@ -321,9 +444,19 @@ export function parseMessage(raw: unknown): Message | null {
         m.reasons.every((r) => typeof r === 'string' && /^[a-z-]{1,40}$/.test(r))
         ? { type: m.type, reasons: m.reasons as string[], features: m.features }
         : null;
+    case 'security/loginBrand':
+      return typeof m.brand === 'string' && Object.hasOwn(BRANDS, m.brand)
+        ? { type: m.type, brand: m.brand }
+        : null;
+    case 'security/miner':
+      return typeof m.stopped === 'boolean' ? { type: m.type, stopped: m.stopped } : null;
     case 'security/passwordElsewhere':
       return typeof m.host === 'string' && /^[a-z0-9.-]{1,253}$/i.test(m.host)
         ? { type: m.type, host: m.host.toLowerCase() }
+        : null;
+    case 'brain/broke':
+      return BRAIN_BREAKS.includes(m.reason as BrainBreak)
+        ? { type: m.type, reason: m.reason as BrainBreak }
         : null;
     case 'brain/pause':
       return Number.isInteger(m.tabId) ? { type: m.type, tabId: m.tabId as number } : null;

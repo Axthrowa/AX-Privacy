@@ -176,8 +176,10 @@ test('an ordinary page does not wake the worker for generic rules; an ad page do
   await expect(p.locator('#generic-ad')).toBeHidden();
   await expect(p.locator('#text')).toBeVisible();
   await p.waitForTimeout(500);
-  // Cookie auto-reject asks the worker for its rules on every page; that is its own cost.
-  expect((await seen()).slice(before).filter((t) => t !== 'consent/msg')).toEqual([]);
+  // Cookie auto-reject asks the worker for its rules on every page, and AX-Brain once on a page
+  // with an ad sign (this one); those are their own cost.
+  const own = ['consent/msg', 'brain/model'];
+  expect((await seen()).slice(before).filter((t) => !own.includes(t))).toEqual([]);
   server.close();
 });
 
@@ -264,6 +266,40 @@ test('the element picker hides what was clicked, on this site, and does not fire
   await p.keyboard.press('Escape');
   await expect(p.getByRole('dialog')).toHaveCount(0);
   await expect(p.locator('.card').first()).toBeVisible();
+  server.close();
+});
+
+test('the element picker reaches into a same-origin frame', async ({ context, extensionId }) => {
+  const { port, server } = await startServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(
+      req.url === '/frame'
+        ? page(`<div id="inner-ad" style="height:80px;width:200px">framed ad</div><p>keep</p>`)
+        : page(`<iframe id="f" src="/frame" style="width:400px;height:300px;border:0"></iframe>`),
+    );
+  });
+  const url = `http://${SITE}:${port}/`;
+  const p = await context.newPage();
+  await p.goto(url);
+  const frame = p.frameLocator('#f');
+  await expect(frame.locator('#inner-ad')).toBeVisible();
+  const ui = await context.newPage();
+  await ui.goto(`chrome-extension://${extensionId}/dashboard.html`);
+  await ui.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u });
+    await chrome.runtime.sendMessage({ type: 'picker/start', tabId: tab?.id });
+  }, url);
+  await p.bringToFront();
+  await expect(p.getByRole('dialog', { name: 'Öğe gizleme' })).toBeVisible();
+  const box = await frame.locator('#inner-ad').boundingBox();
+  if (!box) throw new Error('no frame element');
+  await p.mouse.move(box.x + 10, box.y + 10);
+  await p.mouse.down();
+  await p.mouse.up();
+  await expect(p.getByRole('dialog').locator('code')).toHaveText('#inner-ad');
+  await p.getByRole('button', { name: 'Bu sitede gizle' }).click();
+  await expect(frame.locator('#inner-ad')).toBeHidden();
+  await expect(frame.locator('p')).toBeVisible();
   server.close();
 });
 

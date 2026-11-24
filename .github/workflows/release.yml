@@ -23,6 +23,8 @@ jobs:
       - run: npm run check
       - run: npm run build
       - run: npm run pack
+      # Same source, same bytes: the published SHA-256 sums can be rebuilt.
+      - run: npm run repro
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -30,5 +32,6 @@ jobs:
           name: AX Privacy ${{ github.ref_name }}
           files: |
             dist/*.zip
+            dist/*.cdx.json
             dist/SHA256SUMS
           generate_release_notes: true

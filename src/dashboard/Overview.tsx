@@ -1,8 +1,20 @@
-import { blockedRequests } from '../engines/core/stats.ts';
+import { blockedRequests, estimateSavings } from '../engines/core/stats.ts';
 import { L, LOCALE } from '../shared/i18n.ts';
 import type { Settings, StatsView } from '../shared/types.ts';
 
 const nf = new Intl.NumberFormat(LOCALE);
+const bytesText = (b: number) =>
+  b >= 1e9
+    ? `${nf.format(Math.round(b / 1e8) / 10)} GB`
+    : b >= 1e6
+      ? `${nf.format(Math.round(b / 1e5) / 10)} MB`
+      : `${nf.format(Math.round(b / 1e3))} KB`;
+const timeText = (s: number) =>
+  s >= 3600
+    ? L(`${nf.format(Math.round(s / 360) / 10)} saat`, `${nf.format(Math.round(s / 360) / 10)} h`)
+    : s >= 60
+      ? L(`${Math.round(s / 60)} dakika`, `${Math.round(s / 60)} min`)
+      : L(`${s} saniye`, `${s} s`);
 const LABELS = {
   requests: L('Engellenen istek', 'Blocked requests'),
   security: L('Güvenlik listesinden sayfa', 'Pages from security lists'),
@@ -70,6 +82,17 @@ export function Overview({
           </div>
         ))}
       </div>
+      {(() => {
+        const saved = estimateSavings(stats.totals);
+        return (
+          <p className="note">
+            {L(
+              `${range} günde tahminen ${bytesText(saved.bytes)} veri ve ${timeText(saved.seconds)} kazanıldı. Engellenen istek hiç indirilmediği için gerçek boyutu bilinmez: reklam isteği başına 30 KB, izleyici 5 KB, diğer 10 KB, 10 Mbit/s bağlantı, kapatılan açılır pencere 5 sn, reddedilen çerez bildirimi 3 sn varsayılır.`,
+              `An estimated ${bytesText(saved.bytes)} of data and ${timeText(saved.seconds)} saved in ${range} days. A blocked request is never downloaded, so its real size is unknown: 30 KB per ad request, 5 KB per tracker, 10 KB other, a 10 Mbit/s line, 5 s per closed pop-up and 3 s per rejected cookie notice are assumed.`,
+            )}
+          </p>
+        );
+      })()}
       <div className="row">
         <label className="field">
           <span>{L('Aralık', 'Range')}</span>

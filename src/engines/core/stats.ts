@@ -135,3 +135,28 @@ export function summarize(
     events: events.filter((e) => localDay(e.at) >= from).slice(0, 50),
   };
 }
+
+/**
+ * Rough sizes of what a blocked request would have downloaded, and what a closed pop-up or a
+ * rejected cookie notice costs a person. Estimates, not measurements: the browser never fetches a
+ * blocked request, so its real size is unknown. Ad requests often pull further scripts and media,
+ * trackers are mostly tiny pixels and beacons.
+ */
+export const SAVING_ESTIMATE = {
+  adBytes: 30_000,
+  trackerBytes: 5_000,
+  otherBytes: 10_000,
+  /** 10 Mbit/s, a slow-to-average home line. */
+  bytesPerSecond: 1_250_000,
+  popupSeconds: 5,
+  consentSeconds: 3,
+} as const;
+
+/** Estimated bytes and seconds saved by these counts (see `SAVING_ESTIMATE`). */
+export function estimateSavings(c: Omit<DayCounts, 'day'>): { bytes: number; seconds: number } {
+  const e = SAVING_ESTIMATE;
+  const bytes = c.ads * e.adBytes + c.trackers * e.trackerBytes + c.other * e.otherBytes;
+  const seconds =
+    bytes / e.bytesPerSecond + c.popups * e.popupSeconds + c.consent * e.consentSeconds;
+  return { bytes, seconds: Math.round(seconds) };
+}

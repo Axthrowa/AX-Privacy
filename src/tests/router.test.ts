@@ -1,5 +1,6 @@
-import { createDefaultModel } from '../engines/brain/brain.ts';
+import { createDefaultModel, MAX_DRIFT } from '../engines/brain/brain.ts';
 import { describe, expect, it, vi } from 'vitest';
+import type { NanoAvailability } from '../background/nano.ts';
 import {
   BRIEF_PAUSE_MS,
   createRouter,
@@ -7,7 +8,7 @@ import {
   type SenderContext,
 } from '../background/router.ts';
 import type { ListsView, Segment, Settings } from '../shared/types.ts';
-import { defaultSettings } from '../storage/settings.ts';
+import { DEFAULT_SITE_PROFILE, defaultSettings } from '../storage/settings.ts';
 
 function setup(initial: Partial<Settings> = {}) {
   let stored: Settings = { ...defaultSettings(), ...initial };
@@ -22,6 +23,22 @@ function setup(initial: Partial<Settings> = {}) {
     brainHidden: vi.fn(async () => undefined),
     brainPause: vi.fn<(tabId: number) => Promise<void>>(async () => undefined),
     brainReset: vi.fn(async () => undefined),
+    brainBroke: vi.fn(async () => undefined),
+    brainPausedSites: vi.fn(async () => [{ site: 'a.example', until: 1 }]),
+    brainUnpause: vi.fn<(site: string) => Promise<void>>(async () => undefined),
+    brainTrackers: vi.fn(async () => []),
+    brainSignal: vi.fn(async () => undefined),
+    miner: vi.fn(async () => undefined),
+    loginBrand: vi.fn(async () => undefined),
+    brainNano: vi.fn<() => Promise<{ on: boolean; availability: NanoAvailability }>>(async () => ({
+      on: false,
+      availability: 'unavailable',
+    })),
+    brainAsk: vi.fn(async () => true),
+    brainSetNano: vi.fn<(on: boolean) => Promise<void>>(async () => undefined),
+    brainSetThreshold: vi.fn<(t: number) => Promise<void>>(async () => undefined),
+    brainForgetTracker: vi.fn<(domain: string) => Promise<void>>(async () => undefined),
+    brainImport: vi.fn(async () => undefined),
     load: vi.fn(async () => structuredClone(stored)),
     save: vi.fn(async (s: Settings) => {
       stored = structuredClone(s);
@@ -136,6 +153,7 @@ describe('router', () => {
     const { route, deps, get } = setup();
     await route({ type: 'site/setProfile', site: 'a.com', profile: { network: false } }, ui);
     expect(get().siteProfiles['a.com']).toEqual({
+      ...DEFAULT_SITE_PROFILE,
       network: false,
       privacy: true,
       video: true,
@@ -218,6 +236,22 @@ describe('router', () => {
     expect(await route({ type: 'brain/model' }, content)).toBeNull();
   });
 
+  it('tells the page about Gemini Nano only when on and ready, and asks only where AX-Brain runs', async () => {
+    const { route, deps } = setup();
+    const content = { kind: 'content', url: 'https://a.example/' } as SenderContext;
+    const q = { type: 'brain/ask', text: 'Casino', hosts: ['bet.net'], width: 300, height: 250 };
+    expect(await route({ type: 'brain/model' }, content)).toMatchObject({ nano: false });
+    deps.brainNano.mockResolvedValue({ on: true, availability: 'available' });
+    expect(await route({ type: 'brain/model' }, content)).toMatchObject({ nano: true });
+    expect(await route(q as never, content)).toBe(true);
+    deps.load.mockResolvedValue({
+      ...(await deps.load()),
+      siteProfiles: { 'a.example': { ...DEFAULT_SITE_PROFILE, brain: false } },
+    });
+    expect(await route(q as never, content)).toBeNull();
+    expect(deps.brainAsk).toHaveBeenCalledTimes(1);
+  });
+
   it('records a cross-site password form from the top frame only', async () => {
     const { route, deps } = setup();
     const content = {
@@ -274,6 +308,51 @@ describe('router', () => {
     await expect(route({ type: 'brain/pause', tabId: 3 }, content)).rejects.toThrow('not allowed');
     await route({ type: 'brain/pause', tabId: 3 }, ui);
     expect(deps.brainPause).toHaveBeenCalledWith(3);
+  });
+
+  it('lets only the extension UI read, import and unpause the AX-Brain model', async () => {
+    const { route, deps } = setup();
+    const content = { kind: 'content', url: 'https://a.example/', tabId: 3 } as SenderContext;
+    await expect(route({ type: 'brain/info' }, content)).rejects.toThrow('not allowed');
+    const info = (await route({ type: 'brain/info' }, ui)) as { paused: unknown[] };
+    expect(info.paused).toEqual([{ site: 'a.example', until: 1 }]);
+
+    await expect(route({ type: 'brain/import', model: { weights: [1] } }, ui)).rejects.toThrow();
+    expect(deps.brainImport).not.toHaveBeenCalled();
+    const wild = { ...createDefaultModel(), weights: new Array<number>(12).fill(99), bias: 50 };
+    await route({ type: 'brain/import', model: wild }, ui);
+    expect(deps.brainImport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        weights: createDefaultModel().weights.map((w) => Math.min(4, w + MAX_DRIFT)),
+        bias: createDefaultModel().bias + MAX_DRIFT,
+      }),
+    );
+
+    await route({ type: 'brain/setThreshold', threshold: 0.8 }, ui);
+    expect(deps.brainSetThreshold).toHaveBeenCalledWith(0.8);
+
+    await route({ type: 'brain/unpause', site: 'a.example' }, ui);
+    expect(deps.brainUnpause).toHaveBeenCalledWith('a.example');
+
+    await expect(
+      route({ type: 'brain/forgetTracker', domain: 'trk.net' }, content),
+    ).rejects.toThrow('not allowed');
+    await route({ type: 'brain/forgetTracker', domain: 'trk.net' }, ui);
+    expect(deps.brainForgetTracker).toHaveBeenCalledWith('trk.net');
+  });
+
+  it('rests AX-Brain on the site when a page rolls its hides back', async () => {
+    const { route, deps } = setup();
+    const content = {
+      kind: 'content',
+      url: 'https://a.example/x',
+      tabUrl: 'https://a.example/x',
+      tabId: 3,
+    } as SenderContext;
+    await route({ type: 'brain/broke', reason: 'empty-content' }, content);
+    expect(deps.brainBroke).toHaveBeenCalledWith(3, 'https://a.example/x', false);
+    await route({ type: 'brain/broke', reason: 'user' }, { ...content, incognito: true });
+    expect(deps.brainBroke).toHaveBeenLastCalledWith(3, 'https://a.example/x', true);
   });
 
   it('trains AX-Brain from a saved pick, never in a private window', async () => {
@@ -396,6 +475,51 @@ describe('router', () => {
     ).resolves.toEqual({ extended: [] });
     expect(deps.cosmeticStart).toHaveBeenCalledOnce();
     expect(deps.cosmeticDom).toHaveBeenCalledOnce();
+  });
+
+  it('drops generic hiding, and all hiding, where the site profile says so', async () => {
+    const { route, deps } = setup({
+      siteProfiles: {
+        'gen.com': { ...DEFAULT_SITE_PROFILE, generic: false },
+        'cos.com': { ...DEFAULT_SITE_PROFILE, cosmetic: false },
+      },
+    });
+    await route({ type: 'cosmetic/start' }, page('https://gen.com/'));
+    expect(deps.cosmeticStart).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.anything(),
+      false,
+    );
+    await expect(
+      route(
+        { type: 'cosmetic/dom', classes: ['ad'], ids: [], hrefs: [] },
+        page('https://gen.com/'),
+      ),
+    ).resolves.toEqual({ extended: [] });
+    expect(deps.cosmeticDom).not.toHaveBeenCalled();
+    await expect(route({ type: 'cosmetic/start' }, page('https://cos.com/'))).resolves.toEqual({
+      extended: [],
+    });
+    expect(deps.cosmeticStart).toHaveBeenCalledOnce();
+  });
+
+  it('sets a site level: off pauses, the others set the page layers', async () => {
+    const { route } = setup();
+    let s = (await route({ type: 'site/setLevel', site: 'a.com', level: 'basic' }, ui)) as Settings;
+    expect(s.siteProfiles['a.com']).toMatchObject({
+      network: true,
+      cosmetic: false,
+      scriptlets: false,
+      generic: false,
+      brain: false,
+    });
+    s = (await route({ type: 'site/setLevel', site: 'a.com', level: 'off' }, ui)) as Settings;
+    expect(s.pausedSites).toContain('a.com');
+    expect(s.siteProfiles['a.com']?.cosmetic).toBe(false);
+    s = (await route({ type: 'site/setLevel', site: 'a.com', level: 'full' }, ui)) as Settings;
+    expect(s.pausedSites).not.toContain('a.com');
+    // All layers on again: nothing left to store.
+    expect(s.siteProfiles['a.com']).toBeUndefined();
   });
 
   it('records explicit new-tab clicks against the sending tab', async () => {

@@ -13,6 +13,8 @@ import {
   CONTROL_RULE_IDS,
   RULE_CDN_COOKIES,
   RULE_GPC,
+  RULE_LEARNED_BLOCK,
+  RULE_LEARNED_COOKIES,
   RULE_LOCALE,
   RULE_ROTATING_ADS,
   RULE_ROTATING_AD_HOST,
@@ -31,7 +33,7 @@ import {
   newFpSeed,
 } from '../engines/core/control.ts';
 import { PRIORITY } from '../engines/adblock/network.ts';
-import { DEFAULT_SETTINGS } from '../storage/settings.ts';
+import { DEFAULT_SETTINGS, DEFAULT_SITE_PROFILE } from '../storage/settings.ts';
 import { PROCEED_PRIORITY } from '../background/security.ts';
 
 /** Everything but the always-on loader rule, which has its own test. */
@@ -132,7 +134,13 @@ describe('controlRules', () => {
   });
   it('lifts network filters for a site without disabling page blocks', () => {
     const siteProfiles = {
-      'a.com': { network: false, privacy: true, video: true, security: true },
+      'a.com': {
+        ...DEFAULT_SITE_PROFILE,
+        network: false,
+        privacy: true,
+        video: true,
+        security: true,
+      },
     };
     expect(otherRules({ ...on, siteProfiles })).toEqual([
       {
@@ -143,7 +151,13 @@ describe('controlRules', () => {
       },
     ]);
     const locked = {
-      'evil.com': { network: true, privacy: true, video: true, security: false },
+      'evil.com': {
+        ...DEFAULT_SITE_PROFILE,
+        network: true,
+        privacy: true,
+        video: true,
+        security: false,
+      },
     };
     expect(controlRules({ ...on, siteProfiles: locked })[0]?.id).toBe(RULE_SITE_SECURITY);
   });
@@ -192,8 +206,11 @@ describe('contentScripts', () => {
     expect(contentScripts(on).map((s) => s.id)).toEqual([
       'cosmetic',
       'brain-scan',
+      'brain-signals',
       'popups',
       'scriptlets',
+      'miner-guard',
+      'miner-relay',
     ]);
     const scripts = contentScripts({
       ...on,
@@ -203,8 +220,11 @@ describe('contentScripts', () => {
     expect(scripts.map((s) => s.id)).toEqual([
       'cosmetic',
       'brain-scan',
+      'brain-signals',
       'popups',
       'scriptlets',
+      'miner-guard',
+      'miner-relay',
       'consent',
       'consent-eval',
       'fp-noise',
@@ -222,8 +242,11 @@ describe('contentScripts', () => {
     expect(contentScripts({ ...on, privacy: standard }).map((s) => s.id)).toEqual([
       'cosmetic',
       'brain-scan',
+      'brain-signals',
       'popups',
       'scriptlets',
+      'miner-guard',
+      'miner-relay',
       'fp-noise',
     ]);
   });
@@ -246,8 +269,11 @@ describe('contentScripts', () => {
     expect(scripts.map((s) => s.id)).toEqual([
       'cosmetic',
       'brain-scan',
+      'brain-signals',
       'popups',
       'scriptlets',
+      'miner-guard',
+      'miner-relay',
       'yt-ads',
       'yt-guard',
       'yt-autoskip',
@@ -282,15 +308,18 @@ describe('contentScripts', () => {
     expect(scripts.map((s) => s.id)).toEqual([
       'cosmetic',
       'brain-scan',
+      'brain-signals',
       'popups',
       'scriptlets',
+      'miner-guard',
+      'miner-relay',
       'yt-skip',
       'video-ads',
     ]);
-    expect(scripts[4]).toMatchObject({ js: ['content/yt-skip.js'] });
-    expect(scripts[4]?.matches).toContain('*://*.youtube.com/*');
-    expect(scripts[4]?.matches).not.toContain('*://*.twitch.tv/*');
-    expect(scripts[5]?.matches).toEqual([
+    expect(scripts[7]).toMatchObject({ js: ['content/yt-skip.js'] });
+    expect(scripts[7]?.matches).toContain('*://*.youtube.com/*');
+    expect(scripts[7]?.matches).not.toContain('*://*.twitch.tv/*');
+    expect(scripts[8]?.matches).toEqual([
       '*://youtube.com/*',
       '*://*.youtube.com/*',
       '*://youtube-nocookie.com/*',
@@ -299,11 +328,12 @@ describe('contentScripts', () => {
       '*://*.twitch.tv/*',
     ]);
     for (const s of scripts) {
-      if (s.id === 'popups' || s.id === 'scriptlets') expect(s.world).toBe('MAIN');
+      if (['popups', 'scriptlets', 'brain-signals', 'miner-guard'].includes(s.id))
+        expect(s.world).toBe('MAIN');
       else expect(s.world).toBeUndefined();
     }
     // Each chosen job is spelled by a file that runs before the script.
-    expect(scripts[5]?.js).toEqual(['content/ad-mode/mute.js', 'content/video-ads.js']);
+    expect(scripts[8]?.js).toEqual(['content/ad-mode/mute.js', 'content/video-ads.js']);
     const both = contentScripts({ ...on, video: { ...video, adSpeedUp: true } });
     expect(both.find((s) => s.id === 'video-ads')?.js).toEqual([
       'content/ad-mode/mute.js',
@@ -499,8 +529,20 @@ describe('contentScripts', () => {
     const scripts = contentScripts({
       ...on,
       siteProfiles: {
-        'a.com': { network: false, privacy: true, video: true, security: true },
-        'b.com': { network: true, privacy: false, video: true, security: true },
+        'a.com': {
+          ...DEFAULT_SITE_PROFILE,
+          network: false,
+          privacy: true,
+          video: true,
+          security: true,
+        },
+        'b.com': {
+          ...DEFAULT_SITE_PROFILE,
+          network: true,
+          privacy: false,
+          video: true,
+          security: true,
+        },
       },
       privacy: { ...on.privacy, cookieAutoReject: true },
     });
@@ -510,6 +552,61 @@ describe('contentScripts', () => {
     expect(cosmetic?.excludeMatches).not.toContain('*://b.com/*');
     expect(consent?.excludeMatches).toContain('*://b.com/*');
     expect(consent?.excludeMatches).not.toContain('*://a.com/*');
+  });
+});
+
+describe('site layers', () => {
+  it('keeps each page layer out of sites that turned it off', () => {
+    const scripts = contentScripts({
+      ...on,
+      siteProfiles: {
+        'a.com': { ...DEFAULT_SITE_PROFILE, scriptlets: false },
+        'b.com': { ...DEFAULT_SITE_PROFILE, cosmetic: false },
+        'c.com': { ...DEFAULT_SITE_PROFILE, brain: false },
+      },
+    });
+    const ex = (id: string) => scripts.find((s) => s.id === id)?.excludeMatches ?? [];
+    expect(ex('scriptlets')).toContain('*://a.com/*');
+    expect(ex('scriptlets')).not.toContain('*://b.com/*');
+    expect(ex('cosmetic')).toContain('*://b.com/*');
+    expect(ex('cosmetic')).not.toContain('*://a.com/*');
+    expect(ex('brain-scan')).toContain('*://c.com/*');
+    expect(ex('brain-scan')).not.toContain('*://b.com/*');
+    expect(ex('brain-signals')).toContain('*://c.com/*');
+  });
+});
+
+describe('AX-Brain learned trackers', () => {
+  const learned = { cookie: ['c.net'], block: ['b.net'] };
+  const s = {
+    ...on,
+    privacy: { ...on.privacy, blockThirdPartyCookies: false },
+    siteProfiles: { 'off.com': { ...DEFAULT_SITE_PROFILE, brain: false } },
+  };
+
+  it('drops cookies of cookie-state trackers and blocks block-state ones, lowest priority', () => {
+    const rules = controlRules(s, learned);
+    const cookie = rules.find((r) => r.id === RULE_LEARNED_COOKIES);
+    const block = rules.find((r) => r.id === RULE_LEARNED_BLOCK);
+    expect(cookie?.condition.requestDomains).toEqual(['c.net']);
+    expect(cookie?.priority).toBe(COOKIE_RULE_PRIORITY);
+    expect(block?.action.type).toBe('block');
+    expect(block?.priority).toBe(1);
+    expect(block?.condition.excludedInitiatorDomains).toEqual(['off.com']);
+    expect(CONTROL_RULE_IDS).toEqual(
+      expect.arrayContaining([RULE_LEARNED_COOKIES, RULE_LEARNED_BLOCK]),
+    );
+  });
+
+  it('adds nothing with AX-Brain off or nothing learned', () => {
+    const ids = (x: typeof s, l = learned) => controlRules(x, l).map((r) => r.id);
+    expect(ids({ ...s, shields: { ...s.shields, cosmetic: false } })).not.toContain(
+      RULE_LEARNED_BLOCK,
+    );
+    expect(ids(s, { cookie: [], block: [] })).not.toContain(RULE_LEARNED_COOKIES);
+    // The global third-party cookie rule already covers them.
+    const strict = { ...s, privacy: { ...s.privacy, blockThirdPartyCookies: true } };
+    expect(ids(strict)).not.toContain(RULE_LEARNED_COOKIES);
   });
 });
 

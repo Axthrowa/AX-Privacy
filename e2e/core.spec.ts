@@ -54,7 +54,8 @@ test('custom hiding rule from the dashboard hides the element, pausing restores 
   await dash.getByLabel('Özel kurallar').fill('127.0.0.1##.nexus-test-ad\nbozuk satır');
   await dash.getByRole('button', { name: 'Kaydet' }).click();
   await expect(dash.getByText('0 ağ kuralı, 1 gizleme kuralı etkin')).toBeVisible();
-  await expect(dash.locator('.rejected')).toContainText('bozuk satır');
+  // The editor lists it as you type and the save lists it again.
+  await expect(dash.locator('.rejected', { hasText: 'bozuk satır' }).last()).toBeVisible();
 
   const page = await context.newPage();
   await page.goto(origin);
@@ -109,8 +110,8 @@ test('global switch in the popup turns everything off and back on', async ({
 }) => {
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-  await expect(popup.getByText('Bu sayfada koruma uygulanamaz')).toBeVisible();
-  const global = popup.getByRole('switch', { name: 'Tüm koruma' });
+  await expect(popup.getByText('Tarayıcı Sistem Sayfası')).toBeVisible();
+  const global = popup.getByRole('switch', { name: 'Reklam & İzleyici Engelleme' });
   await expect(global).toBeChecked();
 
   await global.click();
@@ -203,7 +204,7 @@ test('files replaced between browser runs still get the new rules and keep the s
     };
   });
   expect(state.custom).toBe('keep.example##.mine');
-  expect(state.version).toBe(3);
+  expect(state.version).toBe(4);
   expect(state.rulesets).toContain('ublock-unbreak');
   await context.close();
   await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

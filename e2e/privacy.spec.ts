@@ -214,37 +214,42 @@ const reportFor = (dash: Page, tabId: number) =>
     return r.data;
   }, tabId);
 
-test('the page report lists first- and third-party hosts and what was blocked', async ({
-  context,
-  extensionId,
-  worker,
-}) => {
-  const dash = await dashboard(context, extensionId);
-  await dash.evaluate(() =>
-    chrome.runtime.sendMessage({ type: 'privacy/set', privacy: { detailedReports: true } }),
-  );
-  const page = await context.newPage();
-  await page.goto(`${host(SITE)}/`);
-  expect(await loadScript(page, `http://www.googletagmanager.com:${port}/gtm.js?id=GTM-X`)).toBe(
-    'error',
-  );
-  expect(await loadScript(page, `${host('cdn.nexus-other.example')}/lib.js`)).toBe('load');
-  expect(await loadScript(page, `${host('static.nexus-test.example')}/app.js`)).toBe('load');
-  const tabId = await worker.evaluate(
-    async (url) => (await chrome.tabs.query({ url }))[0]?.id ?? -1,
-    `${host(SITE)}/`,
-  );
-  // The page's own host may show up too: the browser fetches /favicon.ico for the tab.
-  await expect
-    .poll(async () => (await reportFor(dash, tabId)).hosts.filter((h) => h.host !== SITE))
-    .toEqual([
-      { host: 'www.googletagmanager.com', thirdParty: true, loaded: 0, blocked: 1 },
-      { host: 'cdn.nexus-other.example', thirdParty: true, loaded: 1, blocked: 0 },
-      { host: 'static.nexus-test.example', thirdParty: false, loaded: 1, blocked: 0 },
-    ]);
+// Detailed reports need the optional webRequest permission.
+test.describe('with the optional permissions granted', () => {
+  test.use({ grantOptional: true });
 
-  await page.goto(`${host(SITE)}/landing`);
-  await expect.poll(async () => (await reportFor(dash, tabId)).hosts).toEqual([]);
+  test('the page report lists first- and third-party hosts and what was blocked', async ({
+    context,
+    extensionId,
+    worker,
+  }) => {
+    const dash = await dashboard(context, extensionId);
+    await dash.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'privacy/set', privacy: { detailedReports: true } }),
+    );
+    const page = await context.newPage();
+    await page.goto(`${host(SITE)}/`);
+    expect(await loadScript(page, `http://www.googletagmanager.com:${port}/gtm.js?id=GTM-X`)).toBe(
+      'error',
+    );
+    expect(await loadScript(page, `${host('cdn.nexus-other.example')}/lib.js`)).toBe('load');
+    expect(await loadScript(page, `${host('static.nexus-test.example')}/app.js`)).toBe('load');
+    const tabId = await worker.evaluate(
+      async (url) => (await chrome.tabs.query({ url }))[0]?.id ?? -1,
+      `${host(SITE)}/`,
+    );
+    // The page's own host may show up too: the browser fetches /favicon.ico for the tab.
+    await expect
+      .poll(async () => (await reportFor(dash, tabId)).hosts.filter((h) => h.host !== SITE))
+      .toEqual([
+        { host: 'www.googletagmanager.com', thirdParty: true, loaded: 0, blocked: 1 },
+        { host: 'cdn.nexus-other.example', thirdParty: true, loaded: 1, blocked: 0 },
+        { host: 'static.nexus-test.example', thirdParty: false, loaded: 1, blocked: 0 },
+      ]);
+
+    await page.goto(`${host(SITE)}/landing`);
+    await expect.poll(async () => (await reportFor(dash, tabId)).hosts).toEqual([]);
+  });
 });
 
 const canvasHash = (page: Page) =>

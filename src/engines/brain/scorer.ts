@@ -5,13 +5,12 @@ import {
   AD_WORD,
   AD_WORD_FALSE_POSITIVE,
   BAIT_WORDS,
-  extractFeatures,
   isIabSize,
-  predict,
   rootDomain,
   type BrainModel,
   type FeatureContext,
 } from './brain.ts';
+import { extractRichFeatures, richProbability, SHIPPED_MLP, type Mlp } from './rich.ts';
 
 /**
  * Universal ad/overlay scorer (ported from the v4 JS line). Hand-written signals add up to a
@@ -19,6 +18,8 @@ import {
  */
 
 export const HIDE_SCORE = 5;
+/** The plan's bar for a hide decided by the model alone. */
+export const MODEL_HIDE_PROBABILITY = 0.85;
 
 /** Elements worth scoring; everything else is skipped before any style is read. */
 export const CANDIDATE_SELECTOR =
@@ -99,6 +100,8 @@ const excluded = (reason: string): ScoreResult => ({
 export interface ScoreContext extends FeatureContext {
   currentHost: string;
   model: BrainModel | null;
+  /** The shipped network by default; null scores with the 12-feature model alone. */
+  mlp?: Mlp | null;
 }
 
 /** Why an element must never be hidden, or null when it may be scored. */
@@ -251,9 +254,20 @@ export function scoreElement(el: Element, ctx: ScoreContext): ScoreResult {
   }
 
   if (ctx.model) {
-    const features = extractFeatures(el, { ...ctx, computedStyle: style, rect: r });
-    if (predict(features, ctx.model).isAd) {
+    const features = extractRichFeatures(el, { ...ctx, computedStyle: style, rect: r });
+    const probability = richProbability(
+      features,
+      ctx.model,
+      ctx.mlp === undefined ? SHIPPED_MLP : ctx.mlp,
+    );
+    const isAd = probability >= ctx.model.threshold;
+    // Staged action: the model alone hides only when it is sure; below that it only adds weight
+    // to what the rules above already saw.
+    if (probability >= MODEL_HIDE_PROBABILITY) {
       score = Math.max(score, HIDE_SCORE);
+      reasons.push('ax-brain-model');
+    } else if (isAd) {
+      score += 2;
       reasons.push('ax-brain-model');
     }
   }

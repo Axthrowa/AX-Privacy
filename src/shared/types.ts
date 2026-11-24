@@ -16,6 +16,14 @@ export interface SiteProfile {
   video: boolean;
   /** Page-blocking security lists for this destination. Off is an explicit allow. */
   security: boolean;
+  /** Element hiding: the lists' site rules and the picker's. */
+  cosmetic: boolean;
+  /** Lists' `+js()` scriptlets. */
+  scriptlets: boolean;
+  /** Generic hiding: rules that name no site, matched against every page's classes and ids. */
+  generic: boolean;
+  /** AX-Brain's own hiding of ads the lists missed. */
+  brain: boolean;
 }
 
 export interface SettingsExport {
@@ -55,6 +63,10 @@ export interface PrivacySettings {
   limitClientHints: boolean;
   /** Facebook and X posts and Disqus comments load only after a click on their placeholder. */
   clickToLoad: boolean;
+  /** Paranoid: scripts from other sites are blocked except on `scriptSites`. */
+  blockThirdPartyScripts: boolean;
+  /** Sites (eTLD+1) allowed to load scripts from other sites while those are blocked. */
+  scriptSites: string[];
   /**
    * When a tab closes, cookies and site storage go for every site without an open tab, except
    * `keepSiteData` and sites whose privacy protection is off. Chromium only (`excludeOrigins`).
@@ -135,7 +147,7 @@ export interface ShieldSettings {
 }
 
 export interface Settings {
-  version: 3;
+  version: 4;
   /** Sites paused for a while, to the time the pause ends. Paused sites without one stay paused. */
   pauseUntil: Record<string, number>;
   /** Download newer versions of the packaged lists every 12 hours. */
@@ -156,6 +168,8 @@ export interface Settings {
   video: VideoSettings;
   theme: Theme;
   shields: ShieldSettings;
+  /** Advanced mode: dynamic filtering rules `site target type action` (engines/core/matrix.ts). */
+  matrix: { on: boolean; rules: string[] };
   /** Per-site module switches. Missing site = all on. Paused sites override this. */
   siteProfiles: Record<string, SiteProfile>;
 }
@@ -223,6 +237,10 @@ export interface BuiltinListView {
   active: boolean;
   version: string | null;
   builtAt: string | null;
+  /** When the periodic update last brought a newer copy for this version; null if never. */
+  updatedAt: number | null;
+  /** Country code of a regional list; null for worldwide ones. */
+  region: string | null;
   stats: ListStats | null;
 }
 
