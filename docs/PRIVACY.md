@@ -1,6 +1,6 @@
 # AX Privacy — gizlilik
 
-Sürüm 5.0.0. Hesap yok. Telemetri yok. Geçmiş, sekme adresleri ve sayaçlar tarayıcıdan çıkmaz.
+Sürüm 5.1.0. Hesap yok. Telemetri yok. Geçmiş, sekme adresleri ve sayaçlar tarayıcıdan çıkmaz.
 
 ## Tarayıcıda kalanlar
 

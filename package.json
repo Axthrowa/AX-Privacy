@@ -1,6 +1,6 @@
 {
   "name": "ax-privacy",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "Gelişmiş reklam engelleme, AX-Brain yerel öğrenen kalkan, URL izleyici temizleyici, yerel tehdit kalkanı, Twitch SSAI, YouTube kalkanı ve kırılmaz pop-up koruması.",
   "private": true,
   "license": "GPL-3.0-or-later",

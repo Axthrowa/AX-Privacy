@@ -1,7 +1,7 @@
 # AX Privacy
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Version](https://img.shields.io/badge/version-5.0.0-0284c7.svg?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-5.1.0-0284c7.svg?style=flat-square)](package.json)
 [![Zero Telemetry](https://img.shields.io/badge/telemetry-0%25-emerald.svg?style=flat-square)](#gizlilik)
 [![License](https://img.shields.io/badge/license-GPL--3.0-amber.svg?style=flat-square)](LICENSE)
 
@@ -50,7 +50,7 @@ Chromium tabanlı tarayıcılar (Brave, Chrome, Edge) ve Firefox için Manifest 
 
 ## Kurulum
 
-Zip'leri [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından indirin: `ax-privacy-5.0.0-chrome.zip` veya `ax-privacy-5.0.0-firefox.zip`. Zip'i açın; `manifest.json` klasörün kökünde olmalı.
+Zip'leri [Releases](https://github.com/Axthrowa/AX-Privacy/releases) sayfasından indirin: `ax-privacy-5.1.0-chrome.zip` veya `ax-privacy-5.1.0-firefox.zip`. Zip'i açın; `manifest.json` klasörün kökünde olmalı.
 
 **Brave / Chrome / Edge** (Chromium 121+):
 

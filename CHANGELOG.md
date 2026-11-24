@@ -2,7 +2,7 @@
 
 Eski sürümlerin ayrıntıları `docs/PHASE_*.md` dosyalarında. Plan maddelerinin durumu: `docs/V5_PLAN_STATUS.md`.
 
-## Yayınlanmadı
+## 5.1.0
 
 ### Güvenlik
 

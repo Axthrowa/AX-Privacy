@@ -1,9 +1,9 @@
 # Kurulum
 
-Sürüm 5.0.0. Mağaza paketi yoktur. Zip’ler `npm run build` ardından `npm run pack` ile `dist/` içine yazılır:
+Sürüm 5.1.0. Mağaza paketi yoktur. Zip’ler `npm run build` ardından `npm run pack` ile `dist/` içine yazılır:
 
-- `dist/ax-privacy-5.0.0-chrome.zip` — Chromium 121 ve üstü (Brave, Chrome, Edge)
-- `dist/ax-privacy-5.0.0-firefox.zip` — Firefox 140 ve üstü (Android 142 ve üstü)
+- `dist/ax-privacy-5.1.0-chrome.zip` — Chromium 121 ve üstü (Brave, Chrome, Edge)
+- `dist/ax-privacy-5.1.0-firefox.zip` — Firefox 140 ve üstü (Android 142 ve üstü)
 
 Zip’i açın. `manifest.json` klasörün içinde durmalı.
 
