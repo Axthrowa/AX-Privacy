@@ -235,8 +235,9 @@ function claimedName(): string {
 
 // Sign-in on a fake-looking site (lookalike or fake government address, a page dressed as a brand
 // it is not on) is stopped. Asked only on pages with a password field, so others never wake the
-// worker; at load too, because password managers fill fields without focusing them.
-if (window === window.top) {
+// worker; at load too, because password managers fill fields without focusing them. Every frame:
+// a sign-in form inside an iframe is locked in place.
+{
   let checked = false;
   const check = () => {
     if (checked) return;

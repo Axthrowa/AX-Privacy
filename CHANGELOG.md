@@ -8,7 +8,7 @@ Eski sürümlerin ayrıntıları `docs/PHASE_*.md` dosyalarında. Plan maddeleri
 
 - **Resmi devlet siteleri:** yalnız devletin alabildiği alanlardaki (gov.tr, bel.tr, pol.tr, gov.uk, .gov, gouv.fr, gob.mx, go.jp ...) adresler HTTPS'te popup'ta yeşil "Resmi devlet sitesi" olarak görünür.
 - **Sahte devlet adresi:** devlet alanında olmayıp adında `gov`, `edevlet`, `devlet`, `government` gibi kelimeler geçen adresler ("turkiye-gov-tr.com", "turkiye.gov.tr.ornek.net") yüksek risk sayılır.
-- **Sahte sitede giriş durur:** sahte devlet adresi, marka taklidi, başka alfabe harfli adres veya kendini bir marka gibi gösteren giriş sayfasında şifre alanları boşaltılıp kilitlenir, form gönderilmez ve sayfanın üstünde nedenleriyle bir uyarı çıkar. "Yine de giriş yap" yalnız gerçek tıklamayla, o site için oturum boyunca açar.
+- **Sahte sitede giriş durur:** sahte devlet adresi, marka taklidi, başka alfabe harfli adres veya kendini bir marka gibi gösteren giriş sayfasında şifre alanları boşaltılıp kilitlenir, form gönderilmez ve sayfanın üstünde nedenleriyle bir uyarı çıkar. iframe içindeki giriş formları da kilitlenir: çerçevenin kendi adresi veya içinde durduğu sayfa sahteyse. "Yine de giriş yap" yalnız gerçek tıklamayla, o site için oturum boyunca açar.
 - Sahte görünen adreste eklenti simgesinde kırmızı "!" rozeti.
 
 ## 5.0.0

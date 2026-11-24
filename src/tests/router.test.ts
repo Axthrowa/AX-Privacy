@@ -275,6 +275,29 @@ describe('router', () => {
     expect(deps.supportScam).toHaveBeenCalledWith(2);
   });
 
+  it('judges a sign-in form in a frame by the frame and the page around it', async () => {
+    const { route, deps } = setup();
+    const frame = {
+      kind: 'content',
+      url: 'https://form.example/login',
+      tabUrl: 'https://page.example/',
+      tabId: 2,
+      frameId: 4,
+    } as SenderContext;
+    await route({ type: 'security/login', brand: null }, frame);
+    expect(deps.login).toHaveBeenCalledWith(
+      2,
+      'https://form.example/login',
+      'https://page.example/',
+      null,
+    );
+    await route({ type: 'security/allowLogin' }, frame);
+    expect(deps.allowLogin).toHaveBeenCalledWith([
+      'https://form.example/login',
+      'https://page.example/',
+    ]);
+  });
+
   it('rests AX-Brain on a site the user paused, and keeps hide reports private', async () => {
     const { route, deps } = setup();
     const content = {

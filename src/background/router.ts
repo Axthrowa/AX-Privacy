@@ -112,8 +112,8 @@ export interface RouterDeps {
   miner(tabId: number, stopped: boolean): Promise<void>;
   /** A sign-in page named a brand it is not on (checked again here against the tab's address). */
   /** Whether the tab's page may take a password; a claimed brand is recorded for the popup. */
-  login(tabId: number, url: string, brand: string | null): Promise<LoginVerdict>;
-  allowLogin(url: string): Promise<void>;
+  login(tabId: number, url: string, tabUrl: string, brand: string | null): Promise<LoginVerdict>;
+  allowLogin(urls: string[]): Promise<void>;
   /** Whether click-to-load embeds were already let through in this tab. */
   embedsLoaded(tabId: number): Promise<boolean>;
   loadEmbeds(tabId: number): Promise<void>;
@@ -435,12 +435,13 @@ export function createRouter(deps: RouterDeps) {
           await deps.insecurePassword(ctx.tabId);
         }
         return null;
+      // Frames too: a sign-in form can sit in an iframe, of the fake site or embedded by one.
       case 'security/login':
-        return ctx.tabId !== undefined && ctx.frameId === 0
-          ? deps.login(ctx.tabId, ctx.url, msg.brand)
+        return ctx.tabId !== undefined
+          ? deps.login(ctx.tabId, ctx.url, ctx.tabUrl ?? ctx.url, msg.brand)
           : { block: false, reasons: [] };
       case 'security/allowLogin':
-        if (ctx.frameId === 0) await deps.allowLogin(ctx.url);
+        await deps.allowLogin([ctx.url, ctx.tabUrl ?? ctx.url]);
         return null;
       case 'security/miner':
         if (ctx.tabId !== undefined) await deps.miner(ctx.tabId, msg.stopped);

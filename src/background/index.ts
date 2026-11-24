@@ -201,6 +201,13 @@ const loginAllowed = async (): Promise<string[]> =>
   ((await chrome.storage.session.get(LOGIN_ALLOWED_KEY))[LOGIN_ALLOWED_KEY] as
     string[] | undefined) ?? [];
 const NO_BLOCK = { block: false, reasons: [] };
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+};
 
 // Startup and settings changes both rewrite the browser's rules: one at a time, so a stale
 // startup pass cannot wipe rules a settings change just added.
@@ -342,27 +349,34 @@ const route = createRouter({
     const url = (await chrome.tabs.get(tabId)).url;
     if (url) await reports.supportScam(tabId, url);
   },
-  login: async (tabId, url, brand) => {
+  login: async (tabId, url, tabUrl, brand) => {
     const s = await loadSettings();
-    const site = siteKey(url);
+    const site = siteKey(tabUrl);
     if (!isProtected(s, site) || !moduleOn(s, site, 'security')) return NO_BLOCK;
     // The page's word alone could flag any site; the address must really be another one.
     const claimed = brand && loginBrandMismatch(url, brand) === brand ? brand : null;
-    if (claimed) await reports.loginBrand(tabId, url, claimed);
-    if ((await loginAllowed()).includes(new URL(url).hostname)) return NO_BLOCK;
-    const risk = assessRisk(url, {
-      insecurePassword: false,
-      bypassed: await wasProceeded(url),
-      loginBrand: claimed,
-    });
-    const hits = loginBlockers(risk);
-    return { block: hits.length > 0, reasons: hits.map((f) => f.text) };
+    if (claimed && url === tabUrl) await reports.loginBrand(tabId, url, claimed);
+    const allowed = await loginAllowed();
+    // A form in a frame is judged by its own address and by the page around it.
+    const reasons = new Set<string>();
+    for (const u of new Set([url, tabUrl])) {
+      if (allowed.includes(hostOf(u))) continue;
+      const risk = assessRisk(u, {
+        insecurePassword: false,
+        bypassed: await wasProceeded(u),
+        loginBrand: u === url ? claimed : null,
+      });
+      for (const f of loginBlockers(risk)) reasons.add(f.text);
+    }
+    return { block: reasons.size > 0, reasons: [...reasons] };
   },
-  allowLogin: async (url) => {
-    const host = new URL(url).hostname;
+  allowLogin: async (urls) => {
     const hosts = await loginAllowed();
-    if (!hosts.includes(host))
-      await chrome.storage.session.set({ [LOGIN_ALLOWED_KEY]: [...hosts, host].slice(-200) });
+    const add = urls.map(hostOf).filter((h) => h && !hosts.includes(h));
+    if (add.length)
+      await chrome.storage.session.set({
+        [LOGIN_ALLOWED_KEY]: [...hosts, ...new Set(add)].slice(-200),
+      });
   },
   miner: async (tabId, stopped) => {
     const url = (await chrome.tabs.get(tabId)).url;

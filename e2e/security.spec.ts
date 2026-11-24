@@ -17,9 +17,11 @@ function handle(req: IncomingMessage, res: ServerResponse) {
   res.end(
     req.url?.startsWith('/login')
       ? '<!doctype html><title>login</title><form><input type="password"></form>'
-      : req.url?.startsWith('/opener')
-        ? `<!doctype html><button id="open" onclick="window.open('${host(BAD)}/ad')">Ac</button><a id="link" href="${host(BAD)}/x">x</a>`
-        : '<!doctype html><title>page</title><p>sayfa</p>',
+      : req.url?.startsWith('/frame?')
+        ? `<!doctype html><title>frame</title><iframe width="600" height="300" src="${decodeURIComponent(req.url.slice(7))}"></iframe>`
+        : req.url?.startsWith('/opener')
+          ? `<!doctype html><button id="open" onclick="window.open('${host(BAD)}/ad')">Ac</button><a id="link" href="${host(BAD)}/x">x</a>`
+          : '<!doctype html><title>page</title><p>sayfa</p>',
   );
 }
 
@@ -196,4 +198,38 @@ test('sign-in on a fake government address is stopped until the user lifts it', 
   await page.waitForTimeout(500);
   await expect(page.locator('ax-login-guard')).toHaveCount(0);
   await expect(page.locator('input[type="password"]')).toHaveJSProperty('readOnly', false);
+});
+
+test('a sign-in form in an iframe is locked when the frame or the page around it is fake', async ({
+  context,
+  worker,
+}) => {
+  await expect
+    .poll(() =>
+      worker.evaluate(async () =>
+        (await chrome.scripting.getRegisteredContentScripts()).map((s) => s.id),
+      ),
+    )
+    .toContain('cosmetic');
+  const page = await context.newPage();
+  const framed = async (top: string, inner: string) => {
+    await page.goto(`${host(top)}/frame?${encodeURIComponent(`${host(inner)}/login`)}`);
+    return page.frameLocator('iframe');
+  };
+
+  // A real-looking page embedding a fake government sign-in form.
+  let frame = await framed(SITE, 'edevlet-giris.nexus-other.example');
+  await expect(frame.locator('ax-login-guard')).toBeAttached();
+  await expect(frame.locator('input[type="password"]')).toHaveJSProperty('readOnly', true);
+
+  // A fake government page embedding an ordinary-looking form.
+  frame = await framed('turkiye-gov-tr.nexus-test.example', 'form.nexus-third.example');
+  await expect(frame.locator('ax-login-guard')).toBeAttached();
+  await expect(frame.locator('input[type="password"]')).toHaveJSProperty('readOnly', true);
+
+  // Neither fake: left alone.
+  frame = await framed(SITE, 'form.nexus-third.example');
+  await page.waitForTimeout(500);
+  await expect(frame.locator('ax-login-guard')).toHaveCount(0);
+  await expect(frame.locator('input[type="password"]')).toHaveJSProperty('readOnly', false);
 });
