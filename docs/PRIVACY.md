@@ -1,6 +1,6 @@
 # AX Privacy — gizlilik
 
-Sürüm 0.10.0. Hesap yok. Telemetri yok. Geçmiş, sekme adresleri ve sayaçlar tarayıcıdan çıkmaz.
+Sürüm 5.0.0. Hesap yok. Telemetri yok. Geçmiş, sekme adresleri ve sayaçlar tarayıcıdan çıkmaz.
 
 ## Tarayıcıda kalanlar
 
@@ -12,8 +12,12 @@ Sürüm 0.10.0. Hesap yok. Telemetri yok. Geçmiş, sekme adresleri ve sayaçlar
 | Sekme raporu               | `storage.session` | Sekme kapanınca; tarayıcı kapanınca oturum da biter |
 | "Yine de devam et" izni    | Oturum DNR kuralı | Tarayıcı kapanınca                                  |
 | Eklediğiniz filtre listesi | IndexedDB         | Listeyi kaldırınca                                  |
+| AX-Brain kişisel modeli    | `storage.local`   | AX-Brain panelinden sıfırlayınca veya eklenti kalkınca |
+| Öğrenilen izleyiciler      | IndexedDB         | Süre dolunca, sıfırlayınca veya eklenti kalkınca    |
 
-Yedek dosyası (`nexus-settings.json`) sizin indirdiğiniz bir dosyadır. `isBrave` alanını içermez. İstatistik satırları dosyadaysa içe aktarınca geri yazılır.
+Yedek dosyası (`ax-privacy-settings.json`) sizin indirdiğiniz bir dosyadır. `isBrave` alanını içermez. İstatistik satırları dosyadaysa içe aktarınca geri yazılır.
+
+Filtre günlüğü yalnız açık panel sekmesinin belleğindedir ve isteğe bağlı `webRequest` izni ister; sekme kapanınca biter. Gemini Nano hakemi açılırsa soru tarayıcının cihaz içi modeline gider, ağa çıkmaz. AX-Brain'in paketle gelen ağırlıkları çevrimdışı eğitilmiştir; eğitim verisi pakette yoktur.
 
 ## Dışarı giden istekler
 
