@@ -1,7 +1,7 @@
 // Runs in the page's main world, before page scripts. Watches for in-browser crypto mining the
 // lists missed: workers, WebAssembly and pool sockets (see engines/security/miner.ts). On clear
 // signs the page's workers are ended and new ones refused; on the shape alone the user is only
-// told. Notes go to miner-relay.ts in the isolated world.
+// told. Notes go to page-security.ts in the isolated world.
 
 import { isPoolSocket, MINER_WORDS, minerVerdict, WINDOW_MS } from '../engines/security/miner.ts';
 

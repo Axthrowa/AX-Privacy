@@ -26,7 +26,7 @@ export const BASE_SCRIPTS = [
   'gpc',
   'link-clean',
   'miner-guard',
-  'miner-relay',
+  'page-security',
   'popups',
   'scriptlets',
   'tw-ads',

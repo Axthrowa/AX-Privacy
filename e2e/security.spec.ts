@@ -233,3 +233,26 @@ test('a sign-in form in an iframe is locked when the frame or the page around it
   await expect(frame.locator('ax-login-guard')).toHaveCount(0);
   await expect(frame.locator('input[type="password"]')).toHaveJSProperty('readOnly', false);
 });
+
+test('the sign-in lock works with the cosmetic shield off', async ({
+  context,
+  extensionId,
+  worker,
+}) => {
+  const ui = await context.newPage();
+  await ui.goto(`chrome-extension://${extensionId}/dashboard.html`);
+  await ui.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'shields/set', shields: { cosmetic: false } }),
+  );
+  await expect
+    .poll(() =>
+      worker.evaluate(async () =>
+        (await chrome.scripting.getRegisteredContentScripts()).map((s) => s.id),
+      ),
+    )
+    .not.toContain('cosmetic');
+  const page = await context.newPage();
+  await page.goto(`${host('turkiye-gov-tr.nexus-test.example')}/login`);
+  await expect(page.locator('ax-login-guard')).toBeAttached();
+  await expect(page.locator('input[type="password"]')).toHaveJSProperty('readOnly', true);
+});

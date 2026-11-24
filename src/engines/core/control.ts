@@ -130,7 +130,7 @@ export const CONTENT_SCRIPT_FILES = {
   'brain-scan': 'content/brain-scan.js',
   'brain-signals': 'content/brain-signals.js',
   'miner-guard': 'content/miner-guard.js',
-  'miner-relay': 'content/miner-relay.js',
+  'page-security': 'content/page-security.js',
 } as const;
 /**
  * Main-world scripts cannot receive a value from the worker synchronously, so the fingerprint
@@ -601,9 +601,10 @@ export function contentScripts(
     ...(scriptletDelta
       ? [script('scriptlets-delta', 'ISOLATED', undefined, 'network', 'scriptlets')]
       : []),
-    // Crypto miners the lists missed (engines/security/miner.ts).
+    // Crypto miners the lists missed (engines/security/miner.ts) and the page's security checks,
+    // on whatever the cosmetic shield says.
     script('miner-guard', 'MAIN', undefined, 'security'),
-    script('miner-relay', 'ISOLATED', undefined, 'security'),
+    script('page-security', 'ISOLATED', undefined, 'security'),
   ];
   if (s.privacy.gpc) scripts.push(script('gpc', 'MAIN', undefined, 'privacy'));
   if (s.privacy.hideLocale) scripts.push(script('locale', 'MAIN', undefined, 'privacy'));

@@ -172,6 +172,8 @@ describe('contentScripts', () => {
     expect(ids).not.toContain('brain-scan');
     expect(ids).not.toContain('popups');
     expect(ids).toContain('scriptlets');
+    // Sign-in lock and other page security checks do not ride on the cosmetic shield.
+    expect(ids).toContain('page-security');
   });
   it('registers nothing when globally off', () => {
     expect(contentScripts({ ...on, enabled: false })).toEqual([]);
@@ -210,7 +212,7 @@ describe('contentScripts', () => {
       'popups',
       'scriptlets',
       'miner-guard',
-      'miner-relay',
+      'page-security',
     ]);
     const scripts = contentScripts({
       ...on,
@@ -224,7 +226,7 @@ describe('contentScripts', () => {
       'popups',
       'scriptlets',
       'miner-guard',
-      'miner-relay',
+      'page-security',
       'consent',
       'consent-eval',
       'fp-noise',
@@ -246,7 +248,7 @@ describe('contentScripts', () => {
       'popups',
       'scriptlets',
       'miner-guard',
-      'miner-relay',
+      'page-security',
       'fp-noise',
     ]);
   });
@@ -273,7 +275,7 @@ describe('contentScripts', () => {
       'popups',
       'scriptlets',
       'miner-guard',
-      'miner-relay',
+      'page-security',
       'yt-ads',
       'yt-guard',
       'yt-autoskip',
@@ -312,7 +314,7 @@ describe('contentScripts', () => {
       'popups',
       'scriptlets',
       'miner-guard',
-      'miner-relay',
+      'page-security',
       'yt-skip',
       'video-ads',
     ]);
