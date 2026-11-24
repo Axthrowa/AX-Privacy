@@ -26,4 +26,4 @@ Android ve mağaza yayını bu pakette yoktur.
 
 ## İlk açılış
 
-Koruma açıktır. Parmak izi gürültüsü, üçüncü taraf çerez silme, çerez bildirimi reddi, reklamı sessize alma ve SponsorBlock kapalıdır. YouTube reklam alanlarını silme ve "Sponsorlu" işaretleme açıktır. Liste metinleri paketin içindedir; kurulumda dışarıdan liste indirilmez.
+Koruma açıktır. Çerez bildirimi reddi, canvas ve ses parmak izi gürültüsü, GPC, bağlantı temizleme, YouTube ve Twitch reklam kalkanı ve "Sponsorlu" işaretleme açıktır. Üçüncü taraf çerez silme, üçüncü taraf betik engeli, reklamı sessize alma ve SponsorBlock kapalıdır. Liste metinleri paketin içindedir; kurulumdan yaklaşık bir dakika sonra listelerin güncel hâli bir kez indirilir, sonra 12 saatte bir. Bunu panelde Listeler sekmesinden kapatabilirsiniz.
